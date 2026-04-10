@@ -1,0 +1,38 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dev-api.out.log
+dev-api.err.log
+dev-web.out.log
+dev-web.err.log
+
+# Java / Maven
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+
+# Node / Frontend
+**/node_modules/
+**/dist/
+**/.vite/
+
+# Runtime / generated files
+preview/
+~$*.doc
+*.extract.txt
+ohdp-api/storage/reports/
+职*检测报告.doc
+
+# Local env
+.env
+.env.*
+!.env.example

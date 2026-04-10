@@ -1,0 +1,424 @@
+package com.dsf.ohdp.dto;
+
+import com.dsf.ohdp.entity.ProjectStatus;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * @author kevin
+ * @description 职业危害模块 DTO 定义
+ * @unit Unit 作用说明：
+ *       1) unit 表示“最小业务单元”或“计量单位”；
+ *       2) 在本模块中用于统一数据口径，避免前后端对同一字段理解不一致；
+ *       3) 典型值示例：kg（重量）、box（箱）、item（件）。
+ */
+public final class OhdpDto {
+
+    private OhdpDto() {
+    }
+
+    @Data
+    public static class ProjectRequest {
+        private Long companyProfileId;
+
+        @Size(max = 200)
+        private String companyName;
+
+        @Size(max = 255)
+        private String companyAddress;
+
+        @Size(max = 64)
+        private String detectType;
+
+        private LocalDate samplingDate;
+        private LocalDate reportDate;
+
+        @Size(max = 1000)
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProjectResponse {
+        private Long id;
+        private String projectCode;
+        private String companyName;
+        private String companyAddress;
+        private String detectType;
+        private LocalDate samplingDate;
+        private LocalDate reportDate;
+        private String notes;
+        private ProjectStatus status;
+        private LocalDateTime createdAt;
+        private LocalDateTime updatedAt;
+    }
+
+    @Data
+    public static class PositionRequest {
+        private Long positionTemplateId;
+
+        @Size(max = 100)
+        private String jobName;
+
+        @Size(max = 50)
+        private String shiftSystem;
+
+        @Size(max = 50)
+        private String workingHours;
+
+        private Integer workerCount;
+
+        @Size(max = 150)
+        private String workLocation;
+
+        @Size(max = 100)
+        private String operationType;
+
+        @Size(max = 255)
+        private String operationContent;
+
+        @Size(max = 50)
+        private String operationDuration;
+
+        @Size(max = 500)
+        private String hazards;
+
+        @Size(max = 500)
+        private String ppe;
+
+        @Size(max = 500)
+        private String protectionFacilities;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PositionResponse {
+        private Long id;
+        private Long projectId;
+        private String jobName;
+        private String shiftSystem;
+        private String workingHours;
+        private Integer workerCount;
+        private String workLocation;
+        private String operationType;
+        private String operationContent;
+        private String operationDuration;
+        private String hazards;
+        private String ppe;
+        private String protectionFacilities;
+    }
+
+    @Data
+    public static class ResultItemRequest {
+        private Long factorTemplateId;
+
+        @Size(max = 100)
+        private String jobName;
+
+        @Size(max = 120)
+        private String factorName;
+
+        @Size(max = 40)
+        private String metricType;
+
+        @Size(max = 80)
+        private String valueRaw;
+
+        private BigDecimal valueNum;
+
+        @Size(max = 32)
+        private String unit;
+
+        private BigDecimal limitValue;
+
+        @Size(max = 32)
+        private String limitUnit;
+    }
+
+    @Data
+    public static class ResultBatchRequest {
+        @Valid
+        @NotNull
+        private List<ResultItemRequest> items;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ResultBatchResponse {
+        private Long projectId;
+        private Integer addedCount;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ResultItemResponse {
+        private Long id;
+        private Long projectId;
+        private String jobName;
+        private String factorName;
+        private String metricType;
+        private String valueRaw;
+        private BigDecimal valueNum;
+        private String unit;
+        private BigDecimal limitValue;
+        private String limitUnit;
+        private String judgement;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class JudgeResponse {
+        private Long projectId;
+        private int totalCount;
+        private int judgedCount;
+        private int qualifiedCount;
+        private int unqualifiedCount;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportFileResponse {
+        private Long id;
+        private Long projectId;
+        private String fileName;
+        private String filePath;
+        private String templateVersion;
+        private String generatedBy;
+        private LocalDateTime generatedAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportOperationLogResponse {
+        private Long id;
+        private Long projectId;
+        private String operationType;
+        private String operatorName;
+        private String operationMessage;
+        private LocalDateTime operatedAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportPrecheckResponse {
+        private Long projectId;
+        private Boolean passed;
+        private List<String> missingItems;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportPreviewResponse {
+        private ProjectResponse project;
+        private List<PositionResponse> positions;
+        private List<ResultItemResponse> results;
+        private ReportPrecheckResponse precheck;
+    }
+
+    @Data
+    public static class ProjectQuery {
+        private String projectCode;
+        private String companyName;
+        private ProjectStatus status;
+
+        @NotNull
+        private Integer page;
+
+        @NotNull
+        private Integer size;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CompanyProfileRequest {
+        @NotBlank
+        @Size(max = 200)
+        private String companyName;
+
+        @NotBlank
+        @Size(max = 255)
+        private String companyAddress;
+
+        @Size(max = 100)
+        private String contactName;
+
+        @Size(max = 50)
+        private String contactPhone;
+
+        @Size(max = 100)
+        private String industryType;
+
+        @Size(max = 1000)
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CompanyProfileResponse {
+        private Long id;
+        private String companyName;
+        private String companyAddress;
+        private String contactName;
+        private String contactPhone;
+        private String industryType;
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PositionTemplateRequest {
+        @NotBlank
+        @Size(max = 100)
+        private String jobName;
+
+        @Size(max = 50)
+        private String shiftSystem;
+
+        @Size(max = 50)
+        private String workingHours;
+
+        @Size(max = 100)
+        private String operationType;
+
+        @Size(max = 50)
+        private String operationDuration;
+
+        @Size(max = 500)
+        private String hazards;
+
+        @Size(max = 500)
+        private String ppe;
+
+        @Size(max = 500)
+        private String protectionFacilities;
+
+        @Size(max = 1000)
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PositionTemplateResponse {
+        private Long id;
+        private String jobName;
+        private String shiftSystem;
+        private String workingHours;
+        private String operationType;
+        private String operationDuration;
+        private String hazards;
+        private String ppe;
+        private String protectionFacilities;
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FactorTemplateRequest {
+        @NotBlank
+        @Size(max = 120)
+        private String factorName;
+
+        @NotBlank
+        @Size(max = 40)
+        private String metricType;
+
+        @Size(max = 32)
+        private String defaultUnit;
+
+        @Size(max = 32)
+        private String defaultLimitValue;
+
+        @Size(max = 32)
+        private String defaultLimitUnit;
+
+        @Size(max = 1000)
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FactorTemplateResponse {
+        private Long id;
+        private String factorName;
+        private String metricType;
+        private String defaultUnit;
+        private String defaultLimitValue;
+        private String defaultLimitUnit;
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DictionaryItemRequest {
+        @NotBlank
+        @Size(max = 64)
+        private String dictType;
+
+        @NotBlank
+        @Size(max = 64)
+        private String itemCode;
+
+        @NotBlank
+        @Size(max = 128)
+        private String itemName;
+
+        private Integer sortNo;
+        private Boolean enabled;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DictionaryItemResponse {
+        private Long id;
+        private String dictType;
+        private String itemCode;
+        private String itemName;
+        private Integer sortNo;
+        private Boolean enabled;
+    }
+}
+
