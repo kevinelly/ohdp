@@ -1,10 +1,10 @@
 {
-  "name": "ohdp-web",
+  "name": "ohdp-web-1-element",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5173",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },
