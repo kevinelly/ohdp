@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import axios from 'axios'
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 type ProjectStatus = 'DRAFT' | 'DATA_FILLED' | 'JUDGED' | 'REPORT_READY'
 
@@ -168,6 +168,46 @@ interface PageResult<T> {
   totalElements: number
 }
 
+interface SysUser {
+  id: number
+  username: string
+  employeeId?: number
+  role: 'ADMIN' | 'USER'
+  status: 'ACTIVE' | 'INACTIVE'
+  mustChangePassword?: boolean
+  createdAt?: string
+}
+
+interface SysRole {
+  id: number
+  roleCode: string
+  roleName: string
+  remark?: string
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
+interface SysMenu {
+  id: number
+  permCode: string
+  permName: string
+  parentId?: number | null
+  sortNo?: number
+  status: 'ACTIVE' | 'INACTIVE'
+  children?: SysMenu[]
+}
+
+interface SysPermission {
+  id: number
+  permCode: string
+  permName: string
+  permType: 'MENU' | 'BUTTON' | 'API'
+  apiMethod?: string
+  apiPath?: string
+  parentId?: number | null
+  sortNo?: number
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/',
 })
@@ -200,11 +240,13 @@ const token = ref(localStorage.getItem('ohdp_token') || '')
 const loading = ref(false)
 const message = ref('')
 const messageType = ref<'info' | 'success' | 'error'>('info')
+const latestAction = ref('')
 const isMenuCollapse = ref(false)
 const actionBusy = reactive({
   saveProject: false,
   copyProject: false,
   deleteProject: false,
+  cancelCreate: false,
   addPosition: false,
   addResult: false,
   judgeProject: false,
@@ -326,6 +368,18 @@ function selectMenu(key: MenuKey) {
   openMaintenanceMenu('reportText')
 }
 
+function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' = 'user') {
+  activeTab.value = 'system'
+  systemChildMenu.value = child
+  const keyMap: Record<typeof child, MenuKey> = {
+    user: 'system.user',
+    role: 'system.role',
+    menu: 'system.menu',
+    permission: 'system.permission',
+  }
+  selectedMenuKey.value = keyMap[child]
+}
+
 function toggleSideCollapse() {
   isMenuCollapse.value = !isMenuCollapse.value
 }
@@ -352,6 +406,9 @@ const reports = ref<ReportFile[]>([])
 const reportLogs = ref<ReportLog[]>([])
 const reportPrecheck = ref<ReportPrecheck | null>(null)
 const reportPreview = ref<ReportPreview | null>(null)
+const operating = ref(false)
+const operationType = ref<'create' | 'edit' | ''>('')
+const selectedProjectRows = ref<Project[]>([])
 
 const projectForm = reactive({
   companyProfileId: null as number | null,
@@ -399,6 +456,7 @@ const positionForm = reactive({
 })
 
 const resultForm = reactive({
+  id: null as number | null,
   factorTemplateId: null as number | null,
   positionId: null as number | null,
   jobName: '',
@@ -414,11 +472,11 @@ const resultForm = reactive({
 const batchResultText = ref('')
 const projectDirty = ref(false)
 let syncingProjectForm = false
-let autoSaveTimer: number | undefined
-const autoSaveEnabled = ref(false)
-const autoSaveIntervalSec = ref(30)
 const lastManualSaveAt = ref('')
-const clearAfterCreate = ref(true)
+const lastCreatedProjectId = ref<number | null>(null)
+const lastCreatedProjectCode = ref('')
+const lastCreatedProjectStatus = ref<ProjectStatus | null>(null)
+const listOrderHint = ref('默认按创建时间倒序')
 
 const companyProfiles = ref<CompanyProfile[]>([])
 const positionTemplates = ref<PositionTemplate[]>([])
@@ -492,12 +550,89 @@ const reportTextTemplateForm = reactive({
   enabled: true,
 })
 
+// 系统管理 - 用户
+const users = ref<SysUser[]>([])
+const totalUsers = ref(0)
+const userQuery = reactive({ username: '', page: 0, size: 20 })
+const userForm = reactive({
+  id: null as number | null,
+  username: '',
+  password: '',
+  employeeId: null as number | null,
+  role: 'USER' as 'ADMIN' | 'USER',
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
+})
+const resetPasswordForm = reactive({ userId: null as number | null, username: '', newPassword: '' })
+const showResetDialog = ref(false)
+
+// 系统管理 - 用户分配角色
+const showRoleAssignDialog = ref(false)
+const assigningUserId = ref<number | null>(null)
+const assigningUsername = ref('')
+const selectedRoleIds = ref<number[]>([])
+
+// 系统管理 - 角色
+const roles = ref<SysRole[]>([])
+const totalRoles = ref(0)
+const roleQuery = reactive({ roleCode: '', roleName: '', page: 0, size: 20 })
+const roleForm = reactive({
+  id: null as number | null,
+  roleCode: '',
+  roleName: '',
+  remark: '',
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
+})
+
+// 系统管理 - 角色分配权限
+const showRolePermDialog = ref(false)
+const assigningRoleId = ref<number | null>(null)
+const assigningRoleName = ref('')
+const selectedPermIds = ref<number[]>([])
+
+// 系统管理 - 菜单管理
+const menuTree = ref<SysMenu[]>([])
+const menuForm = reactive({
+  id: null as number | null,
+  permCode: '',
+  permName: '',
+  parentId: null as number | null,
+  sortNo: null as number | null,
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
+})
+
+// 系统管理 - 权限管理
+const permissions = ref<SysPermission[]>([])
+const totalPermissions = ref(0)
+const permQuery = reactive({ permCode: '', permName: '', page: 0, size: 20 })
+const permForm = reactive({
+  id: null as number | null,
+  permCode: '',
+  permName: '',
+  permType: 'API' as 'MENU' | 'BUTTON' | 'API',
+  apiMethod: '',
+  apiPath: '',
+  parentId: null as number | null,
+  sortNo: null as number | null,
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
+})
+
 const statusText = computed<Record<ProjectStatus, string>>(() => ({
   DRAFT: '草稿',
   DATA_FILLED: '已录入',
   JUDGED: '已判定',
   REPORT_READY: '已生成报告',
 }))
+
+const canCreateProject = computed(() => !operating.value && !loading.value && !actionBusy.saveProject)
+const canManualSave = computed(() => operating.value && !loading.value && !actionBusy.saveProject)
+const canClearForm = computed(() => operating.value && !loading.value && !actionBusy.saveProject)
+const canCancelCreate = computed(() => operating.value && !loading.value && !actionBusy.cancelCreate)
+const canGenerateReport = computed(() => operating.value && !loading.value && !actionBusy.generateReport)
+const canBatchDelete = computed(() => !operating.value && !loading.value && selectedProjectRows.value.length > 0)
+const canListRowEdit = computed(() => !operating.value && !loading.value)
+const canListRowCopy = computed(() => !operating.value && !loading.value && !actionBusy.copyProject)
+const canListRowDelete = computed(() => !operating.value && !loading.value && !actionBusy.deleteProject)
+const canProjectOperate = computed(() => operating.value && !!selectedProject.value)
 
 const isLoggedIn = computed(() => Boolean(token.value))
 
@@ -530,17 +665,26 @@ function today() {
 function setMessage(text: string, type: 'info' | 'success' | 'error' = 'info') {
   message.value = text
   messageType.value = type
+  latestAction.value = `${nowTimeText()} ${text}`
   window.setTimeout(() => {
     if (message.value === text) {
       message.value = ''
     }
-  }, type === 'error' ? 5000 : 3500)
+  }, type === 'error' ? 7000 : 5500)
 }
 
 function nowTimeText() {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function resolveApiMessage(err: any, fallback: string) {
@@ -649,8 +793,90 @@ function projectStatusTagType(status: ProjectStatus): 'info' | 'success' | 'warn
   return 'danger'
 }
 
+function latestCreatedStatusLabel() {
+  if (!lastCreatedProjectStatus.value) return ''
+  return statusText.value[lastCreatedProjectStatus.value]
+}
+
 function onProjectRowClick(row: Project) {
+  if (operating.value && selectedProject.value?.id !== row.id) {
+    setMessage('请先完成或取消当前操作，再切换项目', 'error')
+    return
+  }
   void selectProject(row)
+}
+
+function onProjectSelectionChange(rows: Project[]) {
+  selectedProjectRows.value = rows
+}
+
+async function editProjectFromList(project: Project) {
+  if (operating.value) {
+    setMessage('请先完成或取消当前操作', 'error')
+    return
+  }
+  await selectProject(project)
+  operating.value = true
+  operationType.value = 'edit'
+  setMessage(`已进入操作中：${project.projectCode}`, 'info')
+}
+
+function beginCreateOperation() {
+  if (operating.value) return
+  startNewDraft(true)
+  operating.value = true
+  operationType.value = 'create'
+  setMessage('已进入操作中：新建项目', 'info')
+}
+
+function clearOperationForm() {
+  if (!operating.value) return
+  if (operationType.value === 'edit') {
+    const ok = window.confirm('当前是编辑模式，清空后若保存将覆盖原项目。是否继续清空？')
+    if (!ok) return
+  }
+  resetProjectForm()
+  projectDirty.value = false
+  setMessage('已清空当前操作表单', 'info')
+}
+
+function focusProjectField(fieldId: string) {
+  window.setTimeout(() => {
+    const el = document.getElementById(fieldId) as HTMLInputElement | HTMLSelectElement | null
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.focus()
+  }, 50)
+}
+
+function selectLatestProject() {
+  if (!projects.value.length) return
+  void selectProject(projects.value[0])
+  projectWorkTab.value = 'base'
+}
+
+async function selectLastCreatedProject() {
+  if (!lastCreatedProjectId.value) {
+    selectLatestProject()
+    return
+  }
+  const target = projects.value.find((item) => item.id === lastCreatedProjectId.value)
+  if (target) {
+    await selectProject(target)
+  } else {
+    await fetchProjects()
+    const refreshed = projects.value.find((item) => item.id === lastCreatedProjectId.value)
+    if (refreshed) {
+      await selectProject(refreshed)
+    } else {
+      selectLatestProject()
+    }
+  }
+  projectWorkTab.value = 'base'
+}
+
+function openBaseTab() {
+  projectWorkTab.value = 'base'
 }
 
 async function login() {
@@ -720,8 +946,15 @@ async function fetchProjects() {
       size: query.size,
     },
   })
-  projects.value = data.content || []
+  projects.value = (data.content || []).slice().sort((a, b) => {
+    const ta = new Date(a.createdAt || '').getTime()
+    const tb = new Date(b.createdAt || '').getTime()
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0)
+  })
   totalProjects.value = data.totalElements || 0
+  listOrderHint.value = '默认按创建时间倒序'
+  const projectIds = new Set(projects.value.map((item) => item.id))
+  selectedProjectRows.value = selectedProjectRows.value.filter((item) => projectIds.has(item.id))
   if (selectedProject.value) {
     const current = projects.value.find((item) => item.id === selectedProject.value?.id)
     if (current) {
@@ -739,6 +972,9 @@ async function selectProject(project: Project) {
     fetchReports(project.id),
     fetchReportLogs(project.id),
   ])
+  lastCreatedProjectId.value = project.id
+  lastCreatedProjectCode.value = project.projectCode
+  lastCreatedProjectStatus.value = project.status
 }
 
 async function createProject() {
@@ -777,25 +1013,16 @@ async function createProject() {
     }
     const { data } = await api.post<Project>('/api/ohdp/projects', payload)
     await fetchProjects()
-    if (clearAfterCreate.value) {
-      selectedProject.value = null
-      positions.value = []
-      results.value = []
-      reports.value = []
-      reportLogs.value = []
-      reportPrecheck.value = null
-      reportPreview.value = null
-      showPreviewPanel.value = false
-      resetProjectForm()
-      projectDirty.value = false
-      projectWorkTab.value = 'base'
-      setMessage(`项目已创建：${data.projectCode}，表单已清空`, 'success')
-    } else {
-      await selectProject(data)
-      projectWorkTab.value = 'base'
-      lastManualSaveAt.value = nowTimeText()
-      setMessage(`项目已创建并选中：${data.projectCode}`, 'success')
-    }
+    lastCreatedProjectId.value = data.id
+    lastCreatedProjectCode.value = data.projectCode
+    lastCreatedProjectStatus.value = data.status
+    await selectProject(data)
+    operating.value = true
+    operationType.value = 'edit'
+    projectWorkTab.value = 'base'
+    projectDirty.value = false
+    lastManualSaveAt.value = nowTimeText()
+    setMessage(`项目已创建并进入操作中：${data.projectCode}`, 'success')
   } catch (err: any) {
     setMessage(resolveApiMessage(err, '创建项目失败'), 'error')
   } finally {
@@ -853,46 +1080,92 @@ async function updateProject(silent = false) {
   }
 }
 
-async function deleteProject() {
-  if (!selectedProject.value) return
-  if (!window.confirm('确认删除当前项目吗？')) return
+async function cancelCreateProject() {
+  if (!operating.value) return
+  const ok = window.confirm('确认取消当前操作吗？未保存内容将丢失。')
+  if (!ok) return
+  if (operationType.value === 'edit' && selectedProject.value) {
+    fillProjectForm(selectedProject.value)
+  } else {
+    startNewDraft(true)
+  }
+  projectDirty.value = false
+  operating.value = false
+  operationType.value = ''
+  setMessage('已取消当前操作，未保存内容已丢弃', 'success')
+}
+
+async function copyProjectFromList(projectId: number) {
+  if (operating.value) {
+    setMessage('请先完成或取消当前操作', 'error')
+    return
+  }
+  loading.value = true
+  actionBusy.copyProject = true
+  try {
+    const { data } = await api.post<Project>(`/api/ohdp/projects/${projectId}/copy`)
+    await fetchProjects()
+    await selectProject(data)
+    operating.value = true
+    operationType.value = 'edit'
+    setMessage(`项目已复制并进入操作中：${data.projectCode}`, 'success')
+  } catch (err: any) {
+    setMessage(resolveApiMessage(err, '复制项目失败'), 'error')
+  } finally {
+    actionBusy.copyProject = false
+    loading.value = false
+  }
+}
+
+async function deleteProjectsByIds(ids: number[]) {
+  if (!ids.length) return
+  if (operating.value) {
+    setMessage('操作中状态不可删除项目，请先取消当前操作', 'error')
+    return
+  }
+  const ok = window.confirm(`确认删除选中的 ${ids.length} 个项目吗？`)
+  if (!ok) return
   loading.value = true
   actionBusy.deleteProject = true
   try {
-    await api.delete(`/api/ohdp/projects/${selectedProject.value.id}`)
-    selectedProject.value = null
-    positions.value = []
-    results.value = []
-    reports.value = []
-    reportLogs.value = []
-    reportPreview.value = null
-    reportPrecheck.value = null
-    resetProjectForm()
+    for (const id of ids) {
+      await api.delete(`/api/ohdp/projects/${id}`)
+      if (selectedProject.value?.id === id) {
+        selectedProject.value = null
+      }
+    }
     await fetchProjects()
-    setMessage('项目已删除', 'success')
+    selectedProjectRows.value = []
+    if (!selectedProject.value) {
+      startNewDraft()
+      operating.value = false
+      operationType.value = ''
+    }
+    setMessage(`已删除 ${ids.length} 个项目`, 'success')
   } catch (err: any) {
-    setMessage(err?.response?.data?.message || '删除项目失败', 'error')
+    setMessage(resolveApiMessage(err, '删除项目失败'), 'error')
   } finally {
     actionBusy.deleteProject = false
     loading.value = false
   }
 }
 
-async function copyProject() {
-  if (!selectedProject.value) return
-  loading.value = true
-  actionBusy.copyProject = true
-  try {
-    const { data } = await api.post<Project>(`/api/ohdp/projects/${selectedProject.value.id}/copy`)
-    await fetchProjects()
-    await selectProject(data)
-    setMessage('项目已复制', 'success')
-  } catch (err: any) {
-    setMessage(err?.response?.data?.message || '复制项目失败', 'error')
-  } finally {
-    actionBusy.copyProject = false
-    loading.value = false
+async function deleteProjectFromList(id: number) {
+  await deleteProjectsByIds([id])
+}
+
+async function batchDeleteProjects() {
+  const ids = selectedProjectRows.value.map((item) => item.id)
+  await deleteProjectsByIds(ids)
+}
+
+async function saveCurrentOperation() {
+  if (!operating.value) return
+  if (operationType.value === 'create' || !selectedProject.value) {
+    await createProject()
+    return
   }
+  await updateProject()
 }
 
 async function fetchPositions(projectId: number) {
@@ -901,7 +1174,7 @@ async function fetchPositions(projectId: number) {
 }
 
 async function addPosition() {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   if (!positionForm.positionTemplateId) {
     setMessage('请先选择岗位模板', 'error')
     return
@@ -925,7 +1198,7 @@ async function addPosition() {
 }
 
 async function removePosition(id: number) {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   if (!window.confirm('确认删除该岗位吗？')) return
   loading.value = true
   try {
@@ -944,20 +1217,49 @@ async function fetchResults(projectId: number) {
   results.value = data
 }
 
+function editResult(item: ResultItem) {
+  resultForm.id = item.id
+  resultForm.factorTemplateId = null
+  resultForm.positionId = item.positionId ?? null
+  resultForm.jobName = item.jobName
+  resultForm.factorName = item.factorName
+  resultForm.metricType = item.metricType
+  resultForm.valueRaw = item.valueRaw ?? ''
+  resultForm.valueNum = item.valueNum != null ? String(item.valueNum) : ''
+  resultForm.unit = item.unit ?? 'mg/m3'
+  resultForm.limitValue = item.limitValue != null ? String(item.limitValue) : ''
+  resultForm.limitUnit = item.limitUnit ?? 'mg/m3'
+}
+
+function clearResultForm() {
+  resultForm.id = null
+  resultForm.factorTemplateId = null
+  resultForm.positionId = null
+  resultForm.jobName = ''
+  resultForm.factorName = ''
+  resultForm.metricType = 'TWA'
+  resultForm.valueRaw = ''
+  resultForm.valueNum = ''
+  resultForm.unit = 'mg/m3'
+  resultForm.limitValue = ''
+  resultForm.limitUnit = 'mg/m3'
+}
+
 async function addResult() {
-  if (!selectedProject.value) return
-  if (!resultForm.factorTemplateId) {
+  if (!canProjectOperate.value || !selectedProject.value) return
+  const isEdit = resultForm.id != null
+  if (!isEdit && !resultForm.factorTemplateId) {
     setMessage('请先选择危害因素模板', 'error')
     return
   }
-  if (!resultForm.positionId) {
-    setMessage('请先选择岗位', 'error')
+  if (!resultForm.positionId && !resultForm.jobName) {
+    setMessage('请先选择岗位或填写岗位名称', 'error')
     return
   }
   loading.value = true
   actionBusy.addResult = true
   try {
-    await api.post(`/api/ohdp/projects/${selectedProject.value.id}/results`, {
+    const payload = {
       factorTemplateId: resultForm.factorTemplateId,
       positionId: resultForm.positionId,
       jobName: resultForm.jobName,
@@ -968,12 +1270,19 @@ async function addResult() {
       unit: resultForm.unit || null,
       limitValue: resultForm.limitValue === '' ? null : Number(resultForm.limitValue),
       limitUnit: resultForm.limitUnit || null,
-    })
+    }
+    if (isEdit) {
+      await api.put(`/api/ohdp/results/${resultForm.id}`, payload)
+      setMessage('检测结果已更新', 'success')
+    } else {
+      await api.post(`/api/ohdp/projects/${selectedProject.value.id}/results`, payload)
+      setMessage('检测结果已添加', 'success')
+    }
+    clearResultForm()
     await fetchResults(selectedProject.value.id)
     await fetchProjects()
-    setMessage('检测结果已添加', 'success')
   } catch (err: any) {
-    setMessage(resolveApiMessage(err, '添加检测结果失败'), 'error')
+    setMessage(resolveApiMessage(err, isEdit ? '更新检测结果失败' : '添加检测结果失败'), 'error')
   } finally {
     actionBusy.addResult = false
     loading.value = false
@@ -1009,7 +1318,7 @@ function parseBatchItems(text: string) {
 }
 
 async function addBatchResults() {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   const items = parseBatchItems(batchResultText.value)
   if (!items.length) {
     setMessage('批量内容为空或格式不正确')
@@ -1030,7 +1339,7 @@ async function addBatchResults() {
 }
 
 async function removeResult(id: number) {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   if (!window.confirm('确认删除该检测结果吗？')) return
   loading.value = true
   try {
@@ -1045,7 +1354,7 @@ async function removeResult(id: number) {
 }
 
 async function judgeProject() {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   loading.value = true
   actionBusy.judgeProject = true
   try {
@@ -1062,7 +1371,7 @@ async function judgeProject() {
 }
 
 async function precheckCurrentProject() {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   actionBusy.precheckProject = true
   try {
     const { data } = await api.get<ReportPrecheck>(`/api/ohdp/projects/${selectedProject.value.id}/report/precheck`)
@@ -1081,7 +1390,7 @@ async function precheckCurrentProject() {
 }
 
 async function previewReport() {
-  if (!selectedProject.value) return
+  if (!canProjectOperate.value || !selectedProject.value) return
   loading.value = true
   actionBusy.previewReport = true
   try {
@@ -1109,10 +1418,15 @@ async function fetchReportLogs(projectId: number) {
 }
 
 async function generateReport() {
-  if (!selectedProject.value) return
+  if (!operating.value) return
   loading.value = true
   actionBusy.generateReport = true
   try {
+    await saveCurrentOperation()
+    if (!selectedProject.value) {
+      setMessage('请先保存并选中项目后再生成报告', 'error')
+      return
+    }
     await precheckCurrentProject()
     if (reportPrecheck.value && !reportPrecheck.value.passed) {
       setMessage('报告预检未通过，请先补全数据', 'error')
@@ -1128,7 +1442,7 @@ async function generateReport() {
       fetchReportLogs(selectedProject.value.id),
       fetchProjects(),
     ])
-    setMessage('报告已生成（覆盖模式）', 'success')
+    setMessage(`报告已生成（覆盖模式），时间 ${nowTimeText()}`, 'success')
   } catch (err: any) {
     setMessage(err?.response?.data?.message || '报告生成失败', 'error')
   } finally {
@@ -1255,15 +1569,21 @@ function applyProjectUnitSelection(field: 'submitUnit' | 'entrustUnit', profileI
 
 function validateProjectSelections() {
   if (!projectForm.companyProfileId) {
+    projectWorkTab.value = 'base'
     setMessage('请先选择受检单位', 'error')
+    focusProjectField('project-company-profile')
     return false
   }
   if (!projectForm.submitUnitCompanyId) {
+    projectWorkTab.value = 'base'
     setMessage('请先选择送检单位', 'error')
+    focusProjectField('project-submit-unit')
     return false
   }
   if (!projectForm.entrustUnitCompanyId) {
+    projectWorkTab.value = 'base'
     setMessage('请先选择委托单位', 'error')
+    focusProjectField('project-entrust-unit')
     return false
   }
   return true
@@ -1602,7 +1922,7 @@ async function saveReportTextTemplate() {
   }
 }
 
-function startNewDraft() {
+function startNewDraft(silent = false) {
   selectedProject.value = null
   positions.value = []
   results.value = []
@@ -1614,23 +1934,9 @@ function startNewDraft() {
   resetProjectForm()
   projectDirty.value = false
   projectWorkTab.value = 'base'
-  setMessage('已清空表单，请填写后点击“创建项目”', 'info')
-}
-
-function setupAutoSaveTimer() {
-  if (autoSaveTimer) {
-    window.clearInterval(autoSaveTimer)
-    autoSaveTimer = undefined
+  if (!silent) {
+    setMessage('已清空表单', 'info')
   }
-  if (!autoSaveEnabled.value || !token.value) {
-    return
-  }
-  const sec = Math.max(10, Number(autoSaveIntervalSec.value) || 30)
-  autoSaveTimer = window.setInterval(async () => {
-    if (selectedProject.value && projectDirty.value && !loading.value) {
-      await updateProject(true)
-    }
-  }, sec * 1000)
 }
 
 function editReportTextTemplate(item: ReportTextTemplate) {
@@ -1762,21 +2068,330 @@ async function deleteSysConfig(id: number) { if (!confirm('确认删除？')) re
 function editSysConfig(item: SysConfig) { Object.assign(sysConfigForm, item) }
 // ===== END 新模块 =====
 
+// ===== 用户管理 =====
+async function fetchUsers() {
+  const res = await api.get('/api/users', { params: { username: userQuery.username || undefined, page: userQuery.page, size: userQuery.size } })
+  users.value = res.data.content
+  totalUsers.value = res.data.totalElements
+}
+
+function clearUserForm() {
+  userForm.id = null
+  userForm.username = ''
+  userForm.password = ''
+  userForm.employeeId = null
+  userForm.role = 'USER'
+  userForm.status = 'ACTIVE'
+}
+
+function editUser(item: SysUser) {
+  userForm.id = item.id
+  userForm.username = item.username
+  userForm.password = ''
+  userForm.employeeId = item.employeeId ?? null
+  userForm.role = item.role
+  userForm.status = item.status
+}
+
+async function saveUser() {
+  if (!userForm.username.trim()) { setMessage('用户名不能为空', 'error'); return }
+  if (!userForm.id && !userForm.password.trim()) { setMessage('新建用户需填写密码', 'error'); return }
+  try {
+    const payload: Record<string, unknown> = {
+      username: userForm.username,
+      role: userForm.role,
+      status: userForm.status,
+      employeeId: userForm.employeeId || undefined,
+    }
+    if (userForm.password) payload.password = userForm.password
+    if (userForm.id) {
+      await api.put(`/api/users/${userForm.id}`, payload)
+      setMessage('用户更新成功', 'success')
+    } else {
+      await api.post('/api/users', payload)
+      setMessage('用户创建成功', 'success')
+    }
+    clearUserForm()
+    await fetchUsers()
+  } catch (e: unknown) {
+    setMessage('操作失败：' + ((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? String(e)), 'error')
+  }
+}
+
+async function deleteUser(id: number) {
+  if (!confirm('确认删除该用户？')) return
+  try {
+    await api.delete(`/api/users/${id}`)
+    setMessage('删除成功', 'success')
+    await fetchUsers()
+  } catch { setMessage('删除失败', 'error') }
+}
+
+function openResetDialog(item: SysUser) {
+  resetPasswordForm.userId = item.id
+  resetPasswordForm.username = item.username
+  resetPasswordForm.newPassword = ''
+  showResetDialog.value = true
+}
+
+async function doResetPassword() {
+  if (!resetPasswordForm.newPassword.trim()) { setMessage('请输入新密码', 'error'); return }
+  try {
+    await api.post(`/api/users/${resetPasswordForm.userId}/admin-reset-password`, { initialPassword: resetPasswordForm.newPassword })
+    setMessage(`用户 ${resetPasswordForm.username} 密码已重置`, 'success')
+    showResetDialog.value = false
+  } catch { setMessage('重置失败', 'error') }
+}
+
+async function openRoleAssignDialog(user: SysUser) {
+  assigningUserId.value = user.id
+  assigningUsername.value = user.username
+  selectedRoleIds.value = []
+  showRoleAssignDialog.value = true
+  try {
+    // 加载所有角色（用于展示复选框）
+    const allRes = await api.get('/api/system/roles', { params: { page: 0, size: 200 } })
+    roles.value = allRes.data.content ?? allRes.data
+    // 加载用户已有角色
+    const userRolesRes = await api.get(`/api/system/users/${user.id}/roles`)
+    selectedRoleIds.value = (userRolesRes.data as number[]) ?? []
+  } catch { setMessage('加载角色失败', 'error') }
+}
+
+async function saveUserRoles() {
+  if (assigningUserId.value == null) return
+  try {
+    await api.post(`/api/system/users/${assigningUserId.value}/roles`, { ids: selectedRoleIds.value })
+    setMessage(`用户 ${assigningUsername.value} 角色已保存`, 'success')
+    showRoleAssignDialog.value = false
+  } catch { setMessage('保存角色失败', 'error') }
+}
+
+// ===== 角色管理 =====
+async function fetchRoles() {
+  const res = await api.get('/api/system/roles', { params: { roleCode: roleQuery.roleCode || undefined, roleName: roleQuery.roleName || undefined, page: roleQuery.page, size: roleQuery.size } })
+  roles.value = res.data.content
+  totalRoles.value = res.data.totalElements
+}
+
+function clearRoleForm() {
+  roleForm.id = null
+  roleForm.roleCode = ''
+  roleForm.roleName = ''
+  roleForm.remark = ''
+  roleForm.status = 'ACTIVE'
+}
+
+function editRole(item: SysRole) {
+  roleForm.id = item.id
+  roleForm.roleCode = item.roleCode
+  roleForm.roleName = item.roleName
+  roleForm.remark = item.remark ?? ''
+  roleForm.status = item.status
+}
+
+async function saveRole() {
+  if (!roleForm.roleCode.trim() || !roleForm.roleName.trim()) { setMessage('角色编码和名称不能为空', 'error'); return }
+  try {
+    const payload = { roleCode: roleForm.roleCode, roleName: roleForm.roleName, remark: roleForm.remark, status: roleForm.status }
+    if (roleForm.id) {
+      await api.put(`/api/system/roles/${roleForm.id}`, payload)
+      setMessage('角色更新成功', 'success')
+    } else {
+      await api.post('/api/system/roles', payload)
+      setMessage('角色创建成功', 'success')
+    }
+    clearRoleForm()
+    await fetchRoles()
+  } catch (e: unknown) {
+    setMessage('操作失败：' + ((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? String(e)), 'error')
+  }
+}
+
+async function deleteRole(id: number) {
+  if (!confirm('确认删除该角色？')) return
+  try {
+    await api.delete(`/api/system/roles/${id}`)
+    setMessage('删除成功', 'success')
+    await fetchRoles()
+  } catch { setMessage('删除失败', 'error') }
+}
+
+// ===== 角色分配权限 =====
+async function openRolePermDialog(role: SysRole) {
+  assigningRoleId.value = role.id
+  assigningRoleName.value = role.roleName
+  selectedPermIds.value = []
+  showRolePermDialog.value = true
+  try {
+    const [allRes, rolePermsRes] = await Promise.all([
+      api.get('/api/system/permissions', { params: { page: 0, size: 500 } }),
+      api.get(`/api/system/roles/${role.id}/permissions`),
+    ])
+    permissions.value = allRes.data.content ?? allRes.data
+    selectedPermIds.value = Array.from((rolePermsRes.data as Set<number>) ?? [])
+  } catch { setMessage('加载权限失败', 'error') }
+}
+
+async function saveRolePerms() {
+  if (assigningRoleId.value == null) return
+  try {
+    await api.post(`/api/system/roles/${assigningRoleId.value}/permissions`, { ids: selectedPermIds.value })
+    setMessage(`角色 ${assigningRoleName.value} 权限已保存`, 'success')
+    showRolePermDialog.value = false
+  } catch { setMessage('保存失败', 'error') }
+}
+
+// ===== 菜单管理 =====
+async function fetchMenuTree() {
+  try {
+    const res = await api.get('/api/system/menus/tree')
+    menuTree.value = res.data
+  } catch { setMessage('加载菜单失败', 'error') }
+}
+
+function editMenu(item: SysMenu) {
+  menuForm.id = item.id
+  menuForm.permCode = item.permCode
+  menuForm.permName = item.permName
+  menuForm.parentId = item.parentId ?? null
+  menuForm.sortNo = item.sortNo ?? null
+  menuForm.status = item.status
+}
+
+function clearMenuForm() {
+  menuForm.id = null
+  menuForm.permCode = ''
+  menuForm.permName = ''
+  menuForm.parentId = null
+  menuForm.sortNo = null
+  menuForm.status = 'ACTIVE'
+}
+
+async function saveMenu() {
+  if (!menuForm.permCode.trim() || !menuForm.permName.trim()) {
+    setMessage('权限码和菜单名称不能为空', 'error')
+    return
+  }
+  const payload = {
+    permCode: menuForm.permCode,
+    permName: menuForm.permName,
+    parentId: menuForm.parentId || null,
+    sortNo: menuForm.sortNo,
+    status: menuForm.status,
+  }
+  try {
+    if (menuForm.id) {
+      await api.put(`/api/system/menus/${menuForm.id}`, payload)
+      setMessage('菜单已更新', 'success')
+    } else {
+      await api.post('/api/system/menus', payload)
+      setMessage('菜单已创建', 'success')
+    }
+    clearMenuForm()
+    await fetchMenuTree()
+  } catch (err: any) { setMessage(resolveApiMessage(err, '保存失败'), 'error') }
+}
+
+async function deleteMenu(id: number) {
+  if (!confirm('确认删除该菜单？子菜单也将受影响。')) return
+  try {
+    await api.delete(`/api/system/menus/${id}`)
+    setMessage('删除成功', 'success')
+    await fetchMenuTree()
+  } catch { setMessage('删除失败', 'error') }
+}
+
+// ===== 权限管理 =====
+async function fetchPermissions() {
+  try {
+    const res = await api.get('/api/system/permissions', {
+      params: {
+        permCode: permQuery.permCode || undefined,
+        permName: permQuery.permName || undefined,
+        page: permQuery.page,
+        size: permQuery.size,
+      },
+    })
+    permissions.value = res.data.content
+    totalPermissions.value = res.data.totalElements
+  } catch { setMessage('加载权限失败', 'error') }
+}
+
+function editPermission(item: SysPermission) {
+  permForm.id = item.id
+  permForm.permCode = item.permCode
+  permForm.permName = item.permName
+  permForm.permType = item.permType
+  permForm.apiMethod = item.apiMethod ?? ''
+  permForm.apiPath = item.apiPath ?? ''
+  permForm.parentId = item.parentId ?? null
+  permForm.sortNo = item.sortNo ?? null
+  permForm.status = item.status
+}
+
+function clearPermForm() {
+  permForm.id = null
+  permForm.permCode = ''
+  permForm.permName = ''
+  permForm.permType = 'API'
+  permForm.apiMethod = ''
+  permForm.apiPath = ''
+  permForm.parentId = null
+  permForm.sortNo = null
+  permForm.status = 'ACTIVE'
+}
+
+async function savePermission() {
+  if (!permForm.permCode.trim() || !permForm.permName.trim()) {
+    setMessage('权限码和名称不能为空', 'error')
+    return
+  }
+  const payload = {
+    permCode: permForm.permCode,
+    permName: permForm.permName,
+    permType: permForm.permType,
+    apiMethod: permForm.apiMethod || null,
+    apiPath: permForm.apiPath || null,
+    parentId: permForm.parentId || null,
+    sortNo: permForm.sortNo,
+    status: permForm.status,
+  }
+  try {
+    if (permForm.id) {
+      await api.put(`/api/system/permissions/${permForm.id}`, payload)
+      setMessage('权限已更新', 'success')
+    } else {
+      await api.post('/api/system/permissions', payload)
+      setMessage('权限已创建', 'success')
+    }
+    clearPermForm()
+    await fetchPermissions()
+  } catch (err: any) { setMessage(resolveApiMessage(err, '保存失败'), 'error') }
+}
+
+async function deletePermission(id: number) {
+  if (!confirm('确认删除该权限？')) return
+  try {
+    await api.delete(`/api/system/permissions/${id}`)
+    setMessage('删除成功', 'success')
+    await fetchPermissions()
+  } catch { setMessage('删除失败', 'error') }
+}
+
+// 将菜单树拍平（用于父菜单下拉选择）
+function flattenMenuTree(tree: SysMenu[], result: SysMenu[] = []): SysMenu[] {
+  for (const node of tree) {
+    result.push(node)
+    if (node.children?.length) flattenMenuTree(node.children, result)
+  }
+  return result
+}
+
 onMounted(async () => {
   if (token.value) {
     await initAfterLogin()
   }
-  setupAutoSaveTimer()
-})
-
-onUnmounted(() => {
-  if (autoSaveTimer) {
-    window.clearInterval(autoSaveTimer)
-  }
-})
-
-watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
-  setupAutoSaveTimer()
 })
 </script>
 
@@ -1898,12 +2513,23 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
           </select>
           <button @click="fetchProjects">查询</button>
         </div>
+        <div class="actions compact">
+          <button class="danger" :disabled="!canBatchDelete || actionBusy.deleteProject" @click="batchDeleteProjects">
+            {{ actionBusy.deleteProject ? '删除中...' : `批量删除(${selectedProjectRows.length})` }}
+          </button>
+        </div>
+        <p class="small order-hint">{{ listOrderHint }}</p>
         <p class="small">共 {{ totalProjects }} 条，当前：{{ selectedProject?.projectCode || '未选择项目' }}</p>
         <p v-if="selectedProject" class="current-project">
           当前项目：<strong>{{ selectedProject.projectCode }}</strong>
           <span>状态：{{ statusText[selectedProject.status] }}</span>
           <span v-if="lastManualSaveAt">最近保存：{{ lastManualSaveAt }}</span>
         </p>
+        <div v-else-if="lastCreatedProjectCode" class="created-tip">
+          <span>最近创建：<strong>{{ lastCreatedProjectCode }}</strong></span>
+          <span v-if="lastCreatedProjectStatus">状态：{{ latestCreatedStatusLabel() }}</span>
+          <button class="ghost tiny" @click="selectLastCreatedProject">选中最近创建</button>
+        </div>
         <el-table
           :data="projects"
           height="260"
@@ -1912,25 +2538,55 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
           highlight-current-row
           :row-key="(row: Project) => row.id"
           @row-click="onProjectRowClick"
+          @selection-change="onProjectSelectionChange"
         >
-          <el-table-column prop="projectCode" label="项目编号" min-width="220" sortable />
+          <el-table-column type="selection" width="46" />
+          <el-table-column prop="projectCode" label="项目编号" min-width="220" />
+          <el-table-column prop="createdAt" label="创建时间" min-width="150">
+            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+          </el-table-column>
           <el-table-column prop="companyName" label="单位名称" min-width="180" show-overflow-tooltip />
           <el-table-column label="状态" width="120">
             <template #default="{ row }">
               <el-tag :type="projectStatusTagType(row.status as ProjectStatus)" size="small">{{ statusText[row.status as ProjectStatus] }}</el-tag>
             </template>
           </el-table-column>
+          <el-table-column label="操作" width="220" fixed="right">
+            <template #default="{ row }">
+              <button class="ghost tiny" :disabled="!canListRowEdit" @click.stop="editProjectFromList(row as Project)">编辑</button>
+              <button class="ghost tiny" :disabled="!canListRowCopy" @click.stop="copyProjectFromList((row as Project).id)">复制</button>
+              <button class="danger tiny" :disabled="!canListRowDelete" @click.stop="deleteProjectFromList((row as Project).id)">删除</button>
+            </template>
+          </el-table-column>
         </el-table>
       </section>
 
       <section class="card">
+        <div class="detail-status">
+          <span class="label">操作状态</span>
+          <el-tag :type="operating ? 'warning' : 'info'" size="large">{{ operating ? '操作中' : '非操作中' }}</el-tag>
+          <span class="empty">模式：{{ operationType || '-' }}</span>
+        </div>
+        <div class="detail-status">
+          <span class="label">项目状态</span>
+          <el-tag
+            v-if="selectedProject"
+            :type="projectStatusTagType(selectedProject.status)"
+            size="large"
+          >
+            {{ statusText[selectedProject.status] }}（{{ selectedProject.projectCode }}）
+          </el-tag>
+          <span v-else class="empty">未选择项目</span>
+          <button v-if="!selectedProject && lastCreatedProjectCode" class="ghost tiny" @click="selectLastCreatedProject">选中最近创建</button>
+        </div>
         <el-tabs v-model="projectWorkTab" class="work-tabs">
           <el-tab-pane label="项目信息" name="base">
+            <fieldset class="op-fieldset" :disabled="!operating">
             <el-form label-position="top" class="pro-form">
               <el-row :gutter="14">
                 <el-col :xs="24" :md="12">
                   <el-form-item label="受检单位（单位库）">
-                    <select v-model="projectForm.companyProfileId" @change="applyCompanyProfile(String(projectForm.companyProfileId || ''))">
+                    <select id="project-company-profile" v-model="projectForm.companyProfileId" @change="applyCompanyProfile(String(projectForm.companyProfileId || ''))">
                       <option :value="null">请选择单位</option>
                       <option v-for="item in companyProfiles" :key="item.id" :value="item.id">{{ item.companyName }}</option>
                     </select>
@@ -1967,6 +2623,7 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 <el-col :xs="24" :md="12">
                   <el-form-item label="送检单位">
                     <select
+                      id="project-submit-unit"
                       v-model="projectForm.submitUnitCompanyId"
                       @change="applyProjectUnitSelection('submitUnit', String(projectForm.submitUnitCompanyId || ''))"
                     >
@@ -1978,6 +2635,7 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 <el-col :xs="24" :md="12">
                   <el-form-item label="委托单位">
                     <select
+                      id="project-entrust-unit"
                       v-model="projectForm.entrustUnitCompanyId"
                       @change="applyProjectUnitSelection('entrustUnit', String(projectForm.entrustUnitCompanyId || ''))"
                     >
@@ -1998,9 +2656,11 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 </el-col>
               </el-row>
             </el-form>
+            </fieldset>
           </el-tab-pane>
 
           <el-tab-pane label="报告补充" name="supplement">
+            <fieldset class="op-fieldset" :disabled="!operating">
             <el-form label-position="top" class="pro-form">
               <el-row :gutter="14">
                 <el-col :xs="24" :md="8">
@@ -2050,10 +2710,11 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 <el-col :xs="24"><el-form-item label="评价标准内容"><textarea v-model="projectForm.evaluationBasis" rows="4" /></el-form-item></el-col>
               </el-row>
             </el-form>
+            </fieldset>
           <p class="small">提示：优先通过主数据下拉选择，选中后自动回填文本与证书编号。</p>
           </el-tab-pane>
 
-          <el-tab-pane label="岗位信息" name="position">
+          <el-tab-pane label="岗位信息" name="position" :disabled="!selectedProject">
             <div v-if="selectedProject">
               <el-form label-position="top" class="pro-form">
                 <el-row :gutter="14">
@@ -2079,7 +2740,7 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 </el-row>
               </el-form>
               <div class="actions">
-                <button :disabled="loading || actionBusy.addPosition" @click="addPosition">{{ actionBusy.addPosition ? '添加中...' : '添加岗位' }}</button>
+                <button :disabled="!canProjectOperate || loading || actionBusy.addPosition" @click="addPosition">{{ actionBusy.addPosition ? '添加中...' : '添加岗位' }}</button>
               </div>
 
               <table>
@@ -2098,15 +2759,21 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                     <td>{{ item.shiftSystem }} / {{ item.workingHours }}</td>
                     <td>{{ item.workerCount }}</td>
                     <td>{{ item.hazards }}</td>
-                    <td><button class="danger tiny" @click="removePosition(item.id)">删除</button></td>
+                    <td><button class="danger tiny" :disabled="!canProjectOperate" @click="removePosition(item.id)">删除</button></td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <p v-else class="small">请先在上方选择或创建项目。</p>
+            <div v-else class="empty-state">
+              <p class="small">请先在上方选择项目，或选中刚创建的项目后再录入岗位。</p>
+              <div class="actions">
+                <button class="ghost tiny" @click="openBaseTab">返回项目信息</button>
+                <button class="ghost tiny" @click="selectLastCreatedProject">选中最近创建</button>
+              </div>
+            </div>
           </el-tab-pane>
 
-          <el-tab-pane label="检测结果" name="result">
+          <el-tab-pane label="检测结果" name="result" :disabled="!selectedProject">
             <div v-if="selectedProject">
               <el-form label-position="top" class="pro-form">
                 <el-row :gutter="14">
@@ -2139,14 +2806,15 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 </el-row>
               </el-form>
           <div class="actions wrap">
-            <button :disabled="loading || actionBusy.addResult" @click="addResult">{{ actionBusy.addResult ? '添加中...' : '添加结果' }}</button>
-            <button class="ghost" :disabled="loading || actionBusy.judgeProject" @click="judgeProject">
+            <button :disabled="!canProjectOperate || loading || actionBusy.addResult" @click="addResult">{{ actionBusy.addResult ? (resultForm.id ? '更新中...' : '添加中...') : (resultForm.id ? '更新结果' : '添加结果') }}</button>
+            <button v-if="resultForm.id" class="ghost" @click="clearResultForm">取消编辑</button>
+            <button class="ghost" :disabled="!canProjectOperate || loading || actionBusy.judgeProject" @click="judgeProject">
               {{ actionBusy.judgeProject ? '判定中...' : '自动判定' }}
             </button>
-            <button class="ghost" :disabled="loading || actionBusy.precheckProject" @click="precheckCurrentProject">
+            <button class="ghost" :disabled="!canProjectOperate || loading || actionBusy.precheckProject" @click="precheckCurrentProject">
               {{ actionBusy.precheckProject ? '预检中...' : '报告预检' }}
             </button>
-            <button class="ghost" :disabled="loading || actionBusy.previewReport" @click="previewReport">
+            <button class="ghost" :disabled="!canProjectOperate || loading || actionBusy.previewReport" @click="previewReport">
               {{ actionBusy.previewReport ? '预览加载中...' : '报告预览' }}
             </button>
           </div>
@@ -2156,7 +2824,7 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
             <textarea v-model="batchResultText" rows="4" placeholder="焊接,锰及其无机化合物,TWA,<0.04,,mg/m3,0.15,mg/m3"></textarea>
           </label>
           <div class="actions">
-            <button class="ghost" @click="addBatchResults">批量导入</button>
+            <button class="ghost" :disabled="!canProjectOperate" @click="addBatchResults">批量导入</button>
           </div>
 
           <div class="precheck" v-if="reportPrecheck">
@@ -2188,15 +2856,24 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 <td>{{ item.valueRaw || item.valueNum }} {{ item.unit }}</td>
                 <td>{{ item.limitValue }} {{ item.limitUnit }}</td>
                 <td>{{ item.judgement }}</td>
-                <td><button class="danger tiny" @click="removeResult(item.id)">删除</button></td>
+                <td>
+                  <button class="ghost tiny" :disabled="!canProjectOperate" @click="editResult(item)">编辑</button>
+                  <button class="danger tiny" :disabled="!canProjectOperate" @click="removeResult(item.id)" style="margin-left:4px">删除</button>
+                </td>
               </tr>
             </tbody>
           </table>
             </div>
-            <p v-else class="small">请先在上方选择或创建项目。</p>
+            <div v-else class="empty-state">
+              <p class="small">请先在上方选择项目，或选中刚创建的项目后再录入检测结果。</p>
+              <div class="actions">
+                <button class="ghost tiny" @click="openBaseTab">返回项目信息</button>
+                <button class="ghost tiny" @click="selectLastCreatedProject">选中最近创建</button>
+              </div>
+            </div>
           </el-tab-pane>
 
-          <el-tab-pane label="报告管理" name="report">
+          <el-tab-pane label="报告管理" name="report" :disabled="!selectedProject">
             <div v-if="selectedProject">
               <section class="card" v-if="showPreviewPanel && reportPreview">
                 <h2>报告预览（生成前）</h2>
@@ -2253,40 +2930,31 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
                 </tbody>
               </table>
             </div>
-            <p v-else class="small">请先在上方选择或创建项目。</p>
+            <div v-else class="empty-state">
+              <p class="small">请先在上方选择项目，或选中刚创建的项目后再进行报告操作。</p>
+              <div class="actions">
+                <button class="ghost tiny" @click="openBaseTab">返回项目信息</button>
+                <button class="ghost tiny" @click="selectLastCreatedProject">选中最近创建</button>
+              </div>
+            </div>
           </el-tab-pane>
         </el-tabs>
       </section>
 
       <section class="card floating-actions">
         <div class="actions wrap">
-          <button :disabled="loading || actionBusy.saveProject" @click="createProject">{{ actionBusy.saveProject ? '创建中...' : '创建项目' }}</button>
-          <button class="primary-strong" :disabled="!selectedProject || loading || actionBusy.saveProject" @click="updateProject()">
+          <button :disabled="!canCreateProject" @click="beginCreateOperation">创建项目</button>
+          <button class="primary-strong" :disabled="!canManualSave" @click="saveCurrentOperation">
             {{ actionBusy.saveProject ? '保存中...' : '手动保存' }}
           </button>
-          <button class="ghost" :disabled="loading || actionBusy.saveProject" @click="startNewDraft">清空表单</button>
-          <button class="ghost" :disabled="!selectedProject || loading || actionBusy.copyProject" @click="copyProject">
-            {{ actionBusy.copyProject ? '复制中...' : '复制项目' }}
+          <button class="ghost" :disabled="!canClearForm" @click="clearOperationForm">清空表单</button>
+          <button class="danger" :disabled="!canCancelCreate" @click="cancelCreateProject">
+            {{ actionBusy.cancelCreate ? '取消中...' : '取消操作' }}
           </button>
-          <button class="danger" :disabled="!selectedProject || loading || actionBusy.deleteProject" @click="deleteProject">
-            {{ actionBusy.deleteProject ? '删除中...' : '删除项目' }}
-          </button>
-          <button class="ghost" :disabled="!selectedProject || loading || actionBusy.generateReport" @click="generateReport">
+          <button class="ghost" :disabled="!canGenerateReport" @click="generateReport">
             {{ actionBusy.generateReport ? '生成中...' : '生成报告（覆盖）' }}
           </button>
-          <label class="autosave-inline">
-            <input v-model="autoSaveEnabled" type="checkbox" />
-            自动保存
-          </label>
-          <label class="autosave-inline">
-            <input v-model="clearAfterCreate" type="checkbox" />
-            创建后清空表单
-          </label>
-          <label class="autosave-inline">
-            间隔(秒)
-            <input v-model.number="autoSaveIntervalSec" type="number" min="10" max="600" :disabled="!autoSaveEnabled" />
-          </label>
-          <span class="hint">{{ autoSaveEnabled ? `自动保存已开启：每 ${Math.max(10, Number(autoSaveIntervalSec) || 30)} 秒` : '自动保存已关闭' }}</span>
+          <span class="hint" v-if="latestAction">最近操作：{{ latestAction }}</span>
         </div>
       </section>
     </section>
@@ -2500,21 +3168,295 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
 
       <!-- 系统管理 -->
       <section v-else-if="activeTab === 'system'" class="maintenance-grid">
+        <!-- 用户管理 -->
         <section class="card" v-if="systemChildMenu === 'user'">
           <h2>用户管理</h2>
-          <p class="small">用户列表（功能待实现）</p>
+          <div class="grid2 compact">
+            <input v-model="userQuery.username" placeholder="用户名搜索" />
+            <div>
+              <button @click="fetchUsers">查询</button>
+              <button class="ghost" style="margin-left:8px" @click="clearUserForm">清空表单</button>
+            </div>
+          </div>
+
+          <div class="grid2" style="margin-top:12px">
+            <label>用户名 <span style="color:red">*</span><input v-model="userForm.username" placeholder="登录账号" /></label>
+            <label>密码 {{ userForm.id ? '（留空不修改）' : '（必填）' }}<input v-model="userForm.password" type="password" placeholder="密码" /></label>
+            <label>员工ID（可选）<input v-model.number="userForm.employeeId" type="number" placeholder="关联员工ID" /></label>
+            <label>用户类型
+              <select v-model="userForm.role">
+                <option value="USER">普通用户</option>
+                <option value="ADMIN">管理员</option>
+              </select>
+            </label>
+            <label>状态
+              <select v-model="userForm.status">
+                <option value="ACTIVE">启用</option>
+                <option value="INACTIVE">禁用</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button @click="saveUser">{{ userForm.id ? '更新用户' : '新建用户' }}</button>
+            <button class="ghost" @click="clearUserForm">清空</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr><th>ID</th><th>用户名</th><th>类型</th><th>状态</th><th>需改密</th><th>创建时间</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in users" :key="u.id">
+                <td>{{ u.id }}</td>
+                <td>{{ u.username }}</td>
+                <td><el-tag :type="u.role === 'ADMIN' ? 'danger' : 'primary'" size="small">{{ u.role === 'ADMIN' ? '管理员' : '普通用户' }}</el-tag></td>
+                <td><el-tag :type="u.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ u.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
+                <td>{{ u.mustChangePassword ? '是' : '否' }}</td>
+                <td>{{ u.createdAt ? u.createdAt.substring(0, 10) : '-' }}</td>
+                <td>
+                  <button class="ghost tiny" @click="editUser(u)">编辑</button>
+                  <button class="ghost tiny" @click="openResetDialog(u)" style="margin-left:4px">重置密码</button>
+                  <button class="ghost tiny" @click="openRoleAssignDialog(u)" style="margin-left:4px">分配角色</button>
+                  <button class="danger tiny" @click="deleteUser(u.id)" style="margin-left:4px">删除</button>
+                </td>
+              </tr>
+              <tr v-if="users.length === 0"><td colspan="7" style="text-align:center;color:#999">暂无数据，点击查询加载</td></tr>
+            </tbody>
+          </table>
+          <p class="small">共 {{ totalUsers }} 条</p>
+
+          <!-- 重置密码弹窗 -->
+          <div v-if="showResetDialog" class="modal-mask" @click.self="showResetDialog = false">
+            <div class="modal-box">
+              <h3>重置密码 — {{ resetPasswordForm.username }}</h3>
+              <label>新密码<input v-model="resetPasswordForm.newPassword" type="password" placeholder="请输入新密码" /></label>
+              <div class="actions" style="margin-top:12px">
+                <button @click="doResetPassword">确认重置</button>
+                <button class="ghost" @click="showResetDialog = false">取消</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 分配角色弹窗 -->
+          <div v-if="showRoleAssignDialog" class="modal-mask" @click.self="showRoleAssignDialog = false">
+            <div class="modal-box" style="min-width:360px;max-width:480px">
+              <h3>分配角色 — {{ assigningUsername }}</h3>
+              <div v-if="roles.length === 0" class="small">暂无可用角色</div>
+              <div v-else style="max-height:260px;overflow:auto;border:1px solid #d6deea;border-radius:8px;padding:8px">
+                <label v-for="r in roles" :key="r.id" style="flex-direction:row;align-items:center;gap:8px;padding:4px 0;font-size:14px;color:#223047;cursor:pointer">
+                  <input type="checkbox" :value="r.id" v-model="selectedRoleIds" style="width:auto;border:none;padding:0" />
+                  <span>{{ r.roleName }}</span>
+                  <span class="small" style="margin:0">({{ r.roleCode }})</span>
+                </label>
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button @click="saveUserRoles">保存</button>
+                <button class="ghost" @click="showRoleAssignDialog = false">取消</button>
+              </div>
+            </div>
+          </div>
         </section>
+
+        <!-- 角色管理 -->
         <section class="card" v-else-if="systemChildMenu === 'role'">
           <h2>角色管理</h2>
-          <p class="small">角色列表（功能待实现）</p>
+          <div class="grid2 compact">
+            <input v-model="roleQuery.roleCode" placeholder="角色编码" />
+            <input v-model="roleQuery.roleName" placeholder="角色名称" />
+            <div>
+              <button @click="fetchRoles">查询</button>
+              <button class="ghost" style="margin-left:8px" @click="clearRoleForm">清空表单</button>
+            </div>
+          </div>
+
+          <div class="grid2" style="margin-top:12px">
+            <label>角色编码 <span style="color:red">*</span><input v-model="roleForm.roleCode" placeholder="如 INSPECTOR" :disabled="!!roleForm.id" /></label>
+            <label>角色名称 <span style="color:red">*</span><input v-model="roleForm.roleName" placeholder="如 检测员" /></label>
+            <label class="full">备注<input v-model="roleForm.remark" placeholder="可选说明" /></label>
+            <label>状态
+              <select v-model="roleForm.status">
+                <option value="ACTIVE">启用</option>
+                <option value="INACTIVE">禁用</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button @click="saveRole">{{ roleForm.id ? '更新角色' : '新建角色' }}</button>
+            <button class="ghost" @click="clearRoleForm">清空</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr><th>ID</th><th>角色编码</th><th>角色名称</th><th>状态</th><th>备注</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in roles" :key="r.id">
+                <td>{{ r.id }}</td>
+                <td><code>{{ r.roleCode }}</code></td>
+                <td>{{ r.roleName }}</td>
+                <td><el-tag :type="r.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ r.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
+                <td>{{ r.remark || '-' }}</td>
+                <td>
+                  <button class="ghost tiny" @click="editRole(r)">编辑</button>
+                  <button class="ghost tiny" @click="openRolePermDialog(r)" style="margin-left:4px">分配权限</button>
+                  <button class="danger tiny" @click="deleteRole(r.id)" style="margin-left:4px">删除</button>
+                </td>
+              </tr>
+              <tr v-if="roles.length === 0"><td colspan="6" style="text-align:center;color:#999">暂无数据，点击查询加载</td></tr>
+            </tbody>
+          </table>
+          <p class="small">共 {{ totalRoles }} 条</p>
+
+          <!-- 分配权限弹窗 -->
+          <div v-if="showRolePermDialog" class="modal-mask" @click.self="showRolePermDialog = false">
+            <div class="modal-box" style="min-width:400px;max-width:560px">
+              <h3>分配权限 — {{ assigningRoleName }}</h3>
+              <div v-if="permissions.length === 0" class="small">暂无可用权限</div>
+              <div v-else style="max-height:320px;overflow:auto;border:1px solid #d6deea;border-radius:8px;padding:8px">
+                <label v-for="p in permissions" :key="p.id" style="flex-direction:row;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:#223047;cursor:pointer">
+                  <input type="checkbox" :value="p.id" v-model="selectedPermIds" style="width:auto;border:none;padding:0" />
+                  <el-tag size="small" :type="p.permType === 'MENU' ? 'primary' : p.permType === 'BUTTON' ? 'warning' : 'info'" style="margin-right:4px">{{ p.permType }}</el-tag>
+                  <span>{{ p.permName }}</span>
+                  <span style="color:#6a7c98;font-size:12px">({{ p.permCode }})</span>
+                </label>
+              </div>
+              <div class="actions" style="margin-top:12px">
+                <button @click="saveRolePerms">保存</button>
+                <button class="ghost" @click="showRolePermDialog = false">取消</button>
+              </div>
+            </div>
+          </div>
         </section>
+
+        <!-- 菜单管理 -->
         <section class="card" v-else-if="systemChildMenu === 'menu'">
           <h2>菜单管理</h2>
-          <p class="small">菜单列表（功能待实现）</p>
+          <div class="actions">
+            <button @click="fetchMenuTree">刷新菜单树</button>
+            <button class="ghost" @click="clearMenuForm">清空表单</button>
+          </div>
+
+          <div class="grid2" style="margin-top:12px">
+            <label>权限码 <span style="color:red">*</span><input v-model="menuForm.permCode" placeholder="如 system:user:list" :disabled="!!menuForm.id" /></label>
+            <label>菜单名称 <span style="color:red">*</span><input v-model="menuForm.permName" placeholder="如 用户管理" /></label>
+            <label>父菜单
+              <select v-model="menuForm.parentId">
+                <option :value="null">无（顶级菜单）</option>
+                <option v-for="m in flattenMenuTree(menuTree)" :key="m.id" :value="m.id">{{ m.permName }}（{{ m.permCode }}）</option>
+              </select>
+            </label>
+            <label>排序号<input v-model.number="menuForm.sortNo" type="number" placeholder="数字越小越靠前" /></label>
+            <label>状态
+              <select v-model="menuForm.status">
+                <option value="ACTIVE">启用</option>
+                <option value="INACTIVE">禁用</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button @click="saveMenu">{{ menuForm.id ? '更新菜单' : '新建菜单' }}</button>
+            <button v-if="menuForm.id" class="ghost" @click="clearMenuForm">取消编辑</button>
+          </div>
+
+          <div v-if="menuTree.length === 0" class="empty-state">
+            <p class="small">暂无菜单，点击"刷新菜单树"加载或直接新建。</p>
+          </div>
+          <div v-else>
+            <table>
+              <thead>
+                <tr><th>ID</th><th>权限码</th><th>菜单名称</th><th>排序</th><th>状态</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                <template v-for="m in menuTree" :key="m.id">
+                  <tr>
+                    <td>{{ m.id }}</td>
+                    <td><code>{{ m.permCode }}</code></td>
+                    <td><strong>{{ m.permName }}</strong></td>
+                    <td>{{ m.sortNo ?? '-' }}</td>
+                    <td><el-tag :type="m.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ m.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
+                    <td>
+                      <button class="ghost tiny" @click="editMenu(m)">编辑</button>
+                      <button class="danger tiny" @click="deleteMenu(m.id)" style="margin-left:4px">删除</button>
+                    </td>
+                  </tr>
+                  <tr v-for="child in m.children" :key="child.id">
+                    <td>{{ child.id }}</td>
+                    <td style="padding-left:24px"><code>{{ child.permCode }}</code></td>
+                    <td style="padding-left:24px">↳ {{ child.permName }}</td>
+                    <td>{{ child.sortNo ?? '-' }}</td>
+                    <td><el-tag :type="child.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ child.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
+                    <td>
+                      <button class="ghost tiny" @click="editMenu(child)">编辑</button>
+                      <button class="danger tiny" @click="deleteMenu(child.id)" style="margin-left:4px">删除</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </section>
+
+        <!-- 权限管理 -->
         <section class="card" v-else-if="systemChildMenu === 'permission'">
           <h2>权限管理</h2>
-          <p class="small">权限列表（功能待实现）</p>
+          <div class="grid2 compact">
+            <input v-model="permQuery.permCode" placeholder="权限码" />
+            <input v-model="permQuery.permName" placeholder="权限名称" />
+            <div>
+              <button @click="fetchPermissions">查询</button>
+              <button class="ghost" style="margin-left:8px" @click="clearPermForm">清空表单</button>
+            </div>
+          </div>
+
+          <div class="grid2" style="margin-top:12px">
+            <label>权限码 <span style="color:red">*</span><input v-model="permForm.permCode" placeholder="如 ohdp:project:edit" :disabled="!!permForm.id" /></label>
+            <label>权限名称 <span style="color:red">*</span><input v-model="permForm.permName" placeholder="如 编辑项目" /></label>
+            <label>权限类型
+              <select v-model="permForm.permType">
+                <option value="MENU">MENU（菜单）</option>
+                <option value="BUTTON">BUTTON（按钮）</option>
+                <option value="API">API（接口）</option>
+              </select>
+            </label>
+            <label>HTTP 方法<input v-model="permForm.apiMethod" placeholder="GET / POST / PUT / DELETE" /></label>
+            <label class="full">API 路径<input v-model="permForm.apiPath" placeholder="如 /api/ohdp/projects/**" /></label>
+            <label>排序号<input v-model.number="permForm.sortNo" type="number" /></label>
+            <label>状态
+              <select v-model="permForm.status">
+                <option value="ACTIVE">启用</option>
+                <option value="INACTIVE">禁用</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button @click="savePermission">{{ permForm.id ? '更新权限' : '新建权限' }}</button>
+            <button v-if="permForm.id" class="ghost" @click="clearPermForm">取消编辑</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr><th>ID</th><th>权限码</th><th>名称</th><th>类型</th><th>HTTP方法</th><th>路径</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in permissions" :key="p.id">
+                <td>{{ p.id }}</td>
+                <td><code>{{ p.permCode }}</code></td>
+                <td>{{ p.permName }}</td>
+                <td><el-tag size="small" :type="p.permType === 'MENU' ? 'primary' : p.permType === 'BUTTON' ? 'warning' : 'info'">{{ p.permType }}</el-tag></td>
+                <td>{{ p.apiMethod || '-' }}</td>
+                <td style="max-width:200px;word-break:break-all">{{ p.apiPath || '-' }}</td>
+                <td><el-tag :type="p.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ p.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
+                <td>
+                  <button class="ghost tiny" @click="editPermission(p)">编辑</button>
+                  <button class="danger tiny" @click="deletePermission(p.id)" style="margin-left:4px">删除</button>
+                </td>
+              </tr>
+              <tr v-if="permissions.length === 0"><td colspan="8" style="text-align:center;color:#999">暂无数据，点击查询加载</td></tr>
+            </tbody>
+          </table>
+          <p class="small">共 {{ totalPermissions }} 条</p>
+        </section>
+
         </section>
         <section class="card" v-else-if="systemChildMenu === 'dept'">
           <h2>部门管理</h2>

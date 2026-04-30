@@ -19,7 +19,6 @@
 body {
   margin: 0;
   background: radial-gradient(circle at 20% 0, #ecf2ff 0, #f5f8fd 38%, #f8fbff 100%);
-  min-width: 320px;
 }
 
 #app {
@@ -48,6 +47,8 @@ body {
   margin: 0;
   font-size: 28px;
   letter-spacing: 0.5px;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .topbar-right {
@@ -156,6 +157,7 @@ body {
 
 .project-select-card {
   margin-bottom: 0;
+  overflow-x: auto;
 }
 
 .project-list-inline {
@@ -195,6 +197,10 @@ body {
   box-shadow: 0 4px 14px rgba(22, 45, 86, 0.08);
 }
 
+.project-workbench > .card {
+  overflow-x: auto;
+}
+
 .card h2 {
   margin-top: 0;
   font-size: 18px;
@@ -206,6 +212,11 @@ body {
   margin-bottom: 8px;
   font-size: 15px;
   color: #24375c;
+}
+
+.order-hint {
+  color: #3d5f9e;
+  font-weight: 600;
 }
 
 .login-card {
@@ -277,9 +288,9 @@ button:hover {
 
 button:disabled {
   opacity: 1;
-  background: #eef3fb;
-  border-color: #ccd7ea;
-  color: #5b6f8f;
+  background: #e7ebf3;
+  border-color: #c7d0de;
+  color: #7a879a;
   cursor: not-allowed;
 }
 
@@ -300,6 +311,12 @@ button.ghost:hover {
   border-color: #7fa0d9;
 }
 
+button.ghost:disabled {
+  background: #edf1f6;
+  border-color: #c7d0de;
+  color: #7a879a;
+}
+
 button.danger {
   background: #fff5f7;
   color: var(--danger);
@@ -312,14 +329,27 @@ button.danger:hover {
   border-color: var(--danger);
 }
 
+button.danger:disabled {
+  background: #f2e8eb;
+  border-color: #dcc6cc;
+  color: #9a7f88;
+}
+
 button.primary-strong {
   background: #0a7a5a;
   border-color: #0a7a5a;
+  color: #ffffff;
 }
 
 button.primary-strong:hover {
   background: #066447;
   border-color: #066447;
+}
+
+button.primary-strong:disabled {
+  background: #dbece6;
+  border-color: #bfd7ce;
+  color: #27473d;
 }
 
 button.tiny {
@@ -357,17 +387,55 @@ td button + button {
   flex-wrap: wrap;
 }
 
-.autosave-inline {
-  display: inline-flex;
+.created-tip {
+  display: flex;
+  gap: 10px;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  flex-wrap: wrap;
+  margin: 6px 0 10px;
   color: #35527f;
+  font-size: 13px;
 }
 
-.autosave-inline input[type='number'] {
-  width: 80px;
-  padding: 6px 8px;
+.detail-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid #d9e3f4;
+  border-radius: 10px;
+  background: #f7faff;
+  margin-bottom: 10px;
+}
+
+.detail-status .label {
+  color: #47618f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detail-status .empty {
+  color: #6a7c98;
+  font-size: 13px;
+}
+
+.empty-state {
+  border: 1px dashed #c4d4ef;
+  background: #f8fbff;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.op-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.op-fieldset:disabled {
+  opacity: 0.8;
 }
 
 .small {
@@ -445,6 +513,10 @@ table {
   font-size: 13px;
 }
 
+.el-table {
+  max-width: 100%;
+}
+
 th,
 td {
   border: 1px solid var(--line);
@@ -469,6 +541,14 @@ th {
   .maintenance-grid {
     grid-template-columns: 1fr;
   }
+
+  .app-shell {
+    padding: 10px;
+  }
+
+  .floating-actions {
+    position: static;
+  }
 }
 
 @media (max-width: 800px) {
@@ -486,4 +566,55 @@ th {
   .topbar h1 {
     font-size: 22px;
   }
+
+  .card {
+    padding: 10px;
+  }
+
+  .actions {
+    gap: 6px;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .project-select-card .el-table {
+    overflow-x: auto;
+  }
+}
+
+/* 重置密码弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 28px 32px;
+  min-width: 320px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+
+.modal-box h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  color: #223047;
+}
+
+.modal-box label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #6a7c98;
 }

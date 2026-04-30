@@ -84,4 +84,22 @@ public interface OhdpProjectService {
     OhdpDto.DictionaryItemResponse updateDictionaryItem(Long id, OhdpDto.DictionaryItemRequest request);
 
     void deleteDictionaryItem(Long id);
+
+    Page<OhdpDto.StaffProfileResponse> pageStaffProfiles(String keyword, int page, int size);
+
+    OhdpDto.StaffProfileResponse createStaffProfile(OhdpDto.StaffProfileRequest request);
+
+    OhdpDto.StaffProfileResponse updateStaffProfile(Long id, OhdpDto.StaffProfileRequest request);
+
+    void deleteStaffProfile(Long id);
+
+    Page<OhdpDto.ReportTextTemplateResponse> pageReportTextTemplates(String templateType, String keyword, int page, int size);
+
+    List<OhdpDto.ReportTextTemplateResponse> listEnabledReportTextTemplates(String templateType);
+
+    OhdpDto.ReportTextTemplateResponse createReportTextTemplate(OhdpDto.ReportTextTemplateRequest request);
+
+    OhdpDto.ReportTextTemplateResponse updateReportTextTemplate(Long id, OhdpDto.ReportTextTemplateRequest request);
+
+    void deleteReportTextTemplate(Long id);
 }

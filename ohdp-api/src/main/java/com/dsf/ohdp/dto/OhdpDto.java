@@ -30,6 +30,12 @@ public final class OhdpDto {
     @Data
     public static class ProjectRequest {
         private Long companyProfileId;
+        private Long detectTypeDictItemId;
+        private Long taskOriginTemplateId;
+        private Long evaluationBasisTemplateId;
+        private Long writerStaffId;
+        private Long reviewerStaffId;
+        private Long approverStaffId;
 
         @Size(max = 200)
         private String companyName;
@@ -43,6 +49,45 @@ public final class OhdpDto {
         private LocalDate samplingDate;
         private LocalDate reportDate;
 
+        @Size(max = 200)
+        private String sampleName;
+
+        @Size(max = 200)
+        private String submitUnit;
+
+        private Long submitUnitCompanyId;
+
+        @Size(max = 200)
+        private String entrustUnit;
+
+        private Long entrustUnitCompanyId;
+
+        @Size(max = 3000)
+        private String taskOrigin;
+
+        @Size(max = 3000)
+        private String evaluationBasis;
+
+        @Size(max = 64)
+        private String writerName;
+
+        @Size(max = 64)
+        private String reviewerName;
+
+        @Size(max = 64)
+        private String approverName;
+
+        @Size(max = 128)
+        private String writerCertNo;
+
+        @Size(max = 128)
+        private String reviewerCertNo;
+
+        @Size(max = 128)
+        private String approverCertNo;
+
+        private LocalDate statementDate;
+
         @Size(max = 1000)
         private String notes;
     }
@@ -54,11 +99,32 @@ public final class OhdpDto {
     public static class ProjectResponse {
         private Long id;
         private String projectCode;
+        private Long companyProfileId;
         private String companyName;
         private String companyAddress;
+        private Long detectTypeDictItemId;
         private String detectType;
         private LocalDate samplingDate;
         private LocalDate reportDate;
+        private String sampleName;
+        private String submitUnit;
+        private Long submitUnitCompanyId;
+        private String entrustUnit;
+        private Long entrustUnitCompanyId;
+        private Long taskOriginTemplateId;
+        private String taskOrigin;
+        private Long evaluationBasisTemplateId;
+        private String evaluationBasis;
+        private Long writerStaffId;
+        private String writerName;
+        private Long reviewerStaffId;
+        private String reviewerName;
+        private Long approverStaffId;
+        private String approverName;
+        private String writerCertNo;
+        private String reviewerCertNo;
+        private String approverCertNo;
+        private LocalDate statementDate;
         private String notes;
         private ProjectStatus status;
         private LocalDateTime createdAt;
@@ -125,6 +191,7 @@ public final class OhdpDto {
     @Data
     public static class ResultItemRequest {
         private Long factorTemplateId;
+        private Long positionId;
 
         @Size(max = 100)
         private String jobName;
@@ -172,6 +239,7 @@ public final class OhdpDto {
     public static class ResultItemResponse {
         private Long id;
         private Long projectId;
+        private Long positionId;
         private String jobName;
         private String factorName;
         private String metricType;
@@ -420,5 +488,72 @@ public final class OhdpDto {
         private Integer sortNo;
         private Boolean enabled;
     }
-}
 
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StaffProfileRequest {
+        @NotBlank
+        @Size(max = 64)
+        private String staffName;
+
+        @Size(max = 64)
+        private String staffTitle;
+
+        @NotBlank
+        @Size(max = 128)
+        private String certNo;
+
+        @Size(max = 50)
+        private String contactPhone;
+
+        @Size(max = 1000)
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StaffProfileResponse {
+        private Long id;
+        private String staffName;
+        private String staffTitle;
+        private String certNo;
+        private String contactPhone;
+        private String notes;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportTextTemplateRequest {
+        @NotBlank
+        @Size(max = 32)
+        private String templateType;
+
+        @NotBlank
+        @Size(max = 128)
+        private String templateName;
+
+        @NotBlank
+        @Size(max = 6000)
+        private String templateContent;
+
+        private Boolean enabled;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportTextTemplateResponse {
+        private Long id;
+        private String templateType;
+        private String templateName;
+        private String templateContent;
+        private Boolean enabled;
+    }
+}

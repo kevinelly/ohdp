@@ -2,10 +2,31 @@ CREATE TABLE IF NOT EXISTS `ohdp_project` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `project_code` VARCHAR(64) NOT NULL,
   `company_name` VARCHAR(200) NOT NULL,
+  `company_profile_id` BIGINT NULL,
   `company_address` VARCHAR(255) NOT NULL,
   `detect_type` VARCHAR(64) NOT NULL,
+  `detect_type_dict_item_id` BIGINT NULL,
   `sampling_date` DATE NULL,
   `report_date` DATE NULL,
+  `sample_name` VARCHAR(200) NULL,
+  `submit_unit` VARCHAR(200) NULL,
+  `submit_unit_company_id` BIGINT NULL,
+  `entrust_unit` VARCHAR(200) NULL,
+  `entrust_unit_company_id` BIGINT NULL,
+  `task_origin` VARCHAR(3000) NULL,
+  `task_origin_template_id` BIGINT NULL,
+  `evaluation_basis` VARCHAR(3000) NULL,
+  `evaluation_basis_template_id` BIGINT NULL,
+  `writer_name` VARCHAR(64) NULL,
+  `writer_staff_id` BIGINT NULL,
+  `reviewer_name` VARCHAR(64) NULL,
+  `reviewer_staff_id` BIGINT NULL,
+  `approver_name` VARCHAR(64) NULL,
+  `approver_staff_id` BIGINT NULL,
+  `writer_cert_no` VARCHAR(128) NULL,
+  `reviewer_cert_no` VARCHAR(128) NULL,
+  `approver_cert_no` VARCHAR(128) NULL,
+  `statement_date` DATE NULL,
   `notes` VARCHAR(1000) NULL,
   `status` VARCHAR(32) NOT NULL,
   `deleted` TINYINT(1) NOT NULL DEFAULT 0,
@@ -19,7 +40,7 @@ CREATE TABLE IF NOT EXISTS `ohdp_project` (
 
 CREATE TABLE IF NOT EXISTS `ohdp_project_position` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
-  `project_id` BIGINT NOT NULL,
+  `project_id` BIGINT NULL,
   `job_name` VARCHAR(100) NOT NULL,
   `shift_system` VARCHAR(50) NULL,
   `working_hours` VARCHAR(50) NULL,
@@ -38,9 +59,23 @@ CREATE TABLE IF NOT EXISTS `ohdp_project_position` (
   KEY `idx_ohdp_position_project_id` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE IF NOT EXISTS `ohdp_project_position_rel` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `project_id` BIGINT NOT NULL,
+  `position_id` BIGINT NOT NULL,
+  `deleted` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ohdp_position_rel_project` (`project_id`),
+  KEY `idx_ohdp_position_rel_position` (`position_id`),
+  UNIQUE KEY `uk_ohdp_position_rel_project_position` (`project_id`, `position_id`, `deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `ohdp_result_item` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `project_id` BIGINT NOT NULL,
+  `position_id` BIGINT NULL,
   `job_name` VARCHAR(100) NOT NULL,
   `factor_name` VARCHAR(120) NOT NULL,
   `metric_type` VARCHAR(40) NOT NULL,
@@ -55,6 +90,33 @@ CREATE TABLE IF NOT EXISTS `ohdp_result_item` (
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_ohdp_result_project_id` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ohdp_staff_profile` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `staff_name` VARCHAR(64) NOT NULL,
+  `staff_title` VARCHAR(64) NULL,
+  `cert_no` VARCHAR(128) NOT NULL,
+  `contact_phone` VARCHAR(50) NULL,
+  `notes` VARCHAR(1000) NULL,
+  `deleted` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ohdp_staff_name` (`staff_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `ohdp_report_text_template` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `template_type` VARCHAR(32) NOT NULL,
+  `template_name` VARCHAR(128) NOT NULL,
+  `template_content` VARCHAR(6000) NOT NULL,
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+  `deleted` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ohdp_report_text_type` (`template_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `ohdp_report_file` (

@@ -65,6 +65,7 @@ def main() -> None:
         user=config.username,
         password=config.password,
         charset="utf8mb4",
+        init_command="SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
         autocommit=False,
         client_flag=CLIENT.MULTI_STATEMENTS,
     )

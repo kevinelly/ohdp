@@ -9,5 +9,7 @@ public interface OhdpProjectPositionRepository extends JpaRepository<OhdpProject
 
     List<OhdpProjectPosition> findByProjectIdAndDeletedFalseOrderByIdAsc(Long projectId);
 
+    List<OhdpProjectPosition> findByIdInAndDeletedFalseOrderByIdAsc(List<Long> ids);
+
     Optional<OhdpProjectPosition> findByIdAndDeletedFalse(Long id);
 }

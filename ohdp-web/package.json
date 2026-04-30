@@ -11,14 +11,15 @@
   "dependencies": {
     "axios": "^1.15.0",
     "element-plus": "^2.9.10",
+    "esbuild-wasm": "^0.18.20",
     "vue": "^3.5.32"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
-    "@vitejs/plugin-vue": "^5.2.1",
+    "@vitejs/plugin-vue": "^4.6.2",
     "@vue/tsconfig": "^0.5.1",
     "typescript": "~5.6.3",
-    "vite": "^5.4.11",
-    "vue-tsc": "^2.1.10"
+    "vite": "^4.5.5",
+    "vue-tsc": "^1.8.27"
   }
 }

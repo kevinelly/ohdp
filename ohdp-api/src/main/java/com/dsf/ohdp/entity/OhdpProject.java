@@ -33,17 +33,80 @@ public class OhdpProject extends BaseAuditEntity {
     @Column(name = "company_name", nullable = false, length = 200)
     private String companyName;
 
+    @Column(name = "company_profile_id")
+    private Long companyProfileId;
+
     @Column(name = "company_address", nullable = false, length = 255)
     private String companyAddress;
 
     @Column(name = "detect_type", nullable = false, length = 64)
     private String detectType;
 
+    @Column(name = "detect_type_dict_item_id")
+    private Long detectTypeDictItemId;
+
     @Column(name = "sampling_date")
     private LocalDate samplingDate;
 
     @Column(name = "report_date")
     private LocalDate reportDate;
+
+    @Column(name = "sample_name", length = 200)
+    private String sampleName;
+
+    @Column(name = "submit_unit", length = 200)
+    private String submitUnit;
+
+    @Column(name = "submit_unit_company_id")
+    private Long submitUnitCompanyId;
+
+    @Column(name = "entrust_unit", length = 200)
+    private String entrustUnit;
+
+    @Column(name = "entrust_unit_company_id")
+    private Long entrustUnitCompanyId;
+
+    @Column(name = "task_origin", length = 3000)
+    private String taskOrigin;
+
+    @Column(name = "task_origin_template_id")
+    private Long taskOriginTemplateId;
+
+    @Column(name = "evaluation_basis", length = 3000)
+    private String evaluationBasis;
+
+    @Column(name = "evaluation_basis_template_id")
+    private Long evaluationBasisTemplateId;
+
+    @Column(name = "writer_name", length = 64)
+    private String writerName;
+
+    @Column(name = "writer_staff_id")
+    private Long writerStaffId;
+
+    @Column(name = "reviewer_name", length = 64)
+    private String reviewerName;
+
+    @Column(name = "reviewer_staff_id")
+    private Long reviewerStaffId;
+
+    @Column(name = "approver_name", length = 64)
+    private String approverName;
+
+    @Column(name = "approver_staff_id")
+    private Long approverStaffId;
+
+    @Column(name = "writer_cert_no", length = 128)
+    private String writerCertNo;
+
+    @Column(name = "reviewer_cert_no", length = 128)
+    private String reviewerCertNo;
+
+    @Column(name = "approver_cert_no", length = 128)
+    private String approverCertNo;
+
+    @Column(name = "statement_date")
+    private LocalDate statementDate;
 
     @Column(name = "notes", length = 1000)
     private String notes;

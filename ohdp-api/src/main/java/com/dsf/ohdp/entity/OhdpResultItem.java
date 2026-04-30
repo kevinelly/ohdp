@@ -25,6 +25,9 @@ public class OhdpResultItem extends BaseAuditEntity {
     @Column(name = "project_id", nullable = false)
     private Long projectId;
 
+    @Column(name = "position_id")
+    private Long positionId;
+
     @Column(name = "job_name", nullable = false, length = 100)
     private String jobName;
 

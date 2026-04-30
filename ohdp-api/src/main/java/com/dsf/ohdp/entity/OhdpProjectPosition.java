@@ -21,7 +21,7 @@ import lombok.Setter;
 @Table(name = "ohdp_project_position")
 public class OhdpProjectPosition extends BaseAuditEntity {
 
-    @Column(name = "project_id", nullable = false)
+    @Column(name = "project_id")
     private Long projectId;
 
     @Column(name = "job_name", nullable = false, length = 100)

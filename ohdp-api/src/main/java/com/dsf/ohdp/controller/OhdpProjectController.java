@@ -286,4 +286,61 @@ public class OhdpProjectController {
     public void deleteDictionaryItem(@PathVariable Long id) {
         projectService.deleteDictionaryItem(id);
     }
+
+    @GetMapping("/maintenance/staff-profiles")
+    public Page<OhdpDto.StaffProfileResponse> pageStaffProfiles(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return projectService.pageStaffProfiles(keyword, page, size);
+    }
+
+    @PostMapping("/maintenance/staff-profiles")
+    public OhdpDto.StaffProfileResponse createStaffProfile(@Valid @RequestBody OhdpDto.StaffProfileRequest request) {
+        return projectService.createStaffProfile(request);
+    }
+
+    @PutMapping("/maintenance/staff-profiles/{id}")
+    public OhdpDto.StaffProfileResponse updateStaffProfile(
+            @PathVariable Long id,
+            @Valid @RequestBody OhdpDto.StaffProfileRequest request) {
+        return projectService.updateStaffProfile(id, request);
+    }
+
+    @DeleteMapping("/maintenance/staff-profiles/{id}")
+    public void deleteStaffProfile(@PathVariable Long id) {
+        projectService.deleteStaffProfile(id);
+    }
+
+    @GetMapping("/maintenance/report-text-templates")
+    public Page<OhdpDto.ReportTextTemplateResponse> pageReportTextTemplates(
+            @RequestParam String templateType,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return projectService.pageReportTextTemplates(templateType, keyword, page, size);
+    }
+
+    @GetMapping("/maintenance/report-text-templates/enabled")
+    public List<OhdpDto.ReportTextTemplateResponse> listEnabledReportTextTemplates(@RequestParam String templateType) {
+        return projectService.listEnabledReportTextTemplates(templateType);
+    }
+
+    @PostMapping("/maintenance/report-text-templates")
+    public OhdpDto.ReportTextTemplateResponse createReportTextTemplate(
+            @Valid @RequestBody OhdpDto.ReportTextTemplateRequest request) {
+        return projectService.createReportTextTemplate(request);
+    }
+
+    @PutMapping("/maintenance/report-text-templates/{id}")
+    public OhdpDto.ReportTextTemplateResponse updateReportTextTemplate(
+            @PathVariable Long id,
+            @Valid @RequestBody OhdpDto.ReportTextTemplateRequest request) {
+        return projectService.updateReportTextTemplate(id, request);
+    }
+
+    @DeleteMapping("/maintenance/report-text-templates/{id}")
+    public void deleteReportTextTemplate(@PathVariable Long id) {
+        projectService.deleteReportTextTemplate(id);
+    }
 }
