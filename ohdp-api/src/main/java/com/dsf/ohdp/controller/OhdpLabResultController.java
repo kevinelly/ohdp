@@ -69,7 +69,7 @@ public class OhdpLabResultController {
     @PostMapping("/results/{resultId}/curve-points")
     public List<LabResultDto.CurvePointResponse> replaceCurvePoints(
             @PathVariable Long resultId,
-            @RequestBody List<@Valid LabResultDto.CurvePointRequest> points) {
+            @RequestBody @Valid List<LabResultDto.CurvePointRequest> points) {
         return labResultService.replaceCurvePoints(resultId, points);
     }
 
