@@ -172,6 +172,30 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/',
 })
 
+// ===== 新模块状态 =====
+const basicDataChildMenu = ref<'law' | 'standard' | 'region' | 'device'>('law')
+const hazardChildMenu = ref<'factor' | 'sds'>('factor')
+const configChildMenu = ref<'detectMethod' | 'orgConfig' | 'detectType'>('detectMethod')
+const labChildMenu = ref<'task' | 'result'>('task')
+
+interface OhdpLaw { id: number; title: string; docNo?: string; level?: string; publishDate?: string; isValid?: boolean; notes?: string }
+interface OhdpStandard { id: number; standardName: string; standardCode?: string; level?: string; isValid?: boolean; notes?: string }
+interface OhdpRegion { id: number; parentId?: number; regionCode: string; regionName: string; level: number; sortNo?: number }
+interface OhdpDevice { id: number; deviceName: string; deviceType: string; deviceModel?: string; deviceNo?: string; status?: string; calibrationExpiry?: string; notes?: string }
+interface OhdpHazardFactor { id: number; factorName: string; factorCategory: string; factorCode?: string; casNo?: string; enabled?: boolean }
+interface OhdpSds { id: number; substanceName: string; casNo?: string; factorId?: number; version?: string; notes?: string }
+interface OhdpDetectionMethod { id: number; methodName: string; methodCode?: string; methodAbbr?: string; formula?: string; enabled?: boolean }
+interface OhdpDetectType { id: number; typeName: string; typeCode: string; typeAbbr?: string; enabled?: boolean }
+interface OhdpOrgConfig { orgName?: string; orgCode?: string; orgAddress?: string; contactName?: string; contactPhone?: string; certNo?: string; sampleNoPrefix?: string; reportNoPrefix?: string }
+interface OhdpLabTask { id: number; taskCode: string; projectId: number; taskStatus: string; issuerName?: string; receiverName?: string; notes?: string }
+interface OhdpLabResult { id: number; taskId: number; factorName: string; methodName?: string; interceptA?: number; slopeB?: number; correlationR?: number; resultValue?: number; resultUnit?: string; analystName?: string }
+interface SysDept { id: number; deptName: string; parentId?: number; deptCode?: string; enabled?: boolean }
+interface SysPost { id: number; postName: string; postCode?: string; enabled?: boolean }
+interface SysNotice { id: number; title: string; noticeType?: string; publisher?: string; enabled?: boolean }
+interface SysSysLog { id: number; userName?: string; operation?: string; resultType?: string; module?: string; createdAt?: string }
+interface SysConfig { id: number; configKey: string; configValue?: string; configName?: string }
+// ===== END 新模块接口 =====
+
 const token = ref(localStorage.getItem('ohdp_token') || '')
 const loading = ref(false)
 const message = ref('')
@@ -189,21 +213,21 @@ const actionBusy = reactive({
   generateReport: false,
   downloadReport: false,
 })
-const activeTab = ref<'project' | 'maintenance'>('project')
+const activeTab = ref<'project' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage'>('project')
 const projectChildMenu = ref<'workspace' | 'report'>('workspace')
 const projectWorkTab = ref<'base' | 'supplement' | 'position' | 'result' | 'report'>('base')
 const maintenanceChildMenu = ref<'company' | 'position' | 'factor' | 'dict' | 'staff' | 'reportText'>('company')
+const systemChildMenu = ref<'user' | 'role' | 'menu' | 'permission' | 'dept' | 'post' | 'notice' | 'syslog' | 'sysfile' | 'sysconfig'>('user')
 type MenuKey =
-  | 'project'
-  | 'project.workspace'
-  | 'project.report'
-  | 'maintenance'
-  | 'maintenance.company'
-  | 'maintenance.position'
-  | 'maintenance.factor'
-  | 'maintenance.dict'
-  | 'maintenance.staff'
-  | 'maintenance.reportText'
+  | 'project' | 'project.workspace' | 'project.report'
+  | 'maintenance' | 'maintenance.company' | 'maintenance.position'
+  | 'maintenance.factor' | 'maintenance.dict' | 'maintenance.staff' | 'maintenance.reportText'
+  | 'system' | 'system.user' | 'system.role' | 'system.menu' | 'system.permission'
+  | 'system.dept' | 'system.post' | 'system.notice' | 'system.syslog' | 'system.sysfile' | 'system.sysconfig'
+  | 'basicData' | 'basicData.law' | 'basicData.standard' | 'basicData.region' | 'basicData.device'
+  | 'hazardFactor' | 'hazardFactor.factor' | 'hazardFactor.sds'
+  | 'configCenter' | 'configCenter.detectMethod' | 'configCenter.orgConfig' | 'configCenter.detectType'
+  | 'labManage' | 'labManage.task' | 'labManage.result'
 const selectedMenuKey = ref<MenuKey>('project.workspace')
 const showPreviewPanel = ref(false)
 
@@ -227,6 +251,17 @@ function openMaintenanceMenu(child: 'company' | 'position' | 'factor' | 'dict' |
   if (child === 'dict') selectedMenuKey.value = 'maintenance.dict'
   if (child === 'staff') selectedMenuKey.value = 'maintenance.staff'
   if (child === 'reportText') selectedMenuKey.value = 'maintenance.reportText'
+}
+
+function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' | 'dept' | 'post' | 'notice' | 'syslog' | 'sysfile' | 'sysconfig' = 'user') {
+  activeTab.value = 'system'
+  systemChildMenu.value = child
+  const keyMap: Record<typeof child, MenuKey> = {
+    user: 'system.user', role: 'system.role', menu: 'system.menu', permission: 'system.permission',
+    dept: 'system.dept', post: 'system.post', notice: 'system.notice',
+    syslog: 'system.syslog', sysfile: 'system.sysfile', sysconfig: 'system.sysconfig',
+  }
+  selectedMenuKey.value = keyMap[child]
 }
 
 function selectMenu(key: MenuKey) {
@@ -267,6 +302,27 @@ function selectMenu(key: MenuKey) {
     openMaintenanceMenu('staff')
     return
   }
+  if (key === 'system' || key === 'system.user') { openSystemMenu('user'); return }
+  if (key === 'system.role') { openSystemMenu('role'); return }
+  if (key === 'system.menu') { openSystemMenu('menu'); return }
+  if (key === 'system.permission') { openSystemMenu('permission'); return }
+  if (key === 'basicData' || key === 'basicData.law') { activeTab.value = 'basicData'; basicDataChildMenu.value = 'law'; selectedMenuKey.value = 'basicData.law'; return }
+  if (key === 'basicData.standard') { activeTab.value = 'basicData'; basicDataChildMenu.value = 'standard'; selectedMenuKey.value = 'basicData.standard'; return }
+  if (key === 'basicData.region') { activeTab.value = 'basicData'; basicDataChildMenu.value = 'region'; selectedMenuKey.value = 'basicData.region'; return }
+  if (key === 'basicData.device') { activeTab.value = 'basicData'; basicDataChildMenu.value = 'device'; selectedMenuKey.value = 'basicData.device'; return }
+  if (key === 'hazardFactor' || key === 'hazardFactor.factor') { activeTab.value = 'hazardFactor'; hazardChildMenu.value = 'factor'; selectedMenuKey.value = 'hazardFactor.factor'; return }
+  if (key === 'hazardFactor.sds') { activeTab.value = 'hazardFactor'; hazardChildMenu.value = 'sds'; selectedMenuKey.value = 'hazardFactor.sds'; return }
+  if (key === 'configCenter' || key === 'configCenter.detectMethod') { activeTab.value = 'configCenter'; configChildMenu.value = 'detectMethod'; selectedMenuKey.value = 'configCenter.detectMethod'; return }
+  if (key === 'configCenter.orgConfig') { activeTab.value = 'configCenter'; configChildMenu.value = 'orgConfig'; selectedMenuKey.value = 'configCenter.orgConfig'; return }
+  if (key === 'configCenter.detectType') { activeTab.value = 'configCenter'; configChildMenu.value = 'detectType'; selectedMenuKey.value = 'configCenter.detectType'; return }
+  if (key === 'labManage' || key === 'labManage.task') { activeTab.value = 'labManage'; labChildMenu.value = 'task'; selectedMenuKey.value = 'labManage.task'; return }
+  if (key === 'labManage.result') { activeTab.value = 'labManage'; labChildMenu.value = 'result'; selectedMenuKey.value = 'labManage.result'; return }
+  if (key === 'system.dept') { openSystemMenu('dept'); return }
+  if (key === 'system.post') { openSystemMenu('post'); return }
+  if (key === 'system.notice') { openSystemMenu('notice'); return }
+  if (key === 'system.syslog') { openSystemMenu('syslog'); return }
+  if (key === 'system.sysfile') { openSystemMenu('sysfile'); return }
+  if (key === 'system.sysconfig') { openSystemMenu('sysconfig'); return }
   openMaintenanceMenu('reportText')
 }
 
@@ -1599,6 +1655,113 @@ async function deleteReportTextTemplate(id: number) {
   await Promise.all([fetchReportTextTemplates(), fetchTaskOriginTemplates(), fetchEvaluationBasisTemplates()])
 }
 
+// ===== 新模块数据 =====
+const laws = ref<OhdpLaw[]>([])
+const standards = ref<OhdpStandard[]>([])
+const regions = ref<OhdpRegion[]>([])
+const devices = ref<OhdpDevice[]>([])
+const hazardFactors = ref<OhdpHazardFactor[]>([])
+const sdsList = ref<OhdpSds[]>([])
+const detectionMethods = ref<OhdpDetectionMethod[]>([])
+const detectTypes = ref<OhdpDetectType[]>([])
+const orgConfig = ref<OhdpOrgConfig>({})
+const labTasks = ref<OhdpLabTask[]>([])
+const labResults = ref<OhdpLabResult[]>([])
+const sysDepts = ref<SysDept[]>([])
+const sysPosts = ref<SysPost[]>([])
+const sysNotices = ref<SysNotice[]>([])
+const sysLogs = ref<SysSysLog[]>([])
+const sysConfigs = ref<SysConfig[]>([])
+
+const lawForm = reactive({ id: null as number|null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', isValid: true, notes: '' })
+const standardForm = reactive({ id: null as number|null, standardName: '', standardCode: '', level: 'NATIONAL', isValid: true, notes: '' })
+const regionForm = reactive({ id: null as number|null, parentId: null as number|null, regionCode: '', regionName: '', level: 1, sortNo: 0 })
+const deviceForm = reactive({ id: null as number|null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '' })
+const hazardFactorForm = reactive({ id: null as number|null, factorName: '', factorCategory: 'CHEMICAL', factorCode: '', casNo: '', enabled: true })
+const sdsForm = reactive({ id: null as number|null, substanceName: '', casNo: '', factorId: null as number|null, version: '', notes: '' })
+const detectionMethodForm = reactive({ id: null as number|null, methodName: '', methodCode: '', methodAbbr: '', formula: '', enabled: true })
+const detectTypeForm = reactive({ id: null as number|null, typeName: '', typeCode: '', typeAbbr: '', sortNo: 0, enabled: true })
+const orgConfigForm = reactive({ orgName: '', orgCode: '', orgAddress: '', contactName: '', contactPhone: '', certNo: '', sampleNoPrefix: 'S', reportNoPrefix: 'R' })
+const labTaskForm = reactive({ id: null as number|null, projectId: null as number|null, issuerName: '', notes: '' })
+const deptForm = reactive({ id: null as number|null, deptName: '', deptCode: '', parentId: null as number|null, enabled: true })
+const postForm = reactive({ id: null as number|null, postName: '', postCode: '', enabled: true })
+const noticeForm = reactive({ id: null as number|null, title: '', content: '', noticeType: 'NOTICE', publisher: '', enabled: true })
+const sysConfigForm = reactive({ id: null as number|null, configKey: '', configValue: '', configName: '' })
+
+// ===== 新模块 API 函数 =====
+async function fetchLaws() { const r = await api.get('/api/ohdp/basic/laws', { params: { page: 0, size: 100 } }); laws.value = r.data.content || [] }
+async function saveLaw() { if (lawForm.id) { await api.put(`/api/ohdp/basic/laws/${lawForm.id}`, { ...lawForm }) } else { await api.post('/api/ohdp/basic/laws', { ...lawForm }) }; Object.assign(lawForm, { id: null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', isValid: true, notes: '' }); fetchLaws() }
+async function deleteLaw(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/basic/laws/${id}`); fetchLaws() }
+function editLaw(item: OhdpLaw) { Object.assign(lawForm, item) }
+
+async function fetchStandards() { const r = await api.get('/api/ohdp/basic/standards', { params: { page: 0, size: 100 } }); standards.value = r.data.content || [] }
+async function saveStandard() { if (standardForm.id) { await api.put(`/api/ohdp/basic/standards/${standardForm.id}`, { ...standardForm }) } else { await api.post('/api/ohdp/basic/standards', { ...standardForm }) }; Object.assign(standardForm, { id: null, standardName: '', standardCode: '', level: 'NATIONAL', isValid: true, notes: '' }); fetchStandards() }
+async function deleteStandard(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/basic/standards/${id}`); fetchStandards() }
+function editStandard(item: OhdpStandard) { Object.assign(standardForm, item) }
+
+async function fetchRegions() { const r = await api.get('/api/ohdp/basic/regions'); regions.value = r.data || [] }
+async function saveRegion() { if (regionForm.id) { await api.put(`/api/ohdp/basic/regions/${regionForm.id}`, { ...regionForm }) } else { await api.post('/api/ohdp/basic/regions', { ...regionForm }) }; Object.assign(regionForm, { id: null, parentId: null, regionCode: '', regionName: '', level: 1, sortNo: 0 }); fetchRegions() }
+async function deleteRegion(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/basic/regions/${id}`); fetchRegions() }
+function editRegion(item: OhdpRegion) { Object.assign(regionForm, item) }
+
+async function fetchDevices() { const r = await api.get('/api/ohdp/devices', { params: { page: 0, size: 100 } }); devices.value = r.data.content || [] }
+async function saveDevice() { if (deviceForm.id) { await api.put(`/api/ohdp/devices/${deviceForm.id}`, { ...deviceForm }) } else { await api.post('/api/ohdp/devices', { ...deviceForm }) }; Object.assign(deviceForm, { id: null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '' }); fetchDevices() }
+async function deleteDevice(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/devices/${id}`); fetchDevices() }
+function editDevice(item: OhdpDevice) { Object.assign(deviceForm, item) }
+
+async function fetchHazardFactors() { const r = await api.get('/api/ohdp/hazard-factors', { params: { page: 0, size: 200 } }); hazardFactors.value = r.data.content || [] }
+async function saveHazardFactor() { if (hazardFactorForm.id) { await api.put(`/api/ohdp/hazard-factors/${hazardFactorForm.id}`, { ...hazardFactorForm }) } else { await api.post('/api/ohdp/hazard-factors', { ...hazardFactorForm }) }; Object.assign(hazardFactorForm, { id: null, factorName: '', factorCategory: 'CHEMICAL', factorCode: '', casNo: '', enabled: true }); fetchHazardFactors() }
+async function deleteHazardFactor(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/hazard-factors/${id}`); fetchHazardFactors() }
+function editHazardFactor(item: OhdpHazardFactor) { Object.assign(hazardFactorForm, item) }
+
+async function fetchSdsList() { const r = await api.get('/api/ohdp/sds', { params: { page: 0, size: 100 } }); sdsList.value = r.data.content || [] }
+async function saveSds() { if (sdsForm.id) { await api.put(`/api/ohdp/sds/${sdsForm.id}`, { ...sdsForm }) } else { await api.post('/api/ohdp/sds', { ...sdsForm }) }; Object.assign(sdsForm, { id: null, substanceName: '', casNo: '', factorId: null, version: '', notes: '' }); fetchSdsList() }
+async function deleteSds(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/sds/${id}`); fetchSdsList() }
+function editSds(item: OhdpSds) { Object.assign(sdsForm, item) }
+
+async function fetchDetectionMethods() { const r = await api.get('/api/ohdp/config/detection-methods', { params: { page: 0, size: 100 } }); detectionMethods.value = r.data.content || [] }
+async function saveDetectionMethod() { if (detectionMethodForm.id) { await api.put(`/api/ohdp/config/detection-methods/${detectionMethodForm.id}`, { ...detectionMethodForm }) } else { await api.post('/api/ohdp/config/detection-methods', { ...detectionMethodForm }) }; Object.assign(detectionMethodForm, { id: null, methodName: '', methodCode: '', methodAbbr: '', formula: '', enabled: true }); fetchDetectionMethods() }
+async function deleteDetectionMethod(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/config/detection-methods/${id}`); fetchDetectionMethods() }
+function editDetectionMethod(item: OhdpDetectionMethod) { Object.assign(detectionMethodForm, item) }
+
+async function fetchDetectTypes() { const r = await api.get('/api/ohdp/config/detect-types'); detectTypes.value = r.data || [] }
+async function saveDetectType() { if (detectTypeForm.id) { await api.put(`/api/ohdp/config/detect-types/${detectTypeForm.id}`, { ...detectTypeForm }) } else { await api.post('/api/ohdp/config/detect-types', { ...detectTypeForm }) }; Object.assign(detectTypeForm, { id: null, typeName: '', typeCode: '', typeAbbr: '', sortNo: 0, enabled: true }); fetchDetectTypes() }
+async function deleteDetectType(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/config/detect-types/${id}`); fetchDetectTypes() }
+function editDetectType(item: OhdpDetectType) { Object.assign(detectTypeForm, item) }
+
+async function fetchOrgConfig() { try { const r = await api.get('/api/ohdp/config/org'); if (r.data) Object.assign(orgConfigForm, r.data) } catch (e) {} }
+async function saveOrgConfig() { await api.put('/api/ohdp/config/org', { ...orgConfigForm }); alert('保存成功') }
+
+async function fetchLabTasks() { const r = await api.get('/api/ohdp/lab/tasks', { params: { page: 0, size: 50 } }); labTasks.value = r.data.content || [] }
+async function createLabTask() { await api.post('/api/ohdp/lab/tasks', { ...labTaskForm, samples: [] }); Object.assign(labTaskForm, { id: null, projectId: null, issuerName: '', notes: '' }); fetchLabTasks() }
+async function receiveTask(id: number, receiverName: string) { await api.post(`/api/ohdp/lab/tasks/${id}/receive`, { receiverName }); fetchLabTasks() }
+async function submitTask(id: number) { await api.post(`/api/ohdp/lab/tasks/${id}/submit`, {}); fetchLabTasks() }
+
+async function fetchLabResults() { const r = await api.get('/api/ohdp/lab/results', { params: { page: 0, size: 50 } }); labResults.value = r.data.content || [] }
+async function calcLabResult(id: number) { await api.post(`/api/ohdp/lab/results/${id}/calculate`, {}); fetchLabResults(); alert('计算完成') }
+
+async function fetchSysDepts() { const r = await api.get('/api/system/departments'); sysDepts.value = r.data || [] }
+async function saveDept() { if (deptForm.id) { await api.put(`/api/system/departments/${deptForm.id}`, { ...deptForm }) } else { await api.post('/api/system/departments', { ...deptForm }) }; Object.assign(deptForm, { id: null, deptName: '', deptCode: '', parentId: null, enabled: true }); fetchSysDepts() }
+async function deleteDept(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/system/departments/${id}`); fetchSysDepts() }
+function editDept(item: SysDept) { Object.assign(deptForm, item) }
+
+async function fetchSysPosts() { const r = await api.get('/api/system/posts', { params: { page: 0, size: 100 } }); sysPosts.value = r.data.content || [] }
+async function savePost() { if (postForm.id) { await api.put(`/api/system/posts/${postForm.id}`, { ...postForm }) } else { await api.post('/api/system/posts', { ...postForm }) }; Object.assign(postForm, { id: null, postName: '', postCode: '', enabled: true }); fetchSysPosts() }
+async function deletePost(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/system/posts/${id}`); fetchSysPosts() }
+function editPost(item: SysPost) { Object.assign(postForm, item) }
+
+async function fetchSysNotices() { const r = await api.get('/api/system/notices', { params: { page: 0, size: 20 } }); sysNotices.value = r.data.content || [] }
+async function saveNotice() { if (noticeForm.id) { await api.put(`/api/system/notices/${noticeForm.id}`, { ...noticeForm }) } else { await api.post('/api/system/notices', { ...noticeForm }) }; Object.assign(noticeForm, { id: null, title: '', content: '', noticeType: 'NOTICE', publisher: '', enabled: true }); fetchSysNotices() }
+async function deleteNotice(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/system/notices/${id}`); fetchSysNotices() }
+
+async function fetchSysLogs() { const r = await api.get('/api/system/logs', { params: { page: 0, size: 50 } }); sysLogs.value = r.data.content || [] }
+
+async function fetchSysConfigs() { const r = await api.get('/api/system/configs', { params: { page: 0, size: 100 } }); sysConfigs.value = r.data.content || [] }
+async function saveSysConfig() { if (sysConfigForm.id) { await api.put(`/api/system/configs/${sysConfigForm.id}`, { ...sysConfigForm }) } else { await api.post('/api/system/configs', { ...sysConfigForm }) }; Object.assign(sysConfigForm, { id: null, configKey: '', configValue: '', configName: '' }); fetchSysConfigs() }
+async function deleteSysConfig(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/system/configs/${id}`); fetchSysConfigs() }
+function editSysConfig(item: SysConfig) { Object.assign(sysConfigForm, item) }
+// ===== END 新模块 =====
+
 onMounted(async () => {
   if (token.value) {
     await initAfterLogin()
@@ -1673,6 +1836,46 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
             <el-menu-item index="maintenance.dict">字典项</el-menu-item>
             <el-menu-item index="maintenance.staff">人员资质</el-menu-item>
             <el-menu-item index="maintenance.reportText">报告文本模板</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="system-group">
+            <template #title>系统管理</template>
+            <el-menu-item index="system.user">用户管理</el-menu-item>
+            <el-menu-item index="system.role">角色管理</el-menu-item>
+            <el-menu-item index="system.menu">菜单管理</el-menu-item>
+            <el-menu-item index="system.permission">权限管理</el-menu-item>
+            <el-menu-item index="system.dept">部门管理</el-menu-item>
+            <el-menu-item index="system.post">岗位管理</el-menu-item>
+            <el-menu-item index="system.notice">通知公告</el-menu-item>
+            <el-menu-item index="system.syslog">操作日志</el-menu-item>
+            <el-menu-item index="system.sysconfig">参数配置</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="basicData-group">
+            <template #title>基础数据</template>
+            <el-menu-item index="basicData.law">法律法规</el-menu-item>
+            <el-menu-item index="basicData.standard">标准规范</el-menu-item>
+            <el-menu-item index="basicData.region">地区字典</el-menu-item>
+            <el-menu-item index="basicData.device">设备管理</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="hazardFactor-group">
+            <template #title>危害因素管理</template>
+            <el-menu-item index="hazardFactor.factor">危害因素库</el-menu-item>
+            <el-menu-item index="hazardFactor.sds">SDS说明书</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="configCenter-group">
+            <template #title>配置中心</template>
+            <el-menu-item index="configCenter.detectMethod">检测方法</el-menu-item>
+            <el-menu-item index="configCenter.detectType">检测分类</el-menu-item>
+            <el-menu-item index="configCenter.orgConfig">机构配置</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="labManage-group">
+            <template #title>实验管理</template>
+            <el-menu-item index="labManage.task">检测任务单</el-menu-item>
+            <el-menu-item index="labManage.result">检测结果计算</el-menu-item>
           </el-sub-menu>
         </el-menu>
       </aside>
@@ -2088,7 +2291,7 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
       </section>
     </section>
 
-    <section v-else class="maintenance-grid">
+    <section v-else-if="activeTab === 'maintenance'" class="maintenance-grid">
       <section class="card" v-if="maintenanceChildMenu === 'company'">
         <h2>单位信息维护</h2>
         <div class="grid2">
@@ -2294,6 +2497,248 @@ watch([autoSaveEnabled, autoSaveIntervalSec, token], () => {
         </table>
       </section>
     </section>
+
+      <!-- 系统管理 -->
+      <section v-else-if="activeTab === 'system'" class="maintenance-grid">
+        <section class="card" v-if="systemChildMenu === 'user'">
+          <h2>用户管理</h2>
+          <p class="small">用户列表（功能待实现）</p>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'role'">
+          <h2>角色管理</h2>
+          <p class="small">角色列表（功能待实现）</p>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'menu'">
+          <h2>菜单管理</h2>
+          <p class="small">菜单列表（功能待实现）</p>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'permission'">
+          <h2>权限管理</h2>
+          <p class="small">权限列表（功能待实现）</p>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'dept'">
+          <h2>部门管理</h2>
+          <div class="grid2">
+            <label>部门名称<input v-model="deptForm.deptName" /></label>
+            <label>部门代码<input v-model="deptForm.deptCode" /></label>
+          </div>
+          <div class="actions"><button @click="saveDept">{{ deptForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysDepts">刷新</button></div>
+          <table><thead><tr><th>部门名称</th><th>代码</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in sysDepts" :key="item.id"><td>{{ item.deptName }}</td><td>{{ item.deptCode }}</td><td><button class="ghost tiny" @click="editDept(item)">编辑</button><button class="danger tiny" @click="deleteDept(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'post'">
+          <h2>岗位管理</h2>
+          <div class="grid2">
+            <label>岗位名称<input v-model="postForm.postName" /></label>
+            <label>岗位代码<input v-model="postForm.postCode" /></label>
+          </div>
+          <div class="actions"><button @click="savePost">{{ postForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysPosts">刷新</button></div>
+          <table><thead><tr><th>岗位名称</th><th>代码</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in sysPosts" :key="item.id"><td>{{ item.postName }}</td><td>{{ item.postCode }}</td><td><button class="ghost tiny" @click="editPost(item)">编辑</button><button class="danger tiny" @click="deletePost(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'notice'">
+          <h2>通知公告</h2>
+          <div class="grid2">
+            <label>标题<input v-model="noticeForm.title" /></label>
+            <label>类型<select v-model="noticeForm.noticeType"><option value="NOTICE">通知</option><option value="ANNOUNCEMENT">公告</option></select></label>
+            <label>发布人<input v-model="noticeForm.publisher" /></label>
+            <label class="full">内容<textarea v-model="noticeForm.content" rows="3" style="width:100%"></textarea></label>
+          </div>
+          <div class="actions"><button @click="saveNotice">{{ noticeForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysNotices">刷新</button></div>
+          <table><thead><tr><th>标题</th><th>类型</th><th>发布人</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in sysNotices" :key="item.id"><td>{{ item.title }}</td><td>{{ item.noticeType }}</td><td>{{ item.publisher }}</td><td><button class="danger tiny" @click="deleteNotice(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'syslog'">
+          <h2>操作日志</h2>
+          <div class="actions"><button class="ghost" @click="fetchSysLogs">刷新</button></div>
+          <table><thead><tr><th>用户</th><th>操作</th><th>模块</th><th>结果</th><th>时间</th></tr></thead>
+            <tbody><tr v-for="item in sysLogs" :key="item.id"><td>{{ item.userName }}</td><td>{{ item.operation }}</td><td>{{ item.module }}</td><td>{{ item.resultType }}</td><td>{{ item.createdAt }}</td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="systemChildMenu === 'sysconfig'">
+          <h2>参数配置</h2>
+          <div class="grid2">
+            <label>参数键<input v-model="sysConfigForm.configKey" /></label>
+            <label>参数值<input v-model="sysConfigForm.configValue" /></label>
+            <label class="full">参数名称<input v-model="sysConfigForm.configName" /></label>
+          </div>
+          <div class="actions"><button @click="saveSysConfig">{{ sysConfigForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysConfigs">刷新</button></div>
+          <table><thead><tr><th>参数键</th><th>参数值</th><th>名称</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in sysConfigs" :key="item.id"><td>{{ item.configKey }}</td><td>{{ item.configValue }}</td><td>{{ item.configName }}</td><td><button class="ghost tiny" @click="editSysConfig(item)">编辑</button><button class="danger tiny" @click="deleteSysConfig(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+      </section>
+
+      <!-- 基础数据 -->
+      <section v-else-if="activeTab === 'basicData'" class="maintenance-grid">
+        <section class="card" v-if="basicDataChildMenu === 'law'">
+          <h2>法律法规</h2>
+          <div class="grid2">
+            <label>标题<input v-model="lawForm.title" /></label>
+            <label>文号<input v-model="lawForm.docNo" /></label>
+            <label>级别
+              <select v-model="lawForm.level"><option value="NATIONAL">国家</option><option value="PROVINCIAL">省级</option><option value="LOCAL">地方</option></select>
+            </label>
+            <label>发布日期<input v-model="lawForm.publishDate" type="date" /></label>
+            <label class="full">备注<input v-model="lawForm.notes" /></label>
+          </div>
+          <div class="actions"><button @click="saveLaw">{{ lawForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchLaws">刷新</button></div>
+          <table><thead><tr><th>标题</th><th>文号</th><th>级别</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in laws" :key="item.id"><td>{{ item.title }}</td><td>{{ item.docNo }}</td><td>{{ item.level }}</td><td><button class="ghost tiny" @click="editLaw(item)">编辑</button><button class="danger tiny" @click="deleteLaw(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="basicDataChildMenu === 'standard'">
+          <h2>标准规范</h2>
+          <div class="grid2">
+            <label>标准名称<input v-model="standardForm.standardName" /></label>
+            <label>标准编号<input v-model="standardForm.standardCode" /></label>
+            <label>级别<select v-model="standardForm.level"><option value="NATIONAL">国标</option><option value="INDUSTRY">行标</option></select></label>
+            <label class="full">备注<input v-model="standardForm.notes" /></label>
+          </div>
+          <div class="actions"><button @click="saveStandard">{{ standardForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchStandards">刷新</button></div>
+          <table><thead><tr><th>标准名称</th><th>编号</th><th>级别</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in standards" :key="item.id"><td>{{ item.standardName }}</td><td>{{ item.standardCode }}</td><td>{{ item.level }}</td><td><button class="ghost tiny" @click="editStandard(item)">编辑</button><button class="danger tiny" @click="deleteStandard(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="basicDataChildMenu === 'region'">
+          <h2>地区字典</h2>
+          <div class="grid2">
+            <label>区域名称<input v-model="regionForm.regionName" /></label>
+            <label>区域代码<input v-model="regionForm.regionCode" /></label>
+            <label>级别<select v-model="regionForm.level"><option :value="1">省级</option><option :value="2">市级</option><option :value="3">区县</option></select></label>
+            <label>排序<input v-model.number="regionForm.sortNo" type="number" /></label>
+          </div>
+          <div class="actions"><button @click="saveRegion">{{ regionForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchRegions">刷新</button></div>
+          <table><thead><tr><th>名称</th><th>代码</th><th>级别</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in regions" :key="item.id"><td>{{ item.regionName }}</td><td>{{ item.regionCode }}</td><td>{{ item.level }}</td><td><button class="ghost tiny" @click="editRegion(item)">编辑</button><button class="danger tiny" @click="deleteRegion(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="basicDataChildMenu === 'device'">
+          <h2>设备管理</h2>
+          <div class="grid2">
+            <label>设备名称<input v-model="deviceForm.deviceName" /></label>
+            <label>类型<select v-model="deviceForm.deviceType"><option value="LAB_INSTRUMENT">实验仪器</option><option value="SAMPLER">采样仪器</option></select></label>
+            <label>型号<input v-model="deviceForm.deviceModel" /></label>
+            <label>设备编号<input v-model="deviceForm.deviceNo" /></label>
+            <label>状态<select v-model="deviceForm.status"><option value="NORMAL">正常</option><option value="MAINTENANCE">维修中</option><option value="SCRAPPED">报废</option></select></label>
+            <label class="full">备注<input v-model="deviceForm.notes" /></label>
+          </div>
+          <div class="actions"><button @click="saveDevice">{{ deviceForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDevices">刷新</button></div>
+          <table><thead><tr><th>名称</th><th>型号</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in devices" :key="item.id"><td>{{ item.deviceName }}</td><td>{{ item.deviceModel }}</td><td>{{ item.deviceType === 'LAB_INSTRUMENT' ? '实验仪器' : '采样仪器' }}</td><td>{{ item.status }}</td><td><button class="ghost tiny" @click="editDevice(item)">编辑</button><button class="danger tiny" @click="deleteDevice(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+      </section>
+
+      <!-- 危害因素管理 -->
+      <section v-else-if="activeTab === 'hazardFactor'" class="maintenance-grid">
+        <section class="card" v-if="hazardChildMenu === 'factor'">
+          <h2>危害因素库</h2>
+          <div class="grid2">
+            <label>因素名称<input v-model="hazardFactorForm.factorName" /></label>
+            <label>分类<select v-model="hazardFactorForm.factorCategory"><option value="PHYSICAL">物理因素</option><option value="CHEMICAL">化学因素</option><option value="DUST">粉尘</option><option value="BIOLOGICAL">生物因素</option><option value="RADIATION">放射因素</option><option value="OTHER">其他</option></select></label>
+            <label>因素编码<input v-model="hazardFactorForm.factorCode" /></label>
+            <label>CAS号<input v-model="hazardFactorForm.casNo" /></label>
+          </div>
+          <div class="actions"><button @click="saveHazardFactor">{{ hazardFactorForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchHazardFactors">刷新</button></div>
+          <table><thead><tr><th>因素名称</th><th>分类</th><th>CAS号</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in hazardFactors" :key="item.id"><td>{{ item.factorName }}</td><td>{{ item.factorCategory }}</td><td>{{ item.casNo }}</td><td><button class="ghost tiny" @click="editHazardFactor(item)">编辑</button><button class="danger tiny" @click="deleteHazardFactor(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="hazardChildMenu === 'sds'">
+          <h2>SDS安全技术说明书</h2>
+          <div class="grid2">
+            <label>物质名称<input v-model="sdsForm.substanceName" /></label>
+            <label>CAS号<input v-model="sdsForm.casNo" /></label>
+            <label>版本<input v-model="sdsForm.version" /></label>
+            <label class="full">备注<input v-model="sdsForm.notes" /></label>
+          </div>
+          <div class="actions"><button @click="saveSds">{{ sdsForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSdsList">刷新</button></div>
+          <table><thead><tr><th>物质名称</th><th>CAS号</th><th>版本</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in sdsList" :key="item.id"><td>{{ item.substanceName }}</td><td>{{ item.casNo }}</td><td>{{ item.version }}</td><td><button class="ghost tiny" @click="editSds(item)">编辑</button><button class="danger tiny" @click="deleteSds(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+      </section>
+
+      <!-- 配置中心 -->
+      <section v-else-if="activeTab === 'configCenter'" class="maintenance-grid">
+        <section class="card" v-if="configChildMenu === 'detectMethod'">
+          <h2>检测方法配置</h2>
+          <div class="grid2">
+            <label>方法名称<input v-model="detectionMethodForm.methodName" /></label>
+            <label>方法代码<input v-model="detectionMethodForm.methodCode" /></label>
+            <label>简称<input v-model="detectionMethodForm.methodAbbr" /></label>
+            <label>计算公式<input v-model="detectionMethodForm.formula" /></label>
+          </div>
+          <div class="actions"><button @click="saveDetectionMethod">{{ detectionMethodForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDetectionMethods">刷新</button></div>
+          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>公式</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in detectionMethods" :key="item.id"><td>{{ item.methodName }}</td><td>{{ item.methodCode }}</td><td>{{ item.methodAbbr }}</td><td>{{ item.formula }}</td><td><button class="ghost tiny" @click="editDetectionMethod(item)">编辑</button><button class="danger tiny" @click="deleteDetectionMethod(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="configChildMenu === 'detectType'">
+          <h2>检测分类配置</h2>
+          <div class="grid2">
+            <label>分类名称<input v-model="detectTypeForm.typeName" /></label>
+            <label>分类代码<input v-model="detectTypeForm.typeCode" /></label>
+            <label>简称<input v-model="detectTypeForm.typeAbbr" /></label>
+            <label>排序<input v-model.number="detectTypeForm.sortNo" type="number" /></label>
+          </div>
+          <div class="actions"><button @click="saveDetectType">{{ detectTypeForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDetectTypes">刷新</button></div>
+          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in detectTypes" :key="item.id"><td>{{ item.typeName }}</td><td>{{ item.typeCode }}</td><td>{{ item.typeAbbr }}</td><td><button class="ghost tiny" @click="editDetectType(item)">编辑</button><button class="danger tiny" @click="deleteDetectType(item.id)">删除</button></td></tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="configChildMenu === 'orgConfig'">
+          <h2>机构基础配置</h2>
+          <div class="grid2">
+            <label>机构名称<input v-model="orgConfigForm.orgName" /></label>
+            <label>统一社会信用代码<input v-model="orgConfigForm.orgCode" /></label>
+            <label>机构地址<input v-model="orgConfigForm.orgAddress" /></label>
+            <label>联系人<input v-model="orgConfigForm.contactName" /></label>
+            <label>联系电话<input v-model="orgConfigForm.contactPhone" /></label>
+            <label>资质证书编号<input v-model="orgConfigForm.certNo" /></label>
+            <label>样品编号前缀<input v-model="orgConfigForm.sampleNoPrefix" /></label>
+            <label>报告编号前缀<input v-model="orgConfigForm.reportNoPrefix" /></label>
+          </div>
+          <div class="actions"><button @click="saveOrgConfig">保存配置</button><button class="ghost" @click="fetchOrgConfig">刷新</button></div>
+        </section>
+      </section>
+
+      <!-- 实验管理 -->
+      <section v-else-if="activeTab === 'labManage'" class="maintenance-grid">
+        <section class="card" v-if="labChildMenu === 'task'">
+          <h2>内部检测任务单</h2>
+          <div class="grid2">
+            <label>关联项目ID<input v-model.number="labTaskForm.projectId" type="number" /></label>
+            <label>签发人<input v-model="labTaskForm.issuerName" /></label>
+            <label class="full">备注<input v-model="labTaskForm.notes" /></label>
+          </div>
+          <div class="actions"><button @click="createLabTask">创建任务单</button><button class="ghost" @click="fetchLabTasks">刷新</button></div>
+          <table><thead><tr><th>任务单号</th><th>项目ID</th><th>状态</th><th>签发人</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in labTasks" :key="item.id">
+              <td>{{ item.taskCode }}</td><td>{{ item.projectId }}</td><td>{{ item.taskStatus }}</td><td>{{ item.issuerName }}</td>
+              <td>
+                <button v-if="item.taskStatus === 'PENDING'" class="ghost tiny" @click="receiveTask(item.id, '当前用户')">领取</button>
+                <button v-if="item.taskStatus === 'IN_PROGRESS'" class="ghost tiny" @click="submitTask(item.id)">提交审核</button>
+              </td>
+            </tr></tbody>
+          </table>
+        </section>
+        <section class="card" v-else-if="labChildMenu === 'result'">
+          <h2>检测结果计算</h2>
+          <div class="actions"><button class="ghost" @click="fetchLabResults">刷新</button></div>
+          <table><thead><tr><th>任务单ID</th><th>因素名称</th><th>检测方法</th><th>截距a</th><th>斜率b</th><th>相关系数R</th><th>结果值</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in labResults" :key="item.id">
+              <td>{{ item.taskId }}</td><td>{{ item.factorName }}</td><td>{{ item.methodName }}</td>
+              <td>{{ item.interceptA }}</td><td>{{ item.slopeB }}</td><td>{{ item.correlationR }}</td><td>{{ item.resultValue }} {{ item.resultUnit }}</td>
+              <td><button class="ghost tiny" @click="calcLabResult(item.id)">触发计算</button></td>
+            </tr></tbody>
+          </table>
+        </section>
+      </section>
       </div>
     </section>
   </div>
