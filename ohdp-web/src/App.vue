@@ -368,18 +368,6 @@ function selectMenu(key: MenuKey) {
   openMaintenanceMenu('reportText')
 }
 
-function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' = 'user') {
-  activeTab.value = 'system'
-  systemChildMenu.value = child
-  const keyMap: Record<typeof child, MenuKey> = {
-    user: 'system.user',
-    role: 'system.role',
-    menu: 'system.menu',
-    permission: 'system.permission',
-  }
-  selectedMenuKey.value = keyMap[child]
-}
-
 function toggleSideCollapse() {
   isMenuCollapse.value = !isMenuCollapse.value
 }
@@ -3457,7 +3445,6 @@ onMounted(async () => {
           <p class="small">共 {{ totalPermissions }} 条</p>
         </section>
 
-        </section>
         <section class="card" v-else-if="systemChildMenu === 'dept'">
           <h2>部门管理</h2>
           <div class="grid2">
