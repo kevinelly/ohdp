@@ -2423,16 +2423,14 @@ onMounted(async () => {
           unique-opened
           @select="(index: string) => selectMenu(index as MenuKey)"
         >
-          <el-menu-item index="project">项目管理</el-menu-item>
           <el-sub-menu index="project-group">
-            <template #title>项目子功能</template>
+            <template #title>项目管理</template>
             <el-menu-item index="project.workspace">项目工作台</el-menu-item>
             <el-menu-item index="project.report">报告管理</el-menu-item>
           </el-sub-menu>
 
-          <el-menu-item index="maintenance">信息维护</el-menu-item>
           <el-sub-menu index="maintenance-group">
-            <template #title>信息维护子菜单</template>
+            <template #title>信息维护</template>
             <el-menu-item index="maintenance.company">单位信息</el-menu-item>
             <el-menu-item index="maintenance.position">岗位模板</el-menu-item>
             <el-menu-item index="maintenance.factor">危害因素模板</el-menu-item>
