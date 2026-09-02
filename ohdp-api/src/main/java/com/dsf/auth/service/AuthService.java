@@ -35,6 +35,9 @@ public class AuthService {
     @Value("${dsf.auth.token-hours:12}")
     private int tokenHours;
 
+    @Value("${dsf.auth.remember-token-hours:720}")
+    private int rememberTokenHours;
+
     @Transactional
     public LoginResponse login(LoginRequest request) {
         SysUser user = sysUserRepository.findByUsernameAndDeletedFalse(request.getUsername())
@@ -57,7 +60,10 @@ public class AuthService {
         token.setTokenHash(tokenHash);
         token.setClientType(request.getClientType());
         token.setIssuedAt(now);
-        token.setExpiresAt(now.plusHours(tokenHours));
+        int effectiveTokenHours = Boolean.TRUE.equals(request.getRememberMe())
+                ? rememberTokenHours
+                : tokenHours;
+        token.setExpiresAt(now.plusHours(effectiveTokenHours));
         token.setRevokedAt(null);
         token.setLastAccessAt(now);
         sysUserTokenRepository.save(token);

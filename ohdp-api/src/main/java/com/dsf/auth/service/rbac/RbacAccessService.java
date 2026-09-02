@@ -74,6 +74,21 @@ public class RbacAccessService {
     }
 
     @Transactional(readOnly = true)
+    public boolean hasPermission(AuthenticatedUser user, String permissionCode) {
+        if (user == null || permissionCode == null || permissionCode.isBlank()) {
+            return false;
+        }
+        if (user.getRole() == UserRole.ADMIN) {
+            return true;
+        }
+        return sysPermissionRepository.findByPermCodeAndDeletedFalse(permissionCode)
+                .filter(permission -> permission.getStatus() == RecordStatus.ACTIVE)
+                .map(permission -> getActivePermissionIdsByRoleIds(getActiveRoleIds(user.getUserId()))
+                        .contains(permission.getId()))
+                .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
     public Set<Long> getActiveRoleIds(Long userId) {
         List<SysUserRole> links = sysUserRoleRepository.findByUserIdAndDeletedFalse(userId);
         Set<Long> roleIds = links.stream().map(SysUserRole::getRoleId).collect(Collectors.toSet());

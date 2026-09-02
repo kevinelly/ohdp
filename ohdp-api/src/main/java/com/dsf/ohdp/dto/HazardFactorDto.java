@@ -49,6 +49,7 @@ public final class HazardFactorDto {
         private String factorName;
         private String factorCode;
         private String factorCategory;
+        private String factorCategoryLabel;
         private String casNo;
         private String englishName;
         private Integer sortNo;
@@ -66,6 +67,7 @@ public final class HazardFactorDto {
         private String factorName;
         private String factorCode;
         private String factorCategory;
+        private String factorCategoryLabel;
         private String casNo;
         private String englishName;
         private Integer sortNo;
@@ -99,6 +101,7 @@ public final class HazardFactorDto {
         private Long id;
         private Long factorId;
         private String limitType;
+        private String limitTypeLabel;
         private BigDecimal limitValue;
         private String limitUnit;
         private String standardCode;

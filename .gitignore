@@ -24,6 +24,7 @@ dev-web.err.log
 **/node_modules/
 **/dist/
 **/.vite/
+**/__pycache__/
 
 # Runtime / generated files
 preview/
@@ -31,6 +32,7 @@ preview/
 *.extract.txt
 ohdp-api/storage/reports/
 职*检测报告.doc
+deploy/tencent-cloud/app.jar
 
 # Local env
 .env

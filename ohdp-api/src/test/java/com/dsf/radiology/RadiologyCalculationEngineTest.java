@@ -1,0 +1,130 @@
+package com.dsf.radiology;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.dsf.radiology.service.RadiologyCalculationEngine;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+class RadiologyCalculationEngineTest {
+
+    private final RadiologyCalculationEngine engine = new RadiologyCalculationEngine();
+
+    @Test
+    void calculatesHvlAndUsesHalfEvenRounding() {
+        var result = engine.calculate("HVL", numbers("HVL1", "2.22", "HVL2", "2.23", "HVL3", "2.245"), Map.of(), Map.of());
+
+        assertThat(result.complete()).isTrue();
+        assertThat(result.resultValue()).isEqualByComparingTo("2.231667");
+        assertThat(result.fields().get(0).valueNum()).isEqualByComparingTo("2.23");
+    }
+
+    @Test
+    void blankInputIsIncompleteInsteadOfZeroOrDivisionError() {
+        var result = engine.calculate("ROA", Map.of(), Map.of(), Map.of());
+
+        assertThat(result.complete()).isFalse();
+        assertThat(result.message()).contains("ROA1");
+        assertThat(result.resultValue()).isNull();
+    }
+
+    @Test
+    void calculatesRealSignalTransferRegressions() {
+        Map<String, BigDecimal> values = numbers(
+                "STP-K1", "1.199", "STP-K2", "5.248", "STP-K3", "10.42", "STP-K4", "19.21", "STP-K5", "33.41",
+                "STP-R1", "60918.117", "STP-R2", "49839.441", "STP-R3", "40281.706", "STP-R4", "28378.819", "STP-R5", "20179.48");
+
+        var result = engine.calculate("STP", values, Map.of(), Map.of("STP", values));
+
+        assertThat(result.complete()).isTrue();
+        assertThat(result.fields()).extracting(RadiologyCalculationEngine.CalculatedField::code)
+                .contains("LINEAR_R2", "LOG_R2", "POWER_R2", "BEST_MODEL", "RESULT");
+        assertThat(result.resultValue()).isBetween(new BigDecimal("0.90"), BigDecimal.ONE);
+    }
+
+    @Test
+    void calculatesCtDoseIndexForHeadAndBody() {
+        Map<String, BigDecimal> values = new LinkedHashMap<>();
+        values.putAll(numbers("层数n1", "3", "层厚T1", "10", "刻度系数k1", "1", "层数n2", "3", "层厚T2", "10", "刻度系数k2", "1"));
+        for (String prefix : new String[] {"HC", "HU", "HD", "HL", "HR", "SC", "SU", "SD", "SL", "SR"}) {
+            values.putAll(numbers(prefix + "D1", "100", prefix + "D2", "100", prefix + "D3", "100"));
+        }
+
+        var result = engine.calculate("CTDI", values, Map.of(), Map.of());
+
+        assertThat(result.complete()).isTrue();
+        assertThat(result.resultValue()).isEqualByComparingTo("33.333333");
+    }
+
+    @Test
+    void calculatesRpdBackgroundAndProtectionPoint() {
+        Map<String, BigDecimal> values = numbers("k", "1.27", "a", "0.001");
+        for (int i = 1; i <= 10; i++) values.put("RPD0-" + i, BigDecimal.valueOf(90 + i));
+
+        var result = engine.calculate("RPD", values, Map.of(), Map.of());
+        var point = engine.calculateProtectionReadings(
+                java.util.List.of(new BigDecimal("88"), new BigDecimal("99"), new BigDecimal("98"), new BigDecimal("87"), new BigDecimal("86")),
+                new BigDecimal("1.27"), new BigDecimal("0.001"));
+
+        assertThat(result.complete()).isTrue();
+        assertThat(result.resultUnit()).isEqualTo("μSv/h");
+        assertThat(point).hasSize(2);
+        assertThat(point.get(1)).isEqualByComparingTo("0.116");
+    }
+
+    @Test
+    void keepsAbsoluteAndRelativeTvdResultsTogether() {
+        Map<String, BigDecimal> values = numbers(
+                "TVD1-0", "60", "TVD1-1", "61", "TVD1-2", "61", "TVD1-3", "61",
+                "TVD2-0", "80", "TVD2-1", "79", "TVD2-2", "79", "TVD2-3", "79",
+                "TVD3-0", "100", "TVD3-1", "102", "TVD3-2", "102", "TVD3-3", "102");
+
+        var result = engine.calculate("TVD", values, Map.of(), Map.of());
+
+        assertThat(result.complete()).isTrue();
+        assertThat(result.resultValue()).isNull();
+        assertThat(result.resultText()).contains("1.00 kV", "-1.00 kV", "2.00 kV", "2.00%");
+        assertThat(result.fields()).filteredOn(field -> field.code().equals("RESULT_TEXT"))
+                .extracting(RadiologyCalculationEngine.CalculatedField::valueText)
+                .containsExactly(result.resultText());
+    }
+
+    @Test
+    void calculatesCtNoiseAsNumericPercentAndNormalizesToTenMillimetres() {
+        var result = engine.calculate("NPS", numbers(
+                "NPS1", "3.5", "NPS2", "3.5", "NPS3", "3.5", "NPS-n", "10"), Map.of(), Map.of());
+
+        assertThat(result.resultValue()).isEqualByComparingTo("0.350000");
+        assertThat(result.resultUnit()).isEqualTo("%");
+    }
+
+    @Test
+    void doesNotApplyUnexplainedPointFourTwoToLbaOrMtf() {
+        var lba = engine.calculate("LBA", numbers("LBA", "2"), Map.of(), Map.of());
+        var mtf = engine.calculate("MTF", numbers("MTF", "6"), Map.of(), Map.of());
+
+        assertThat(lba.resultValue()).isEqualByComparingTo("2.000000");
+        assertThat(mtf.resultValue()).isEqualByComparingTo("6.000000");
+    }
+
+    @Test
+    void lcrPreservesSignedDeltaButUsesAbsoluteDifferenceAsResult() {
+        var result = engine.calculate("LCR", numbers(
+                "LCR1（可观察细节数）", "8",
+                "LCR2（可观察对比度）", "0.5",
+                "厂家规定值/基线值", "10"), Map.of(), Map.of());
+
+        assertThat(result.resultValue()).isEqualByComparingTo("2.000000");
+        assertThat(result.fields()).filteredOn(field -> field.code().equals("DETAIL_DELTA"))
+                .extracting(RadiologyCalculationEngine.CalculatedField::valueNum)
+                .containsExactly(new BigDecimal("-2.00"));
+    }
+
+    private Map<String, BigDecimal> numbers(String... values) {
+        Map<String, BigDecimal> result = new LinkedHashMap<>();
+        for (int i = 0; i < values.length; i += 2) result.put(values[i], new BigDecimal(values[i + 1]));
+        return result;
+    }
+}

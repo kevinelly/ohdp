@@ -10,6 +10,7 @@ import com.dsf.ohdp.repository.OhdpHazardFactorLimitRepository;
 import com.dsf.ohdp.repository.OhdpHazardFactorMethodRepository;
 import com.dsf.ohdp.repository.OhdpHazardFactorRepository;
 import com.dsf.ohdp.repository.OhdpSdsRepository;
+import com.dsf.ohdp.support.OhdpCodeLabels;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,7 @@ public class OhdpHazardFactorServiceImpl implements OhdpHazardFactorService {
                 .factorName(entity.getFactorName())
                 .factorCode(entity.getFactorCode())
                 .factorCategory(entity.getFactorCategory())
+                .factorCategoryLabel(OhdpCodeLabels.label(entity.getFactorCategory()))
                 .casNo(entity.getCasNo())
                 .englishName(entity.getEnglishName())
                 .sortNo(entity.getSortNo())
@@ -256,6 +258,7 @@ public class OhdpHazardFactorServiceImpl implements OhdpHazardFactorService {
                 .factorName(entity.getFactorName())
                 .factorCode(entity.getFactorCode())
                 .factorCategory(entity.getFactorCategory())
+                .factorCategoryLabel(OhdpCodeLabels.label(entity.getFactorCategory()))
                 .casNo(entity.getCasNo())
                 .englishName(entity.getEnglishName())
                 .sortNo(entity.getSortNo())
@@ -278,6 +281,7 @@ public class OhdpHazardFactorServiceImpl implements OhdpHazardFactorService {
                 .id(entity.getId())
                 .factorId(entity.getFactorId())
                 .limitType(entity.getLimitType())
+                .limitTypeLabel(limitTypeLabel(entity.getLimitType()))
                 .limitValue(entity.getLimitValue())
                 .limitUnit(entity.getLimitUnit())
                 .standardCode(entity.getStandardCode())
@@ -285,6 +289,18 @@ public class OhdpHazardFactorServiceImpl implements OhdpHazardFactorService {
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
+    }
+
+    private String limitTypeLabel(String value) {
+        if (value == null || value.isBlank()) return "未设置";
+        return switch (value.toUpperCase()) {
+            case "PC_TWA" -> "时间加权平均容许浓度";
+            case "PC_STEL" -> "短时间接触容许浓度";
+            case "MAC" -> "最高容许浓度";
+            case "PE" -> "峰接触浓度";
+            case "LEX8H", "LEX,8H" -> "8 小时等效声级";
+            default -> "未知（" + value + "）";
+        };
     }
 
     private HazardFactorDto.HazardFactorMethodResponse toMethodResponse(OhdpHazardFactorMethod entity) {

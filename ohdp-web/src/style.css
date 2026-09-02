@@ -90,10 +90,6 @@ body {
   gap: 14px;
 }
 
-.admin-layout.collapsed {
-  grid-template-columns: 86px 1fr;
-}
-
 .admin-content {
   min-width: 0;
 }
@@ -270,7 +266,7 @@ textarea {
   resize: vertical;
 }
 
-button {
+button:not(:where([class^="el-"], [class*=" el-"])) {
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 8px 12px;
@@ -282,11 +278,11 @@ button {
   font-weight: 600;
 }
 
-button:hover {
+button:not(:where([class^="el-"], [class*=" el-"])):hover {
   background: #1f52cc;
 }
 
-button:disabled {
+button:not(:where([class^="el-"], [class*=" el-"])):disabled {
   opacity: 1;
   background: #e7ebf3;
   border-color: #c7d0de;

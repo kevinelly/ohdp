@@ -5,6 +5,7 @@ import com.dsf.ohdp.entity.OhdpLabTask;
 import com.dsf.ohdp.entity.OhdpLabTaskSample;
 import com.dsf.ohdp.repository.OhdpLabTaskRepository;
 import com.dsf.ohdp.repository.OhdpLabTaskSampleRepository;
+import com.dsf.ohdp.support.OhdpCodeLabels;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -137,7 +138,7 @@ public class OhdpLabServiceImpl implements OhdpLabService {
     public LabDto.TaskResponse reviewTask(Long id, LabDto.ReviewRequest request) {
         OhdpLabTask task = requireTask(id);
         if (!STATUS_COMPLETED.equals(task.getTaskStatus())) {
-            throw new RuntimeException("只有 COMPLETED 状态的任务单才能审核，当前状态：" + task.getTaskStatus());
+            throw new RuntimeException("只有待复核状态的任务单才能审核，当前状态：" + OhdpCodeLabels.label(task.getTaskStatus()));
         }
         task.setTaskStatus(Boolean.TRUE.equals(request.getApproved()) ? STATUS_REVIEWED : STATUS_REJECTED);
         task.setReviewNote(request.getReviewNote());
@@ -226,6 +227,7 @@ public class OhdpLabServiceImpl implements OhdpLabService {
                 .taskCode(task.getTaskCode())
                 .projectId(task.getProjectId())
                 .taskStatus(task.getTaskStatus())
+                .taskStatusLabel(OhdpCodeLabels.label(task.getTaskStatus()))
                 .issuerName(task.getIssuerName())
                 .issuedDate(task.getIssuedDate())
                 .receiverName(task.getReceiverName())
@@ -245,6 +247,7 @@ public class OhdpLabServiceImpl implements OhdpLabService {
                 .taskCode(task.getTaskCode())
                 .projectId(task.getProjectId())
                 .taskStatus(task.getTaskStatus())
+                .taskStatusLabel(OhdpCodeLabels.label(task.getTaskStatus()))
                 .issuerName(task.getIssuerName())
                 .issuedDate(task.getIssuedDate())
                 .receiverName(task.getReceiverName())

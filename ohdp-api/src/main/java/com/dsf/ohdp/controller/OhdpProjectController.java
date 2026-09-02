@@ -11,6 +11,7 @@ import java.io.FileNotFoundException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
@@ -157,7 +158,7 @@ public class OhdpProjectController {
         return ResponseEntity.ok()
                 .headers(headers)
                 .contentLength(file.length())
-                .contentType(MediaType.parseMediaType("application/msword"))
+                .contentType(reportMediaType(file))
                 .body(resource);
     }
 
@@ -176,6 +177,19 @@ public class OhdpProjectController {
         return projectService.listReportOperationLogs(projectId);
     }
 
+    @GetMapping("/reports")
+    public Page<OhdpDto.ReportCenterResponse> pageReportCenter(
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(required = false) String companyName,
+            @RequestParam(required = false) String reportStatus,
+            @RequestParam(required = false) LocalDate generatedFrom,
+            @RequestParam(required = false) LocalDate generatedTo,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return projectService.pageReportCenter(
+                projectCode, companyName, reportStatus, generatedFrom, generatedTo, page, size);
+    }
+
     @GetMapping("/reports/{reportId}/download")
     public ResponseEntity<Resource> downloadReport(@PathVariable Long reportId) throws FileNotFoundException {
         File file = projectService.getReportFile(reportId);
@@ -186,8 +200,15 @@ public class OhdpProjectController {
         return ResponseEntity.ok()
                 .headers(headers)
                 .contentLength(file.length())
-                .contentType(MediaType.parseMediaType("application/msword"))
+                .contentType(reportMediaType(file))
                 .body(resource);
+    }
+
+    private static MediaType reportMediaType(File file) {
+        String name = file.getName().toLowerCase(java.util.Locale.ROOT);
+        return name.endsWith(".docx")
+                ? MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                : MediaType.parseMediaType("application/msword");
     }
 
     @GetMapping("/maintenance/company-profiles")

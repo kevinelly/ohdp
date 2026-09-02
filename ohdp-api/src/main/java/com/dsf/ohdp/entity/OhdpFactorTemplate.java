@@ -36,6 +36,15 @@ public class OhdpFactorTemplate extends BaseAuditEntity {
     @Column(name = "default_limit_unit", length = 32)
     private String defaultLimitUnit;
 
+    @Column(name = "detection_basis", length = 1000)
+    private String detectionBasis;
+
+    @Column(name = "detection_method", length = 500)
+    private String detectionMethod;
+
+    @Column(name = "detection_instruments", length = 1000)
+    private String detectionInstruments;
+
     @Column(name = "notes", length = 1000)
     private String notes;
 }

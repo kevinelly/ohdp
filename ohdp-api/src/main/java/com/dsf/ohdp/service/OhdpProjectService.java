@@ -4,6 +4,7 @@ import com.dsf.ohdp.dto.OhdpDto;
 import java.io.File;
 import java.util.List;
 import org.springframework.data.domain.Page;
+import java.time.LocalDate;
 
 public interface OhdpProjectService {
 
@@ -46,6 +47,10 @@ public interface OhdpProjectService {
     List<OhdpDto.ReportFileResponse> listReports(Long projectId);
 
     List<OhdpDto.ReportOperationLogResponse> listReportOperationLogs(Long projectId);
+
+    Page<OhdpDto.ReportCenterResponse> pageReportCenter(
+            String projectCode, String companyName, String reportStatus,
+            LocalDate generatedFrom, LocalDate generatedTo, int page, int size);
 
     OhdpDto.ProjectResponse copyProject(Long sourceProjectId);
 

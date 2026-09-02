@@ -1,11 +1,85 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { codeLabel, formatFileSize, regionLevelLabel } from './codeLabels'
+import { findHelpAnchor, findHelpTopic, helpTopicByMenuKey, type HelpTopicId } from './helpContent'
+
+const RadiologyWorkbench = defineAsyncComponent(() => import('./components/radiology/RadiologyWorkbench.vue'))
+const FeedbackCenter = defineAsyncComponent(() => import('./components/feedback/FeedbackCenter.vue'))
+const HelpCenter = defineAsyncComponent(() => import('./components/help/HelpCenter.vue'))
+const HelpMark = defineAsyncComponent(() => import('./components/help/HelpMark.vue'))
+const ContextHelpDrawer = defineAsyncComponent(() => import('./components/help/ContextHelpDrawer.vue'))
+const ReportSupplementEditor = defineAsyncComponent(() => import('./components/ohdp/ReportSupplementEditor.vue'))
 
 type ProjectStatus = 'DRAFT' | 'DATA_FILLED' | 'JUDGED' | 'REPORT_READY'
 
+type UserRole = 'ADMIN' | 'USER'
+
+interface ReportSupplement {
+  reportHeaderName: string
+  socialCreditCode: string
+  legalRepresentative: string
+  registeredAddress: string
+  technicalServiceAddress: string
+  contactName: string
+  contactPhone: string
+  industryCategory: string
+  commissioningDate: string
+  economicType: string
+  companyScale: string
+  employeeCount: number
+  outsourcedWorkerCount: number
+  dispatchedWorkerCount: number
+  detectionScope: string
+  productionProcess: string
+  radiationSourceSummary: string
+  vocAnalysisConclusion: string
+  exclusionScreeningConclusion: string
+  rawRecordCompletenessNote: string
+  productionCondition: string
+  samplingLayoutDescription: string
+  detectionConditions: string
+  environmentConditions: string
+  onsiteInspectors: string
+  planDeviation: string
+  riskCategory: string
+  majorHazards: string
+  overLimitSummary: string
+  majorProblems: string
+  recommendations: string
+  materials: Record<string, any>[]
+  equipment: Record<string, any>[]
+  protectionFacilities: Record<string, any>[]
+  personalProtectiveEquipment: Record<string, any>[]
+  samplingPlans: Record<string, any>[]
+  materialsConfirmedNotApplicable: boolean
+  equipmentConfirmedNotApplicable: boolean
+  protectionFacilitiesConfirmedNotApplicable: boolean
+  ppeConfirmedNotApplicable: boolean
+}
+
+function createEmptyReportSupplement(): ReportSupplement {
+  return {
+    reportHeaderName: '', socialCreditCode: '', legalRepresentative: '', registeredAddress: '', technicalServiceAddress: '',
+    contactName: '', contactPhone: '', industryCategory: '', commissioningDate: '', economicType: '',
+    companyScale: '', employeeCount: 0, outsourcedWorkerCount: 0, dispatchedWorkerCount: 0,
+    detectionScope: '', productionProcess: '', radiationSourceSummary: '', vocAnalysisConclusion: '',
+    exclusionScreeningConclusion: '', rawRecordCompletenessNote: '',
+    productionCondition: '', samplingLayoutDescription: '', detectionConditions: '', environmentConditions: '',
+    onsiteInspectors: '', planDeviation: '已按现场采样与测量计划开展检测，未对计划进行变更。',
+    riskCategory: '', majorHazards: '', overLimitSummary: '', majorProblems: '', recommendations: '',
+    materials: [], equipment: [], protectionFacilities: [], personalProtectiveEquipment: [], samplingPlans: [],
+    materialsConfirmedNotApplicable: false, equipmentConfirmedNotApplicable: false,
+    protectionFacilitiesConfirmedNotApplicable: false, ppeConfirmedNotApplicable: false,
+  }
+}
+
 interface LoginResponse {
   token: string
+  userId: number
+  username: string
+  role: UserRole
+  mustChangePassword: boolean
 }
 
 interface Project {
@@ -38,6 +112,7 @@ interface Project {
   approverCertNo?: string
   statementDate?: string
   notes?: string
+  reportSupplement?: ReportSupplement
   status: ProjectStatus
   createdAt?: string
   updatedAt?: string
@@ -86,6 +161,7 @@ interface ReportLog {
   id: number
   projectId: number
   operationType: string
+  operationTypeLabel?: string
   operatorName?: string
   operationMessage?: string
   operatedAt: string
@@ -217,17 +293,20 @@ const basicDataChildMenu = ref<'law' | 'standard' | 'region' | 'device'>('law')
 const hazardChildMenu = ref<'factor' | 'sds'>('factor')
 const configChildMenu = ref<'detectMethod' | 'orgConfig' | 'detectType'>('detectMethod')
 const labChildMenu = ref<'task' | 'result'>('task')
+const radiologyChildMenu = ref<'DR' | 'CT'>('DR')
 
-interface OhdpLaw { id: number; title: string; docNo?: string; level?: string; publishDate?: string; isValid?: boolean; notes?: string }
-interface OhdpStandard { id: number; standardName: string; standardCode?: string; level?: string; isValid?: boolean; notes?: string }
-interface OhdpRegion { id: number; parentId?: number; regionCode: string; regionName: string; level: number; sortNo?: number }
-interface OhdpDevice { id: number; deviceName: string; deviceType: string; deviceModel?: string; deviceNo?: string; status?: string; calibrationExpiry?: string; notes?: string }
-interface OhdpHazardFactor { id: number; factorName: string; factorCategory: string; factorCode?: string; casNo?: string; enabled?: boolean }
+interface ReferenceDocument { id: number; referenceType: 'LAW' | 'STANDARD'; referenceId: number; versionNo: number; versionLabel?: string; originalName: string; contentType: string; fileSize: number; sha256: string; sourceUrl?: string; uploadedBy?: string; uploadedAt: string; current?: boolean }
+interface OhdpLaw { id: number; title: string; docNo?: string; level?: string; levelLabel?: string; publishDate?: string; effectiveDate?: string; publisher?: string; isValid?: boolean; isOpen?: boolean; fileId?: number; currentDocument?: ReferenceDocument; notes?: string }
+interface OhdpStandard { id: number; standardName: string; standardCode?: string; level?: string; levelLabel?: string; useScope?: string; publishDate?: string; isValid?: boolean; isOpen?: boolean; fileId?: number; currentDocument?: ReferenceDocument; notes?: string }
+interface OhdpRegion { id: number; parentId?: number; regionCode: string; regionName: string; level: number; levelLabel?: string; sortNo?: number }
+interface OhdpDevice { id: number; deviceName: string; deviceType: string; deviceTypeLabel?: string; deviceModel?: string; deviceNo?: string; status?: string; statusLabel?: string; calibrationExpiry?: string; notes?: string }
+interface OhdpHazardFactor { id: number; factorName: string; factorCategory: string; factorCategoryLabel?: string; factorCode?: string; casNo?: string; enabled?: boolean }
+interface OhdpHazardFactorLimit { id: number; factorId: number; limitType: string; limitTypeLabel?: string; limitValue?: number; limitUnit?: string; standardCode?: string; notes?: string }
 interface OhdpSds { id: number; substanceName: string; casNo?: string; factorId?: number; version?: string; notes?: string }
-interface OhdpDetectionMethod { id: number; methodName: string; methodCode?: string; methodAbbr?: string; formula?: string; enabled?: boolean }
+interface OhdpDetectionMethod { id: number; methodName: string; methodCode?: string; methodAbbr?: string; formula?: string; standardCode?: string; enabled?: boolean }
 interface OhdpDetectType { id: number; typeName: string; typeCode: string; typeAbbr?: string; enabled?: boolean }
 interface OhdpOrgConfig { orgName?: string; orgCode?: string; orgAddress?: string; contactName?: string; contactPhone?: string; certNo?: string; sampleNoPrefix?: string; reportNoPrefix?: string }
-interface OhdpLabTask { id: number; taskCode: string; projectId: number; taskStatus: string; issuerName?: string; receiverName?: string; notes?: string }
+interface OhdpLabTask { id: number; taskCode: string; projectId: number; taskStatus: string; taskStatusLabel?: string; issuerName?: string; receiverName?: string; notes?: string }
 interface OhdpLabResult { id: number; taskId: number; factorName: string; methodName?: string; interceptA?: number; slopeB?: number; correlationR?: number; resultValue?: number; resultUnit?: string; analystName?: string }
 interface SysDept { id: number; deptName: string; parentId?: number; deptCode?: string; enabled?: boolean }
 interface SysPost { id: number; postName: string; postCode?: string; enabled?: boolean }
@@ -236,12 +315,40 @@ interface SysSysLog { id: number; userName?: string; operation?: string; resultT
 interface SysConfig { id: number; configKey: string; configValue?: string; configName?: string }
 // ===== END 新模块接口 =====
 
-const token = ref(localStorage.getItem('ohdp_token') || '')
+function readSessionValue(key: string) {
+  return localStorage.getItem(key) || sessionStorage.getItem(key) || ''
+}
+
+interface ReportCenterRow {
+  projectId: number
+  projectCode: string
+  companyName: string
+  projectStatus: ProjectStatus
+  projectStatusLabel?: string
+  reportStatus: 'GENERATED' | 'PENDING'
+  reportStatusLabel?: string
+  reportId?: number
+  fileName?: string
+  generatedBy?: string
+  generatedAt?: string
+  projectCreatedAt?: string
+}
+
+function clearStoredSession() {
+  for (const key of ['ohdp_token', 'ohdp_username', 'ohdp_role']) {
+    localStorage.removeItem(key)
+    sessionStorage.removeItem(key)
+  }
+}
+
+const token = ref(readSessionValue('ohdp_token'))
+const currentUsername = ref(readSessionValue('ohdp_username'))
+const currentRole = ref<UserRole>((readSessionValue('ohdp_role') as UserRole) || 'USER')
+const permissionCodes = ref<Set<string>>(new Set())
 const loading = ref(false)
 const message = ref('')
 const messageType = ref<'info' | 'success' | 'error'>('info')
 const latestAction = ref('')
-const isMenuCollapse = ref(false)
 const actionBusy = reactive({
   saveProject: false,
   copyProject: false,
@@ -254,10 +361,12 @@ const actionBusy = reactive({
   previewReport: false,
   generateReport: false,
   downloadReport: false,
+  reportCenter: false,
+  uploadReferenceDocument: false,
 })
-const activeTab = ref<'project' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage'>('project')
+const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'feedback' | 'help'>('project')
 const projectChildMenu = ref<'workspace' | 'report'>('workspace')
-const projectWorkTab = ref<'base' | 'supplement' | 'position' | 'result' | 'report'>('base')
+const projectWorkTab = ref<'base' | 'supplement' | 'position' | 'result'>('base')
 const maintenanceChildMenu = ref<'company' | 'position' | 'factor' | 'dict' | 'staff' | 'reportText'>('company')
 const systemChildMenu = ref<'user' | 'role' | 'menu' | 'permission' | 'dept' | 'post' | 'notice' | 'syslog' | 'sysfile' | 'sysconfig'>('user')
 type MenuKey =
@@ -270,17 +379,103 @@ type MenuKey =
   | 'hazardFactor' | 'hazardFactor.factor' | 'hazardFactor.sds'
   | 'configCenter' | 'configCenter.detectMethod' | 'configCenter.orgConfig' | 'configCenter.detectType'
   | 'labManage' | 'labManage.task' | 'labManage.result'
+  | 'radiology' | 'radiology.dr' | 'radiology.ct'
+  | 'feedback'
+  | 'help'
 const selectedMenuKey = ref<MenuKey>('project.workspace')
+const helpTopicId = ref<HelpTopicId>('overview')
+const helpReturnKey = ref<MenuKey>('project.workspace')
+const helpActiveAnchorId = ref<string | null>(null)
+const contextHelpAnchorId = ref<string | null>(null)
+const standaloneHelpPage = ref(new URL(window.location.href).searchParams.get('view') === 'help')
+const sideMenuRenderKey = ref(0)
 const showPreviewPanel = ref(false)
+const feedbackSourceModule = ref('项目工作台')
+
+const menuMeta = computed(() => {
+  const entries: Record<MenuKey, { group: string; title: string; description: string }> = {
+    project: { group: '项目与报告', title: '项目工作台', description: '建档、数据录入、判定与报告归档' },
+    'project.workspace': { group: '项目与报告', title: '项目工作台', description: '建档、数据录入、判定与报告归档' },
+    'project.report': { group: '项目与报告', title: '报告管理', description: '跨项目管理报告生成、预览、下载与操作留痕' },
+    maintenance: { group: '单位与人员', title: '受检单位', description: '维护受检单位和业务联系人' },
+    'maintenance.company': { group: '单位与人员', title: '受检单位', description: '维护受检单位和业务联系人' },
+    'maintenance.position': { group: '业务规则与模板', title: '岗位模板', description: '复用岗位、班制和防护信息' },
+    'maintenance.factor': { group: '业务规则与模板', title: '岗位危害因素模板', description: '维护检测指标、单位和默认限值' },
+    'maintenance.dict': { group: '业务规则与模板', title: '业务字典', description: '统一检测类别与枚举数据' },
+    'maintenance.staff': { group: '单位与人员', title: '人员资质', description: '维护编写、审核与签发人员资质' },
+    'maintenance.reportText': { group: '业务规则与模板', title: '报告文本模板', description: '维护任务由来和评价依据文本' },
+    system: { group: '系统管理', title: '用户管理', description: '管理系统账号和访问状态' },
+    'system.user': { group: '系统管理', title: '用户管理', description: '管理系统账号和访问状态' },
+    'system.role': { group: '系统管理', title: '角色管理', description: '配置角色与授权范围' },
+    'system.menu': { group: '系统管理', title: '菜单管理', description: '维护系统功能菜单结构' },
+    'system.permission': { group: '系统管理', title: '权限管理', description: '维护细粒度功能权限' },
+    'system.dept': { group: '系统管理', title: '部门管理', description: '维护组织部门信息' },
+    'system.post': { group: '系统管理', title: '岗位管理', description: '维护组织岗位信息' },
+    'system.notice': { group: '系统管理', title: '通知公告', description: '发布内部通知和业务公告' },
+    'system.syslog': { group: '系统管理', title: '操作日志', description: '追踪关键业务与系统操作' },
+    'system.sysfile': { group: '系统管理', title: '文件管理', description: '管理系统上传文件' },
+    'system.sysconfig': { group: '系统管理', title: '参数配置', description: '维护系统运行参数' },
+    basicData: { group: '检测基础库', title: '法律法规', description: '维护业务引用的法规文件' },
+    'basicData.law': { group: '检测基础库', title: '法律法规', description: '维护业务引用的法规文件' },
+    'basicData.standard': { group: '检测基础库', title: '标准规范', description: '维护检测和评价标准' },
+    'basicData.region': { group: '检测基础库', title: '行政区划', description: '维护行政区域基础数据' },
+    'basicData.device': { group: '检测基础库', title: '检测仪器设备', description: '维护采样与实验仪器台账' },
+    hazardFactor: { group: '检测基础库', title: '危害因素库', description: '维护因素档案与职业接触限值' },
+    'hazardFactor.factor': { group: '检测基础库', title: '危害因素库', description: '维护因素档案与职业接触限值' },
+    'hazardFactor.sds': { group: '检测基础库', title: 'SDS 说明书', description: '维护化学品安全技术资料' },
+    configCenter: { group: '业务规则与模板', title: '检测方法', description: '维护方法、公式和标准依据' },
+    'configCenter.detectMethod': { group: '业务规则与模板', title: '检测方法', description: '维护方法、公式和标准依据' },
+    'configCenter.orgConfig': { group: '业务规则与模板', title: '机构与编号规则', description: '维护机构、资质和编号规则' },
+    'configCenter.detectType': { group: '业务规则与模板', title: '检测分类', description: '维护检测分类及排序' },
+    labManage: { group: '实验检测', title: '检测任务单', description: '签发、领取和提交实验任务' },
+    'labManage.task': { group: '实验检测', title: '检测任务单', description: '签发、领取和提交实验任务' },
+    'labManage.result': { group: '实验检测', title: '结果计算与复核', description: '核对曲线参数、计算结果并完成复核' },
+    radiology: { group: '放射诊疗检测', title: 'DR 质量控制', description: '依据标准完成设备性能与场所防护检测' },
+    'radiology.dr': { group: '放射诊疗检测', title: 'DR 质量控制', description: '依据 WS 76-2020 与 GBZ 130-2020' },
+    'radiology.ct': { group: '放射诊疗检测', title: 'CT 质量控制', description: '依据 WS 519-2019 与 GBZ 130-2020' },
+    feedback: { group: '意见反馈', title: '意见跟踪', description: '提交改进意见并跟踪采纳、处理与确认记录' },
+    help: { group: '帮助与支持', title: '帮助中心', description: '按功能查看操作步骤、字段说明和常见问题' },
+  }
+  return entries[selectedMenuKey.value]
+})
+
+const helpReturnLabel = computed(() => {
+  if (helpReturnKey.value === 'help') return '项目工作台'
+  const returnMeta = ({
+    project: '项目工作台',
+    'project.workspace': '项目工作台',
+    'project.report': '报告管理',
+    'radiology.dr': 'DR 质量控制',
+    'radiology.ct': 'CT 质量控制',
+  } as Partial<Record<MenuKey, string>>)[helpReturnKey.value]
+  return returnMeta || '原功能'
+})
+
+const projectFlowStage = computed(() => {
+  if (!selectedProject.value) return 1
+  if (selectedProject.value.status === 'REPORT_READY') return 5
+  if (selectedProject.value.status === 'JUDGED') return 4
+  if (projectWorkTab.value === 'result' || selectedProject.value.status === 'DATA_FILLED') return 3
+  if (projectWorkTab.value === 'supplement' || projectWorkTab.value === 'position') return 2
+  return 1
+})
+
+const nextProjectAction = computed(() => {
+  if (!selectedProject.value) return '先创建或选择一个项目，录入受检单位与检测类别。'
+  if (selectedProject.value.status === 'DRAFT') return '补全项目信息、岗位和原始检测数据后手动保存。'
+  if (selectedProject.value.status === 'DATA_FILLED') return '核对原始值与限值，然后执行自动判定和报告预检。'
+  if (selectedProject.value.status === 'JUDGED') return '确认判定依据、编写审核人员和报告补充信息。'
+  return '报告已具备生成条件，可进入报告管理生成和归档。'
+})
 
 function openProjectMenu(child: 'workspace' | 'report' = 'workspace') {
-  activeTab.value = 'project'
   projectChildMenu.value = child
   selectedMenuKey.value = child === 'workspace' ? 'project.workspace' : 'project.report'
   if (child === 'report') {
-    projectWorkTab.value = 'report'
-  } else if (projectWorkTab.value === 'report') {
-    projectWorkTab.value = 'base'
+    activeTab.value = 'reportCenter'
+    void fetchReportCenter()
+  } else {
+    activeTab.value = 'project'
   }
 }
 
@@ -296,6 +491,10 @@ function openMaintenanceMenu(child: 'company' | 'position' | 'factor' | 'dict' |
 }
 
 function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' | 'dept' | 'post' | 'notice' | 'syslog' | 'sysfile' | 'sysconfig' = 'user') {
+  if (!isAdmin.value) {
+    setMessage('当前账号没有系统管理权限', 'error')
+    return
+  }
   activeTab.value = 'system'
   systemChildMenu.value = child
   const keyMap: Record<typeof child, MenuKey> = {
@@ -307,6 +506,22 @@ function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' | 'dept' 
 }
 
 function selectMenu(key: MenuKey) {
+  if ((key === 'system' || key.startsWith('system.')) && !isAdmin.value) {
+    setMessage('当前账号没有系统管理权限', 'error')
+    return
+  }
+  if (key === 'help') {
+    openHelpInNewTab('overview')
+    void nextTick(() => { sideMenuRenderKey.value += 1 })
+    return
+  }
+  if (key === 'feedback') {
+    if (selectedMenuKey.value !== 'feedback') feedbackSourceModule.value = menuMeta.value.title
+    selectedMenuKey.value = 'feedback'
+    activeTab.value = 'feedback'
+    return
+  }
+  void loadMenuData(key)
   selectedMenuKey.value = key
   if (key === 'project') {
     openProjectMenu('workspace')
@@ -359,6 +574,8 @@ function selectMenu(key: MenuKey) {
   if (key === 'configCenter.detectType') { activeTab.value = 'configCenter'; configChildMenu.value = 'detectType'; selectedMenuKey.value = 'configCenter.detectType'; return }
   if (key === 'labManage' || key === 'labManage.task') { activeTab.value = 'labManage'; labChildMenu.value = 'task'; selectedMenuKey.value = 'labManage.task'; return }
   if (key === 'labManage.result') { activeTab.value = 'labManage'; labChildMenu.value = 'result'; selectedMenuKey.value = 'labManage.result'; return }
+  if (key === 'radiology' || key === 'radiology.dr') { activeTab.value = 'radiology'; radiologyChildMenu.value = 'DR'; selectedMenuKey.value = 'radiology.dr'; return }
+  if (key === 'radiology.ct') { activeTab.value = 'radiology'; radiologyChildMenu.value = 'CT'; selectedMenuKey.value = 'radiology.ct'; return }
   if (key === 'system.dept') { openSystemMenu('dept'); return }
   if (key === 'system.post') { openSystemMenu('post'); return }
   if (key === 'system.notice') { openSystemMenu('notice'); return }
@@ -368,13 +585,84 @@ function selectMenu(key: MenuKey) {
   openMaintenanceMenu('reportText')
 }
 
-function toggleSideCollapse() {
-  isMenuCollapse.value = !isMenuCollapse.value
+function resolveHelpTopic(topicOrMenuKey: HelpTopicId | MenuKey): HelpTopicId {
+  return helpTopicByMenuKey[topicOrMenuKey] || findHelpTopic(topicOrMenuKey as HelpTopicId).id
+}
+
+function syncStandaloneHelpUrl(topicId: HelpTopicId, anchorId?: string | null) {
+  if (!standaloneHelpPage.value) return
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'help')
+  url.searchParams.set('topic', topicId)
+  if (anchorId) url.searchParams.set('anchor', anchorId)
+  else url.searchParams.delete('anchor')
+  window.history.replaceState(null, '', url)
+}
+
+function showHelpInCurrentTab(topicOrMenuKey: HelpTopicId | MenuKey, anchorId?: string | null) {
+  if (selectedMenuKey.value !== 'help') helpReturnKey.value = selectedMenuKey.value
+  helpTopicId.value = resolveHelpTopic(topicOrMenuKey)
+  helpActiveAnchorId.value = anchorId || null
+  selectedMenuKey.value = 'help'
+  activeTab.value = 'help'
+  syncStandaloneHelpUrl(helpTopicId.value, helpActiveAnchorId.value)
+}
+
+function openHelpInNewTab(topicOrMenuKey: HelpTopicId | MenuKey = selectedMenuKey.value, anchorId?: string | null) {
+  const anchor = findHelpAnchor(anchorId)
+  const topicId = anchor?.topicId || resolveHelpTopic(topicOrMenuKey)
+  const url = new URL(window.location.pathname, window.location.origin)
+  url.searchParams.set('view', 'help')
+  url.searchParams.set('topic', topicId)
+  if (anchorId) url.searchParams.set('anchor', anchorId)
+  window.open(url.toString(), '_blank', 'noopener,noreferrer')
+}
+
+function activateStandaloneHelpRequest() {
+  const url = new URL(window.location.href)
+  if (url.searchParams.get('view') !== 'help') return
+  standaloneHelpPage.value = true
+  const anchorId = url.searchParams.get('anchor')
+  const anchor = findHelpAnchor(anchorId)
+  const topicId = anchor?.topicId || findHelpTopic(url.searchParams.get('topic') as HelpTopicId).id
+  showHelpInCurrentTab(topicId, anchor ? anchorId : null)
+}
+
+function selectHelpTopic(topicId: HelpTopicId) {
+  helpTopicId.value = topicId
+  helpActiveAnchorId.value = null
+  syncStandaloneHelpUrl(topicId)
+}
+
+function selectHelpAnchor(payload: { topicId: HelpTopicId; anchorId: string }) {
+  helpTopicId.value = payload.topicId
+  helpActiveAnchorId.value = payload.anchorId
+  syncStandaloneHelpUrl(payload.topicId, payload.anchorId)
+}
+
+function openDetailedHelp(payload: { topicId: HelpTopicId; anchorId: string }) {
+  contextHelpAnchorId.value = null
+  openHelpInNewTab(payload.topicId, payload.anchorId)
+}
+
+function handleContextHelpEvent(event: Event) {
+  const anchorId = (event as CustomEvent<{ anchorId?: string }>).detail?.anchorId
+  if (anchorId) contextHelpAnchorId.value = anchorId
+}
+
+function returnFromHelp() {
+  if (standaloneHelpPage.value) {
+    window.close()
+    return
+  }
+  const returnKey = helpReturnKey.value === 'help' ? 'project.workspace' : helpReturnKey.value
+  selectMenu(returnKey)
 }
 
 const loginForm = reactive({
   username: 'admin',
-  password: '123456',
+  password: '',
+  rememberMe: true,
 })
 
 const query = reactive({
@@ -394,6 +682,20 @@ const reports = ref<ReportFile[]>([])
 const reportLogs = ref<ReportLog[]>([])
 const reportPrecheck = ref<ReportPrecheck | null>(null)
 const reportPreview = ref<ReportPreview | null>(null)
+const reportCenterRows = ref<ReportCenterRow[]>([])
+const reportCenterTotal = ref(0)
+const selectedReportCenterRow = ref<ReportCenterRow | null>(null)
+const reportCenterPreview = ref<ReportPreview | null>(null)
+const reportCenterLogs = ref<ReportLog[]>([])
+const reportCenterQuery = reactive({
+  projectCode: '',
+  companyName: '',
+  reportStatus: '' as '' | 'GENERATED' | 'PENDING',
+  generatedFrom: '',
+  generatedTo: '',
+  page: 0,
+  size: 20,
+})
 const operating = ref(false)
 const operationType = ref<'create' | 'edit' | ''>('')
 const selectedProjectRows = ref<Project[]>([])
@@ -426,6 +728,7 @@ const projectForm = reactive({
   approverCertNo: '',
   statementDate: today(),
   notes: '',
+  reportSupplement: createEmptyReportSupplement(),
 })
 
 const positionForm = reactive({
@@ -447,6 +750,7 @@ const resultForm = reactive({
   id: null as number | null,
   factorTemplateId: null as number | null,
   positionId: null as number | null,
+  factorId: null as number | null,
   jobName: '',
   factorName: '',
   metricType: 'TWA',
@@ -615,7 +919,6 @@ const canCreateProject = computed(() => !operating.value && !loading.value && !a
 const canManualSave = computed(() => operating.value && !loading.value && !actionBusy.saveProject)
 const canClearForm = computed(() => operating.value && !loading.value && !actionBusy.saveProject)
 const canCancelCreate = computed(() => operating.value && !loading.value && !actionBusy.cancelCreate)
-const canGenerateReport = computed(() => operating.value && !loading.value && !actionBusy.generateReport)
 const canBatchDelete = computed(() => !operating.value && !loading.value && selectedProjectRows.value.length > 0)
 const canListRowEdit = computed(() => !operating.value && !loading.value)
 const canListRowCopy = computed(() => !operating.value && !loading.value && !actionBusy.copyProject)
@@ -623,6 +926,18 @@ const canListRowDelete = computed(() => !operating.value && !loading.value && !a
 const canProjectOperate = computed(() => operating.value && !!selectedProject.value)
 
 const isLoggedIn = computed(() => Boolean(token.value))
+const isAdmin = computed(() => currentRole.value === 'ADMIN')
+const operatorLabel = computed(() => currentUsername.value || (isAdmin.value ? '管理员' : '业务用户'))
+const operatorRoleLabel = computed(() => isAdmin.value ? '管理员' : '业务人员')
+const operatorAvatar = computed(() => operatorLabel.value.slice(0, 1).toUpperCase())
+const hasPermission = (code: string) => isAdmin.value || permissionCodes.value.has(code)
+const canReviewRadiology = computed(() => hasPermission('RADIOLOGY:WORKFLOW:REVIEW'))
+const canApproveRadiology = computed(() => hasPermission('RADIOLOGY:WORKFLOW:APPROVE'))
+const canGenerateRadiologyReport = computed(() => hasPermission('RADIOLOGY:REPORT:GENERATE'))
+const canManageRadiologyRules = computed(() => hasPermission('RADIOLOGY:RULE:MANAGE'))
+const canReadAllFeedback = computed(() => hasPermission('FEEDBACK:READ_ALL') || hasPermission('FEEDBACK:HANDLE'))
+const canHandleFeedback = computed(() => hasPermission('FEEDBACK:HANDLE'))
+const canCloseFeedback = computed(() => hasPermission('FEEDBACK:CLOSE'))
 
 api.interceptors.request.use((config) => {
   if (token.value) {
@@ -678,7 +993,7 @@ function formatDateTime(value?: string) {
 function resolveApiMessage(err: any, fallback: string) {
   const raw = err?.response?.data?.message || ''
   if (typeof raw === 'string' && raw.includes('garbled text')) {
-    return '检测到乱码数据，请先在信息维护中修复模板或使用标准UTF-8文本'
+    return '检测到乱码数据，请先在业务规则与模板中修复对应模板，或使用标准 UTF-8 文本'
   }
   return raw || fallback
 }
@@ -711,6 +1026,7 @@ function resetProjectForm() {
   projectForm.approverCertNo = ''
   projectForm.statementDate = today()
   projectForm.notes = ''
+  projectForm.reportSupplement = createEmptyReportSupplement()
 }
 
 function fillProjectForm(project: Project) {
@@ -742,6 +1058,9 @@ function fillProjectForm(project: Project) {
   projectForm.approverCertNo = project.approverCertNo || ''
   projectForm.statementDate = project.statementDate || project.reportDate || today()
   projectForm.notes = project.notes || ''
+  projectForm.reportSupplement = project.reportSupplement
+    ? JSON.parse(JSON.stringify(project.reportSupplement))
+    : createEmptyReportSupplement()
   projectDirty.value = false
   window.setTimeout(() => {
     syncingProjectForm = false
@@ -770,6 +1089,32 @@ function mapMissingItem(item: string) {
     'results.empty': '至少需要 1 条检测结果',
     'results.requiredFields': '检测结果缺少岗位/因素/指标',
     'results.garbled': '检测结果含乱码',
+    'report.reportHeaderName': '报告页眉单位简称',
+    'report.socialCreditCode': '统一社会信用代码',
+    'report.legalRepresentative': '法定代表人/负责人',
+    'report.industryCategory': '行业类型（大类/中类/小类）',
+    'report.detectionScope': '检测范围',
+    'report.productionProcess': '生产工艺说明',
+    'report.radiationSourceSummary': '辐射源项情况（需要明确无辐射源、另行检测、另出报告或纳入本报告）',
+    'report.vocAnalysisConclusion': '物料 VOC 定性分析开展情况',
+    'report.exclusionScreeningConclusion': '排除性检测开展情况及结论',
+    'report.rawRecordCompletenessNote': '原始记录完整性确认（采样编号、日期、时间、仪器与检测条件）',
+    'report.productionCondition': '现场检测时生产情况',
+    'report.samplingLayoutDescription': '检测布点说明',
+    'report.detectionConditions': '检测条件说明',
+    'report.environmentConditions': '现场环境气象条件',
+    'report.onsiteInspectors': '现场检测人员',
+    'report.planDeviation': '检测计划执行/变更说明',
+    'report.riskCategory': '职业病危害风险分类',
+    'report.majorHazards': '主要职业病危害因素',
+    'report.overLimitSummary': '岗位超标情况及原因（无超标也需要明确说明）',
+    'report.majorProblems': '职业病危害防治主要问题',
+    'report.recommendations': '职业病危害防治建议',
+    'report.samplingPlans.empty': '至少需要 1 条现场采样与测量计划',
+    'report.materials.unconfirmed': '原辅材料及产品情况未录入或未确认“不涉及”',
+    'report.equipment.unconfirmed': '主要生产设备未录入或未确认“不涉及”',
+    'report.protectionFacilities.unconfirmed': '职业病防护设施未录入或未确认“不涉及”',
+    'report.ppe.unconfirmed': '个人防护用品未录入或未确认“不涉及”',
   }
   return map[item] || item
 }
@@ -874,9 +1219,16 @@ async function login() {
       username: loginForm.username,
       password: loginForm.password,
       clientType: 'web',
+      rememberMe: loginForm.rememberMe,
     })
     token.value = data.token
-    localStorage.setItem('ohdp_token', data.token)
+    currentUsername.value = data.username
+    currentRole.value = data.role
+    clearStoredSession()
+    const storage = loginForm.rememberMe ? localStorage : sessionStorage
+    storage.setItem('ohdp_token', data.token)
+    storage.setItem('ohdp_username', data.username)
+    storage.setItem('ohdp_role', data.role)
     await initAfterLogin()
     setMessage('登录成功')
   } catch (err: any) {
@@ -895,7 +1247,10 @@ async function logout() {
     // ignore
   }
   token.value = ''
-  localStorage.removeItem('ohdp_token')
+  currentUsername.value = ''
+  currentRole.value = 'USER'
+  permissionCodes.value = new Set()
+  clearStoredSession()
   projects.value = []
   selectedProject.value = null
   positions.value = []
@@ -910,6 +1265,7 @@ async function logout() {
 
 async function initAfterLogin() {
   await Promise.all([
+    fetchCurrentPermissions(),
     fetchProjects(),
     fetchCompanyProfiles(),
     fetchPositionTemplates(),
@@ -921,6 +1277,61 @@ async function initAfterLogin() {
     fetchEvaluationBasisTemplates(),
     fetchReportTextTemplates(),
   ])
+}
+
+async function loadMenuData(key: MenuKey) {
+  if (!token.value) return
+  const loaders: Partial<Record<MenuKey, () => Promise<unknown>>> = {
+    project: fetchProjects,
+    'project.workspace': fetchProjects,
+    'project.report': fetchReportCenter,
+    maintenance: fetchCompanyProfiles,
+    'maintenance.company': fetchCompanyProfiles,
+    'maintenance.position': fetchPositionTemplates,
+    'maintenance.factor': fetchFactorTemplates,
+    'maintenance.dict': fetchDictionaryItems,
+    'maintenance.staff': fetchStaffProfiles,
+    'maintenance.reportText': fetchReportTextTemplates,
+    system: fetchUsers,
+    'system.user': fetchUsers,
+    'system.role': fetchRoles,
+    'system.menu': fetchMenuTree,
+    'system.permission': fetchPermissions,
+    'system.dept': fetchSysDepts,
+    'system.post': fetchSysPosts,
+    'system.notice': fetchSysNotices,
+    'system.syslog': fetchSysLogs,
+    'system.sysconfig': fetchSysConfigs,
+    basicData: fetchLaws,
+    'basicData.law': fetchLaws,
+    'basicData.standard': fetchStandards,
+    'basicData.region': fetchRegions,
+    'basicData.device': fetchDevices,
+    hazardFactor: fetchHazardFactors,
+    'hazardFactor.factor': fetchHazardFactors,
+    'hazardFactor.sds': async () => Promise.all([fetchSdsList(), fetchHazardFactors()]),
+    configCenter: fetchDetectionMethods,
+    'configCenter.detectMethod': fetchDetectionMethods,
+    'configCenter.orgConfig': fetchOrgConfig,
+    'configCenter.detectType': fetchDetectTypes,
+    labManage: fetchLabTasks,
+    'labManage.task': fetchLabTasks,
+    'labManage.result': fetchLabResults,
+  }
+  try {
+    await loaders[key]?.()
+  } catch (err: any) {
+    setMessage(err?.response?.data?.message || `${menuMeta.value.title}数据加载失败`, 'error')
+  }
+}
+
+async function fetchCurrentPermissions() {
+  try {
+    const { data } = await api.get<string[]>('/api/system/current-user/permission-codes')
+    permissionCodes.value = new Set(data || [])
+  } catch {
+    permissionCodes.value = new Set()
+  }
 }
 
 async function fetchProjects() {
@@ -951,6 +1362,12 @@ async function fetchProjects() {
   }
 }
 
+function applyProjectQueue(status: '' | ProjectStatus) {
+  query.status = status
+  query.page = 0
+  fetchProjects()
+}
+
 async function selectProject(project: Project) {
   selectedProject.value = project
   fillProjectForm(project)
@@ -965,8 +1382,8 @@ async function selectProject(project: Project) {
   lastCreatedProjectStatus.value = project.status
 }
 
-async function createProject() {
-  if (!validateProjectSelections()) return
+async function createProject(): Promise<boolean> {
+  if (!validateProjectSelections()) return false
   loading.value = true
   actionBusy.saveProject = true
   try {
@@ -998,6 +1415,7 @@ async function createProject() {
       approverCertNo: projectForm.approverCertNo || null,
       statementDate: projectForm.statementDate || null,
       notes: projectForm.notes || null,
+      reportSupplement: projectForm.reportSupplement,
     }
     const { data } = await api.post<Project>('/api/ohdp/projects', payload)
     await fetchProjects()
@@ -1011,17 +1429,19 @@ async function createProject() {
     projectDirty.value = false
     lastManualSaveAt.value = nowTimeText()
     setMessage(`项目已创建并进入操作中：${data.projectCode}`, 'success')
+    return true
   } catch (err: any) {
     setMessage(resolveApiMessage(err, '创建项目失败'), 'error')
+    return false
   } finally {
     actionBusy.saveProject = false
     loading.value = false
   }
 }
 
-async function updateProject(silent = false) {
-  if (!selectedProject.value) return
-  if (!silent && !validateProjectSelections()) return
+async function updateProject(silent = false): Promise<boolean> {
+  if (!selectedProject.value) return false
+  if (!validateProjectSelections()) return false
   actionBusy.saveProject = true
   try {
     const payload = {
@@ -1052,6 +1472,7 @@ async function updateProject(silent = false) {
       approverCertNo: projectForm.approverCertNo || null,
       statementDate: projectForm.statementDate || null,
       notes: projectForm.notes || null,
+      reportSupplement: projectForm.reportSupplement,
     }
     const { data } = await api.put<Project>(`/api/ohdp/projects/${selectedProject.value.id}`, payload)
     selectedProject.value = data
@@ -1061,8 +1482,10 @@ async function updateProject(silent = false) {
     if (!silent) {
       setMessage('项目已更新', 'success')
     }
+    return true
   } catch (err: any) {
     setMessage(resolveApiMessage(err, '更新项目失败'), 'error')
+    return false
   } finally {
     actionBusy.saveProject = false
   }
@@ -1147,13 +1570,12 @@ async function batchDeleteProjects() {
   await deleteProjectsByIds(ids)
 }
 
-async function saveCurrentOperation() {
-  if (!operating.value) return
+async function saveCurrentOperation(): Promise<boolean> {
+  if (!operating.value) return false
   if (operationType.value === 'create' || !selectedProject.value) {
-    await createProject()
-    return
+    return await createProject()
   }
-  await updateProject()
+  return await updateProject()
 }
 
 async function fetchPositions(projectId: number) {
@@ -1209,6 +1631,7 @@ function editResult(item: ResultItem) {
   resultForm.id = item.id
   resultForm.factorTemplateId = null
   resultForm.positionId = item.positionId ?? null
+  resultForm.factorId = (item as any).factorId ?? null
   resultForm.jobName = item.jobName
   resultForm.factorName = item.factorName
   resultForm.metricType = item.metricType
@@ -1223,6 +1646,7 @@ function clearResultForm() {
   resultForm.id = null
   resultForm.factorTemplateId = null
   resultForm.positionId = null
+  resultForm.factorId = null
   resultForm.jobName = ''
   resultForm.factorName = ''
   resultForm.metricType = 'TWA'
@@ -1250,6 +1674,7 @@ async function addResult() {
     const payload = {
       factorTemplateId: resultForm.factorTemplateId,
       positionId: resultForm.positionId,
+      factorId: resultForm.factorId,
       jobName: resultForm.jobName,
       factorName: resultForm.factorName,
       metricType: resultForm.metricType,
@@ -1400,43 +1825,85 @@ async function fetchReports(projectId: number) {
   reports.value = data
 }
 
+async function fetchReportCenter() {
+  actionBusy.reportCenter = true
+  try {
+    const { data } = await api.get<PageResult<ReportCenterRow>>('/api/ohdp/reports', {
+      params: {
+        projectCode: reportCenterQuery.projectCode || undefined,
+        companyName: reportCenterQuery.companyName || undefined,
+        reportStatus: reportCenterQuery.reportStatus || undefined,
+        generatedFrom: reportCenterQuery.generatedFrom || undefined,
+        generatedTo: reportCenterQuery.generatedTo || undefined,
+        page: reportCenterQuery.page,
+        size: reportCenterQuery.size,
+      },
+    })
+    reportCenterRows.value = data.content || []
+    reportCenterTotal.value = data.totalElements || 0
+    if (selectedReportCenterRow.value) {
+      selectedReportCenterRow.value = reportCenterRows.value.find(
+        (item) => item.projectId === selectedReportCenterRow.value?.projectId,
+      ) || null
+    }
+  } catch (err: any) {
+    setMessage(err?.response?.data?.message || '报告管理加载失败', 'error')
+  } finally {
+    actionBusy.reportCenter = false
+  }
+}
+
+async function selectReportCenterRow(row: ReportCenterRow) {
+  selectedReportCenterRow.value = row
+  reportCenterPreview.value = null
+  reportCenterLogs.value = []
+  try {
+    const requests: Promise<unknown>[] = [
+      api.get<ReportPreview>(`/api/ohdp/projects/${row.projectId}/report/preview`).then(({ data }) => {
+        reportCenterPreview.value = data
+      }),
+    ]
+    if (row.reportId) {
+      requests.push(api.get<ReportLog[]>(`/api/ohdp/projects/${row.projectId}/report/logs`).then(({ data }) => {
+        reportCenterLogs.value = data
+      }))
+    }
+    await Promise.all(requests)
+  } catch (err: any) {
+    setMessage(err?.response?.data?.message || '报告详情加载失败', 'error')
+  }
+}
+
+async function generateReportFromCenter(row: ReportCenterRow) {
+  const verb = row.reportId ? '重新生成并覆盖现有报告' : '生成报告'
+  if (!window.confirm(`确定为项目 ${row.projectCode} ${verb}吗？`)) return
+  actionBusy.generateReport = true
+  try {
+    await api.post(`/api/ohdp/projects/${row.projectId}/report/generate`)
+    await fetchReportCenter()
+    const refreshed = reportCenterRows.value.find((item) => item.projectId === row.projectId)
+    if (refreshed) await selectReportCenterRow(refreshed)
+    setMessage(`${row.projectCode} 报告已生成`, 'success')
+  } catch (err: any) {
+    setMessage(err?.response?.data?.message || '报告生成失败，请检查预检缺项', 'error')
+  } finally {
+    actionBusy.generateReport = false
+  }
+}
+
+async function openProjectFromReport(row: ReportCenterRow) {
+  try {
+    const { data } = await api.get<Project>(`/api/ohdp/projects/${row.projectId}`)
+    await selectProject(data)
+    openProjectMenu('workspace')
+  } catch (err: any) {
+    setMessage(err?.response?.data?.message || '项目加载失败', 'error')
+  }
+}
+
 async function fetchReportLogs(projectId: number) {
   const { data } = await api.get<ReportLog[]>(`/api/ohdp/projects/${projectId}/report/logs`)
   reportLogs.value = data
-}
-
-async function generateReport() {
-  if (!operating.value) return
-  loading.value = true
-  actionBusy.generateReport = true
-  try {
-    await saveCurrentOperation()
-    if (!selectedProject.value) {
-      setMessage('请先保存并选中项目后再生成报告', 'error')
-      return
-    }
-    await precheckCurrentProject()
-    if (reportPrecheck.value && !reportPrecheck.value.passed) {
-      setMessage('报告预检未通过，请先补全数据', 'error')
-      return
-    }
-    if (reports.value.length > 0) {
-      const ok = window.confirm('当前项目已有报告，新生成将覆盖旧报告。是否继续？')
-      if (!ok) return
-    }
-    await api.post(`/api/ohdp/projects/${selectedProject.value.id}/report/generate`)
-    await Promise.all([
-      fetchReports(selectedProject.value.id),
-      fetchReportLogs(selectedProject.value.id),
-      fetchProjects(),
-    ])
-    setMessage(`报告已生成（覆盖模式），时间 ${nowTimeText()}`, 'success')
-  } catch (err: any) {
-    setMessage(err?.response?.data?.message || '报告生成失败', 'error')
-  } finally {
-    actionBusy.generateReport = false
-    loading.value = false
-  }
 }
 
 async function downloadReport(reportId: number, fileName: string) {
@@ -1955,10 +2422,13 @@ const standards = ref<OhdpStandard[]>([])
 const regions = ref<OhdpRegion[]>([])
 const devices = ref<OhdpDevice[]>([])
 const hazardFactors = ref<OhdpHazardFactor[]>([])
+const selectedHazardFactorId = ref<number | null>(null)
+const selectedHazardFactorName = ref('')
+const factorLimits = ref<OhdpHazardFactorLimit[]>([])
+const limitForm = reactive({ id: null as number|null, limitType: 'PC_TWA', limitValue: '' as string, limitUnit: 'mg/m3', standardCode: '', notes: '' })
 const sdsList = ref<OhdpSds[]>([])
 const detectionMethods = ref<OhdpDetectionMethod[]>([])
 const detectTypes = ref<OhdpDetectType[]>([])
-const orgConfig = ref<OhdpOrgConfig>({})
 const labTasks = ref<OhdpLabTask[]>([])
 const labResults = ref<OhdpLabResult[]>([])
 const sysDepts = ref<SysDept[]>([])
@@ -1967,15 +2437,20 @@ const sysNotices = ref<SysNotice[]>([])
 const sysLogs = ref<SysSysLog[]>([])
 const sysConfigs = ref<SysConfig[]>([])
 
-const lawForm = reactive({ id: null as number|null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', isValid: true, notes: '' })
-const standardForm = reactive({ id: null as number|null, standardName: '', standardCode: '', level: 'NATIONAL', isValid: true, notes: '' })
+const lawForm = reactive({ id: null as number|null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', effectiveDate: '', publisher: '', isValid: true, isOpen: true, notes: '' })
+const standardForm = reactive({ id: null as number|null, standardName: '', standardCode: '', level: 'NATIONAL', useScope: '', publishDate: '', isValid: true, isOpen: true, notes: '' })
+const referenceDocuments = ref<ReferenceDocument[]>([])
+const referenceDocumentFile = ref<File | null>(null)
+const referenceVersionLabel = ref('')
+const referenceSourceUrl = ref('')
+const referenceDocumentInputKey = ref(0)
 const regionForm = reactive({ id: null as number|null, parentId: null as number|null, regionCode: '', regionName: '', level: 1, sortNo: 0 })
 const deviceForm = reactive({ id: null as number|null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '' })
 const hazardFactorForm = reactive({ id: null as number|null, factorName: '', factorCategory: 'CHEMICAL', factorCode: '', casNo: '', enabled: true })
 const sdsForm = reactive({ id: null as number|null, substanceName: '', casNo: '', factorId: null as number|null, version: '', notes: '' })
-const detectionMethodForm = reactive({ id: null as number|null, methodName: '', methodCode: '', methodAbbr: '', formula: '', enabled: true })
+const detectionMethodForm = reactive({ id: null as number|null, methodName: '', methodCode: '', methodAbbr: '', formula: '', standardCode: '', enabled: true })
 const detectTypeForm = reactive({ id: null as number|null, typeName: '', typeCode: '', typeAbbr: '', sortNo: 0, enabled: true })
-const orgConfigForm = reactive({ orgName: '', orgCode: '', orgAddress: '', contactName: '', contactPhone: '', certNo: '', sampleNoPrefix: 'S', reportNoPrefix: 'R' })
+const orgConfigForm = reactive<OhdpOrgConfig>({ orgName: '', orgCode: '', orgAddress: '', contactName: '', contactPhone: '', certNo: '', sampleNoPrefix: 'S', reportNoPrefix: 'R' })
 const labTaskForm = reactive({ id: null as number|null, projectId: null as number|null, issuerName: '', notes: '' })
 const deptForm = reactive({ id: null as number|null, deptName: '', deptCode: '', parentId: null as number|null, enabled: true })
 const postForm = reactive({ id: null as number|null, postName: '', postCode: '', enabled: true })
@@ -1984,14 +2459,103 @@ const sysConfigForm = reactive({ id: null as number|null, configKey: '', configV
 
 // ===== 新模块 API 函数 =====
 async function fetchLaws() { const r = await api.get('/api/ohdp/basic/laws', { params: { page: 0, size: 100 } }); laws.value = r.data.content || [] }
-async function saveLaw() { if (lawForm.id) { await api.put(`/api/ohdp/basic/laws/${lawForm.id}`, { ...lawForm }) } else { await api.post('/api/ohdp/basic/laws', { ...lawForm }) }; Object.assign(lawForm, { id: null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', isValid: true, notes: '' }); fetchLaws() }
+async function saveLaw() {
+  const payload = { title: lawForm.title, docNo: lawForm.docNo, level: lawForm.level, publishDate: lawForm.publishDate || null, effectiveDate: lawForm.effectiveDate || null, publisher: lawForm.publisher, isValid: lawForm.isValid, isOpen: lawForm.isOpen, notes: lawForm.notes }
+  const { data } = lawForm.id
+    ? await api.put<OhdpLaw>(`/api/ohdp/basic/laws/${lawForm.id}`, payload)
+    : await api.post<OhdpLaw>('/api/ohdp/basic/laws', payload)
+  if (referenceDocumentFile.value) await uploadReferenceDocument('LAW', data.id)
+  clearLawForm()
+  await fetchLaws()
+  setMessage('法律法规已保存', 'success')
+}
 async function deleteLaw(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/basic/laws/${id}`); fetchLaws() }
-function editLaw(item: OhdpLaw) { Object.assign(lawForm, item) }
+async function editLaw(item: OhdpLaw) {
+  Object.assign(lawForm, { id: item.id, title: item.title || '', docNo: item.docNo || '', level: item.level || 'NATIONAL', publishDate: item.publishDate || '', effectiveDate: item.effectiveDate || '', publisher: item.publisher || '', isValid: item.isValid !== false, isOpen: item.isOpen !== false, notes: item.notes || '' })
+  await fetchReferenceDocuments('LAW', item.id)
+}
+
+function clearLawForm() {
+  Object.assign(lawForm, { id: null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', effectiveDate: '', publisher: '', isValid: true, isOpen: true, notes: '' })
+  clearReferenceDocumentSelection()
+}
 
 async function fetchStandards() { const r = await api.get('/api/ohdp/basic/standards', { params: { page: 0, size: 100 } }); standards.value = r.data.content || [] }
-async function saveStandard() { if (standardForm.id) { await api.put(`/api/ohdp/basic/standards/${standardForm.id}`, { ...standardForm }) } else { await api.post('/api/ohdp/basic/standards', { ...standardForm }) }; Object.assign(standardForm, { id: null, standardName: '', standardCode: '', level: 'NATIONAL', isValid: true, notes: '' }); fetchStandards() }
+async function saveStandard() {
+  const payload = { standardName: standardForm.standardName, standardCode: standardForm.standardCode, level: standardForm.level, useScope: standardForm.useScope, publishDate: standardForm.publishDate || null, isValid: standardForm.isValid, isOpen: standardForm.isOpen, notes: standardForm.notes }
+  const { data } = standardForm.id
+    ? await api.put<OhdpStandard>(`/api/ohdp/basic/standards/${standardForm.id}`, payload)
+    : await api.post<OhdpStandard>('/api/ohdp/basic/standards', payload)
+  if (referenceDocumentFile.value) await uploadReferenceDocument('STANDARD', data.id)
+  clearStandardForm()
+  await fetchStandards()
+  setMessage('标准规范已保存', 'success')
+}
 async function deleteStandard(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/basic/standards/${id}`); fetchStandards() }
-function editStandard(item: OhdpStandard) { Object.assign(standardForm, item) }
+async function editStandard(item: OhdpStandard) {
+  Object.assign(standardForm, { id: item.id, standardName: item.standardName || '', standardCode: item.standardCode || '', level: item.level || 'NATIONAL', useScope: item.useScope || '', publishDate: item.publishDate || '', isValid: item.isValid !== false, isOpen: item.isOpen !== false, notes: item.notes || '' })
+  await fetchReferenceDocuments('STANDARD', item.id)
+}
+
+function clearStandardForm() {
+  Object.assign(standardForm, { id: null, standardName: '', standardCode: '', level: 'NATIONAL', useScope: '', publishDate: '', isValid: true, isOpen: true, notes: '' })
+  clearReferenceDocumentSelection()
+}
+
+function onReferenceDocumentSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  referenceDocumentFile.value = input.files?.[0] || null
+}
+
+function clearReferenceDocumentSelection() {
+  referenceDocuments.value = []
+  referenceDocumentFile.value = null
+  referenceVersionLabel.value = ''
+  referenceSourceUrl.value = ''
+  referenceDocumentInputKey.value += 1
+}
+
+async function fetchReferenceDocuments(type: 'LAW' | 'STANDARD', id: number) {
+  const { data } = await api.get<ReferenceDocument[]>(`/api/ohdp/basic/${type}/${id}/documents`)
+  referenceDocuments.value = data || []
+  referenceDocumentFile.value = null
+  referenceVersionLabel.value = ''
+  referenceSourceUrl.value = ''
+  referenceDocumentInputKey.value += 1
+}
+
+async function uploadReferenceDocument(type: 'LAW' | 'STANDARD', id: number) {
+  if (!referenceDocumentFile.value) return
+  actionBusy.uploadReferenceDocument = true
+  try {
+    const form = new FormData()
+    form.append('file', referenceDocumentFile.value)
+    if (referenceVersionLabel.value.trim()) form.append('versionLabel', referenceVersionLabel.value.trim())
+    if (referenceSourceUrl.value.trim()) form.append('sourceUrl', referenceSourceUrl.value.trim())
+    await api.post(`/api/ohdp/basic/${type}/${id}/documents`, form)
+  } finally {
+    actionBusy.uploadReferenceDocument = false
+  }
+}
+
+async function openReferenceDocument(item: ReferenceDocument, download = false) {
+  try {
+    const { data } = await api.get(`/api/ohdp/basic/documents/${item.id}/content`, { params: { download }, responseType: 'blob' })
+    const url = URL.createObjectURL(new Blob([data], { type: item.contentType }))
+    if (download) {
+      const link = document.createElement('a')
+      link.href = url
+      link.download = item.originalName
+      link.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (err: any) {
+    setMessage(err?.response?.data?.message || '法规原文打开失败', 'error')
+  }
+}
 
 async function fetchRegions() { const r = await api.get('/api/ohdp/basic/regions'); regions.value = r.data || [] }
 async function saveRegion() { if (regionForm.id) { await api.put(`/api/ohdp/basic/regions/${regionForm.id}`, { ...regionForm }) } else { await api.post('/api/ohdp/basic/regions', { ...regionForm }) }; Object.assign(regionForm, { id: null, parentId: null, regionCode: '', regionName: '', level: 1, sortNo: 0 }); fetchRegions() }
@@ -2008,13 +2572,43 @@ async function saveHazardFactor() { if (hazardFactorForm.id) { await api.put(`/a
 async function deleteHazardFactor(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/hazard-factors/${id}`); fetchHazardFactors() }
 function editHazardFactor(item: OhdpHazardFactor) { Object.assign(hazardFactorForm, item) }
 
+async function fetchFactorLimits(factorId: number) {
+  const r = await api.get(`/api/ohdp/hazard-factors/${factorId}/limits`)
+  factorLimits.value = r.data || []
+}
+function viewFactorLimits(item: OhdpHazardFactor) {
+  selectedHazardFactorId.value = item.id
+  selectedHazardFactorName.value = item.factorName
+  fetchFactorLimits(item.id)
+  resetLimitForm()
+}
+async function saveFactorLimit() {
+  if (!selectedHazardFactorId.value) return
+  const payload = { limitType: limitForm.limitType, limitValue: limitForm.limitValue === '' ? null : Number(limitForm.limitValue), limitUnit: limitForm.limitUnit, standardCode: limitForm.standardCode, notes: limitForm.notes }
+  try {
+    if (limitForm.id) { await api.put(`/api/ohdp/hazard-factor-limits/${limitForm.id}`, payload) }
+    else { await api.post(`/api/ohdp/hazard-factors/${selectedHazardFactorId.value}/limits`, payload) }
+    resetLimitForm()
+    fetchFactorLimits(selectedHazardFactorId.value)
+  } catch (e: any) { alert(e?.response?.data?.message || '保存失败') }
+}
+async function deleteFactorLimit(limitId: number) {
+  if (!confirm('确认删除？')) return
+  await api.delete(`/api/ohdp/hazard-factor-limits/${limitId}`)
+  if (selectedHazardFactorId.value) fetchFactorLimits(selectedHazardFactorId.value)
+}
+function editFactorLimit(item: OhdpHazardFactorLimit) {
+  Object.assign(limitForm, { id: item.id, limitType: item.limitType, limitValue: item.limitValue != null ? String(item.limitValue) : '', limitUnit: item.limitUnit || 'mg/m3', standardCode: item.standardCode || '', notes: item.notes || '' })
+}
+function resetLimitForm() { Object.assign(limitForm, { id: null, limitType: 'PC_TWA', limitValue: '', limitUnit: 'mg/m3', standardCode: '', notes: '' }) }
+
 async function fetchSdsList() { const r = await api.get('/api/ohdp/sds', { params: { page: 0, size: 100 } }); sdsList.value = r.data.content || [] }
 async function saveSds() { if (sdsForm.id) { await api.put(`/api/ohdp/sds/${sdsForm.id}`, { ...sdsForm }) } else { await api.post('/api/ohdp/sds', { ...sdsForm }) }; Object.assign(sdsForm, { id: null, substanceName: '', casNo: '', factorId: null, version: '', notes: '' }); fetchSdsList() }
 async function deleteSds(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/sds/${id}`); fetchSdsList() }
 function editSds(item: OhdpSds) { Object.assign(sdsForm, item) }
 
 async function fetchDetectionMethods() { const r = await api.get('/api/ohdp/config/detection-methods', { params: { page: 0, size: 100 } }); detectionMethods.value = r.data.content || [] }
-async function saveDetectionMethod() { if (detectionMethodForm.id) { await api.put(`/api/ohdp/config/detection-methods/${detectionMethodForm.id}`, { ...detectionMethodForm }) } else { await api.post('/api/ohdp/config/detection-methods', { ...detectionMethodForm }) }; Object.assign(detectionMethodForm, { id: null, methodName: '', methodCode: '', methodAbbr: '', formula: '', enabled: true }); fetchDetectionMethods() }
+async function saveDetectionMethod() { if (detectionMethodForm.id) { await api.put(`/api/ohdp/config/detection-methods/${detectionMethodForm.id}`, { ...detectionMethodForm }) } else { await api.post('/api/ohdp/config/detection-methods', { ...detectionMethodForm }) }; Object.assign(detectionMethodForm, { id: null, methodName: '', methodCode: '', methodAbbr: '', formula: '', standardCode: '', enabled: true }); fetchDetectionMethods() }
 async function deleteDetectionMethod(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/config/detection-methods/${id}`); fetchDetectionMethods() }
 function editDetectionMethod(item: OhdpDetectionMethod) { Object.assign(detectionMethodForm, item) }
 
@@ -2377,114 +2971,228 @@ function flattenMenuTree(tree: SysMenu[], result: SysMenu[] = []): SysMenu[] {
 }
 
 onMounted(async () => {
+  window.addEventListener('ohdp:open-context-help', handleContextHelpEvent)
+  activateStandaloneHelpRequest()
   if (token.value) {
+    if (!readSessionValue('ohdp_username') || !readSessionValue('ohdp_role')) {
+      token.value = ''
+      clearStoredSession()
+      setMessage('界面已升级，请重新登录以确认账号权限', 'info')
+      return
+    }
     await initAfterLogin()
   }
 })
+
+onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handleContextHelpEvent))
 </script>
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
-      <h1>职业危害数据处理平台（MVP）</h1>
+    <header class="topbar" :class="{ 'topbar-login': !isLoggedIn }">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
+        <div>
+          <h1>职业危害与放射诊疗检测数据平台</h1>
+          <p>样品流转工作台</p>
+        </div>
+      </div>
+      <div v-if="isLoggedIn" class="topbar-context">
+        <div><span>当前模块</span><strong>{{ menuMeta.title }}</strong></div>
+        <div>
+          <span>{{ activeTab === 'project' ? '当前项目' : '工作对象' }}</span>
+          <strong>{{ activeTab === 'project' ? (selectedProject?.projectCode || '未选择') : menuMeta.title }}</strong>
+        </div>
+        <div>
+          <span>流转状态</span>
+          <strong>{{ activeTab === 'project' ? (selectedProject ? statusText[selectedProject.status] : '待建档') : '模块就绪' }}</strong>
+        </div>
+      </div>
       <div class="topbar-right">
         <span v-if="loading" class="loading">处理中...</span>
-        <button v-if="isLoggedIn" class="ghost" @click="logout">退出</button>
+        <div v-if="isLoggedIn" class="operator-chip" :title="operatorRoleLabel">
+          <span class="operator-avatar">{{ operatorAvatar }}</span>
+          <span>{{ operatorLabel }} · {{ operatorRoleLabel }}</span>
+        </div>
+        <button v-if="isLoggedIn" class="ghost" @click="logout">退出系统</button>
       </div>
     </header>
 
     <p v-if="message" class="message" :class="messageType">{{ message }}</p>
 
-    <section v-if="!isLoggedIn" class="card login-card">
-      <h2>登录</h2>
-      <div class="grid2">
-        <label>
-          账号
-          <input v-model="loginForm.username" placeholder="admin" />
+    <main v-if="!isLoggedIn" class="login-stage">
+      <section class="login-intro">
+        <span class="intro-seal">受控数据</span>
+        <h2>从原始记录到检测报告，<br />每一步都可追溯。</h2>
+        <p>面向检测人员与报告人员的统一工作台，集中完成项目建档、数据录入、自动计算、审核批准和报告归档。</p>
+        <ol class="login-flow" aria-label="检测业务流程">
+          <li><strong>01</strong><span>项目建档</span></li>
+          <li><strong>02</strong><span>数据录入</span></li>
+          <li><strong>03</strong><span>计算判定</span></li>
+          <li><strong>04</strong><span>审核报告</span></li>
+        </ol>
+      </section>
+      <form class="card login-card" @submit.prevent="login">
+        <div class="login-heading">
+          <span>内部业务系统</span>
+          <h2>登录工作台</h2>
+          <p>请输入管理员分配的账号与密码。</p>
+        </div>
+        <div class="login-fields">
+          <label>
+            账号
+            <input v-model="loginForm.username" autocomplete="username" placeholder="请输入账号" />
+          </label>
+          <label>
+            密码
+            <input v-model="loginForm.password" type="password" autocomplete="current-password" placeholder="请输入密码" />
+          </label>
+        </div>
+        <label class="remember-session">
+          <input v-model="loginForm.rememberMe" type="checkbox" />
+          <span><strong>保持登录 30 天 <HelpMark anchor-id="session.remember" /></strong><small>浏览器不会保存明文密码</small></span>
         </label>
-        <label>
-          密码
-          <input v-model="loginForm.password" type="password" placeholder="123456" />
-        </label>
-      </div>
-      <button @click="login">登录系统</button>
-    </section>
+        <button class="login-submit" type="submit">进入样品流转工作台</button>
+        <p class="login-note">系统操作会记录账号、时间和关键数据变更。</p>
+      </form>
+    </main>
 
-    <section v-else class="admin-layout" :class="{ collapsed: isMenuCollapse }">
+    <section v-else class="admin-layout">
       <aside class="card menu-tree pro-menu">
         <div class="menu-header">
-          <h2>功能菜单</h2>
-          <button class="ghost tiny" @click="toggleSideCollapse">{{ isMenuCollapse ? '展开' : '收起' }}</button>
+          <div><span>业务导航</span><h2>样品全流程 <HelpMark anchor-id="navigation.structure" tone="inverse" /></h2></div>
         </div>
         <el-menu
+          :key="sideMenuRenderKey"
           :default-active="selectedMenuKey"
           class="el-side-menu"
-          :collapse="isMenuCollapse"
           unique-opened
           @select="(index: string) => selectMenu(index as MenuKey)"
         >
           <el-sub-menu index="project-group">
-            <template #title>项目管理</template>
+            <template #title>项目与报告</template>
             <el-menu-item index="project.workspace">项目工作台</el-menu-item>
             <el-menu-item index="project.report">报告管理</el-menu-item>
           </el-sub-menu>
 
-          <el-sub-menu index="maintenance-group">
-            <template #title>信息维护</template>
-            <el-menu-item index="maintenance.company">单位信息</el-menu-item>
-            <el-menu-item index="maintenance.position">岗位模板</el-menu-item>
-            <el-menu-item index="maintenance.factor">危害因素模板</el-menu-item>
-            <el-menu-item index="maintenance.dict">字典项</el-menu-item>
-            <el-menu-item index="maintenance.staff">人员资质</el-menu-item>
-            <el-menu-item index="maintenance.reportText">报告文本模板</el-menu-item>
+          <el-sub-menu index="radiology-group">
+            <template #title>放射诊疗检测</template>
+            <el-menu-item index="radiology.dr">DR 质量控制</el-menu-item>
+            <el-menu-item index="radiology.ct">CT 质量控制</el-menu-item>
           </el-sub-menu>
 
-          <el-sub-menu index="system-group">
+          <el-sub-menu index="labManage-group">
+            <template #title>实验检测</template>
+            <el-menu-item index="labManage.task">检测任务单</el-menu-item>
+            <el-menu-item index="labManage.result">结果计算与复核</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="unit-people-group">
+            <template #title>单位与人员</template>
+            <el-menu-item index="maintenance.company">受检单位</el-menu-item>
+            <el-menu-item index="maintenance.staff">人员资质</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="foundation-group">
+            <template #title>检测基础库</template>
+            <el-menu-item index="basicData.law">法律法规</el-menu-item>
+            <el-menu-item index="basicData.standard">标准规范</el-menu-item>
+            <el-menu-item index="basicData.device">检测仪器设备</el-menu-item>
+            <el-menu-item index="hazardFactor.factor">危害因素库</el-menu-item>
+            <el-menu-item index="hazardFactor.sds">SDS 说明书</el-menu-item>
+            <el-menu-item index="basicData.region">行政区划</el-menu-item>
+          </el-sub-menu>
+
+          <el-sub-menu index="rules-template-group">
+            <template #title>业务规则与模板</template>
+            <el-menu-item index="maintenance.position">岗位模板</el-menu-item>
+            <el-menu-item index="maintenance.factor">岗位危害因素模板</el-menu-item>
+            <el-menu-item index="maintenance.reportText">报告文本模板</el-menu-item>
+            <el-menu-item index="configCenter.detectMethod">检测方法</el-menu-item>
+            <el-menu-item index="configCenter.detectType">检测分类</el-menu-item>
+            <el-menu-item index="maintenance.dict">业务字典</el-menu-item>
+            <el-menu-item index="configCenter.orgConfig">机构与编号规则</el-menu-item>
+          </el-sub-menu>
+
+          <el-menu-item index="feedback" class="feedback-menu-entry">
+            <span class="feedback-menu-dot" aria-hidden="true"></span>
+            <span>意见反馈</span>
+          </el-menu-item>
+
+          <el-sub-menu v-if="isAdmin" index="system-group" class="system-menu-group">
             <template #title>系统管理</template>
             <el-menu-item index="system.user">用户管理</el-menu-item>
             <el-menu-item index="system.role">角色管理</el-menu-item>
-            <el-menu-item index="system.menu">菜单管理</el-menu-item>
             <el-menu-item index="system.permission">权限管理</el-menu-item>
+            <el-menu-item index="system.menu">菜单管理</el-menu-item>
             <el-menu-item index="system.dept">部门管理</el-menu-item>
             <el-menu-item index="system.post">岗位管理</el-menu-item>
             <el-menu-item index="system.notice">通知公告</el-menu-item>
+            <el-menu-item index="system.sysfile">文件管理</el-menu-item>
             <el-menu-item index="system.syslog">操作日志</el-menu-item>
             <el-menu-item index="system.sysconfig">参数配置</el-menu-item>
           </el-sub-menu>
 
-          <el-sub-menu index="basicData-group">
-            <template #title>基础数据</template>
-            <el-menu-item index="basicData.law">法律法规</el-menu-item>
-            <el-menu-item index="basicData.standard">标准规范</el-menu-item>
-            <el-menu-item index="basicData.region">地区字典</el-menu-item>
-            <el-menu-item index="basicData.device">设备管理</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu index="hazardFactor-group">
-            <template #title>危害因素管理</template>
-            <el-menu-item index="hazardFactor.factor">危害因素库</el-menu-item>
-            <el-menu-item index="hazardFactor.sds">SDS说明书</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu index="configCenter-group">
-            <template #title>配置中心</template>
-            <el-menu-item index="configCenter.detectMethod">检测方法</el-menu-item>
-            <el-menu-item index="configCenter.detectType">检测分类</el-menu-item>
-            <el-menu-item index="configCenter.orgConfig">机构配置</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu index="labManage-group">
-            <template #title>实验管理</template>
-            <el-menu-item index="labManage.task">检测任务单</el-menu-item>
-            <el-menu-item index="labManage.result">检测结果计算</el-menu-item>
-          </el-sub-menu>
+          <div class="utility-menu-divider" role="separator" aria-label="系统辅助功能"></div>
+          <el-menu-item index="help" class="help-menu-entry">
+            <span class="help-menu-mark" aria-hidden="true">?</span>
+            <span>帮助中心</span>
+          </el-menu-item>
         </el-menu>
       </aside>
 
       <div class="admin-content">
+        <section class="workspace-heading">
+          <div>
+            <div class="workspace-title-row">
+              <h2>{{ menuMeta.title }}</h2>
+              <button
+                v-if="activeTab !== 'help'"
+                type="button"
+                class="context-help-button"
+                :title="`查看${menuMeta.title}帮助`"
+                :aria-label="`查看${menuMeta.title}帮助`"
+                @click="openHelpInNewTab(selectedMenuKey)"
+              >?</button>
+            </div>
+            <span>{{ menuMeta.description }}</span>
+          </div>
+          <div class="workspace-heading-meta">
+            <span>数据状态</span>
+            <strong>{{ loading ? '正在同步' : '已连接' }}</strong>
+          </div>
+        </section>
+        <nav v-if="activeTab === 'project'" class="sample-flow" aria-label="项目流转阶段">
+          <HelpMark class="sample-flow-help" anchor-id="workflow.stages" />
+          <button v-for="(item, index) in ['项目设置','数据录入','自动计算','待复核','报告生成']" :key="item" type="button" :class="{ active: projectFlowStage === index + 1, done: projectFlowStage > index + 1 }">
+            <span>{{ String(index + 1).padStart(2, '0') }}</span>
+            <strong>{{ item }}</strong>
+          </button>
+        </nav>
+    <HelpCenter
+      v-if="activeTab === 'help'"
+      :active-topic-id="helpTopicId"
+      :active-anchor-id="helpActiveAnchorId"
+      :return-label="helpReturnLabel"
+      :standalone="standaloneHelpPage"
+      @select-topic="selectHelpTopic"
+      @select-anchor="selectHelpAnchor"
+      @return="returnFromHelp"
+    />
     <section v-if="activeTab === 'project'" class="project-workbench" :data-child-menu="projectChildMenu">
       <section class="card project-select-card">
-        <h2>项目选择</h2>
+        <div class="project-queue-heading">
+          <h2>我的工作队列 <HelpMark anchor-id="project.create" /></h2>
+          <span>按状态快速查看当前待办 <HelpMark anchor-id="status.chinese" /></span>
+        </div>
+        <div class="project-queue-filter" aria-label="项目待办状态筛选">
+          <button type="button" :class="{ active: query.status === '' }" @click="applyProjectQueue('')">全部项目</button>
+          <button type="button" :class="{ active: query.status === 'DRAFT' }" @click="applyProjectQueue('DRAFT')">待补充</button>
+          <button type="button" :class="{ active: query.status === 'DATA_FILLED' }" @click="applyProjectQueue('DATA_FILLED')">待计算</button>
+          <button type="button" :class="{ active: query.status === 'JUDGED' }" @click="applyProjectQueue('JUDGED')">待出报告</button>
+          <button type="button" :class="{ active: query.status === 'REPORT_READY' }" @click="applyProjectQueue('REPORT_READY')">已出报告</button>
+        </div>
+        <h3 class="project-search-title">项目查询</h3>
         <div class="grid2 compact">
           <input v-model="query.projectCode" placeholder="项目编号" />
           <input v-model="query.companyName" placeholder="单位名称" />
@@ -2503,6 +3211,7 @@ onMounted(async () => {
           <button class="danger" :disabled="!canBatchDelete || actionBusy.deleteProject" @click="batchDeleteProjects">
             {{ actionBusy.deleteProject ? '删除中...' : `批量删除(${selectedProjectRows.length})` }}
           </button>
+          <HelpMark anchor-id="project.delete" />
         </div>
         <p class="small order-hint">{{ listOrderHint }}</p>
         <p class="small">共 {{ totalProjects }} 条，当前：{{ selectedProject?.projectCode || '未选择项目' }}</p>
@@ -2554,7 +3263,7 @@ onMounted(async () => {
           <span class="empty">模式：{{ operationType || '-' }}</span>
         </div>
         <div class="detail-status">
-          <span class="label">项目状态</span>
+          <span class="label">项目状态 <HelpMark anchor-id="project.status" /></span>
           <el-tag
             v-if="selectedProject"
             :type="projectStatusTagType(selectedProject.status)"
@@ -2571,7 +3280,8 @@ onMounted(async () => {
             <el-form label-position="top" class="pro-form">
               <el-row :gutter="14">
                 <el-col :xs="24" :md="12">
-                  <el-form-item label="受检单位（单位库）">
+                  <el-form-item>
+                    <template #label>受检单位（单位库） <HelpMark anchor-id="project.company" /></template>
                     <select id="project-company-profile" v-model="projectForm.companyProfileId" @change="applyCompanyProfile(String(projectForm.companyProfileId || ''))">
                       <option :value="null">请选择单位</option>
                       <option v-for="item in companyProfiles" :key="item.id" :value="item.id">{{ item.companyName }}</option>
@@ -2579,7 +3289,8 @@ onMounted(async () => {
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :md="12">
-                  <el-form-item label="检测类别（字典）">
+                  <el-form-item>
+                    <template #label>检测类别（字典） <HelpMark anchor-id="project.detect-type" /></template>
                     <select v-model="projectForm.detectTypeDictItemId" @change="applyDetectTypeDict(String(projectForm.detectTypeDictItemId || ''))">
                       <option :value="null">请选择检测类别</option>
                       <option v-for="item in detectTypeItems" :key="item.id" :value="item.id">{{ item.itemName }}</option>
@@ -2592,12 +3303,14 @@ onMounted(async () => {
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :md="12">
-                  <el-form-item label="采样日期（默认当天）">
+                  <el-form-item>
+                    <template #label>采样日期（默认当天） <HelpMark anchor-id="project.dates" /></template>
                     <input v-model="projectForm.samplingDate" type="date" />
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :md="12">
-                  <el-form-item label="报告日期（默认当天）">
+                  <el-form-item>
+                    <template #label>报告日期（默认当天） <HelpMark anchor-id="project.dates" /></template>
                     <input v-model="projectForm.reportDate" type="date" />
                   </el-form-item>
                 </el-col>
@@ -2650,7 +3363,8 @@ onMounted(async () => {
             <el-form label-position="top" class="pro-form">
               <el-row :gutter="14">
                 <el-col :xs="24" :md="8">
-                  <el-form-item label="编写人（人员资质）">
+                  <el-form-item>
+                    <template #label>编写人（人员资质） <HelpMark anchor-id="project.staff" /></template>
                     <select v-model="projectForm.writerStaffId" @change="applyStaffSelection('writer', String(projectForm.writerStaffId || ''))">
                       <option :value="null">请选择编写人</option>
                       <option v-for="item in staffProfiles" :key="item.id" :value="item.id">{{ item.staffName }} / {{ item.certNo }}</option>
@@ -2658,7 +3372,8 @@ onMounted(async () => {
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :md="8">
-                  <el-form-item label="审核人（人员资质）">
+                  <el-form-item>
+                    <template #label>审核人（人员资质） <HelpMark anchor-id="project.staff" /></template>
                     <select v-model="projectForm.reviewerStaffId" @change="applyStaffSelection('reviewer', String(projectForm.reviewerStaffId || ''))">
                       <option :value="null">请选择审核人</option>
                       <option v-for="item in staffProfiles" :key="item.id" :value="item.id">{{ item.staffName }} / {{ item.certNo }}</option>
@@ -2666,7 +3381,8 @@ onMounted(async () => {
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :md="8">
-                  <el-form-item label="签发人（人员资质）">
+                  <el-form-item>
+                    <template #label>签发人（人员资质） <HelpMark anchor-id="project.staff" /></template>
                     <select v-model="projectForm.approverStaffId" @change="applyStaffSelection('approver', String(projectForm.approverStaffId || ''))">
                       <option :value="null">请选择签发人</option>
                       <option v-for="item in staffProfiles" :key="item.id" :value="item.id">{{ item.staffName }} / {{ item.certNo }}</option>
@@ -2696,8 +3412,9 @@ onMounted(async () => {
                 <el-col :xs="24"><el-form-item label="评价标准内容"><textarea v-model="projectForm.evaluationBasis" rows="4" /></el-form-item></el-col>
               </el-row>
             </el-form>
+            <ReportSupplementEditor v-model="projectForm.reportSupplement" />
             </fieldset>
-          <p class="small">提示：优先通过主数据下拉选择，选中后自动回填文本与证书编号。</p>
+          <p class="small">提示：优先通过主数据下拉选择；“北海定期检测报告内容”中的项目将按 2026 年北海正式模板写入报告，红色模板说明不会出现在正式报告中。</p>
           </el-tab-pane>
 
           <el-tab-pane label="岗位信息" name="position" :disabled="!selectedProject">
@@ -2705,7 +3422,8 @@ onMounted(async () => {
               <el-form label-position="top" class="pro-form">
                 <el-row :gutter="14">
                   <el-col :xs="24" :md="8">
-                    <el-form-item label="岗位模板">
+                    <el-form-item>
+                      <template #label>岗位模板 <HelpMark anchor-id="project.position" /></template>
                       <select v-model="positionForm.positionTemplateId" @change="applyPositionTemplate(String(positionForm.positionTemplateId || ''))">
                         <option :value="null">请选择岗位模板</option>
                         <option v-for="item in positionTemplates" :key="item.id" :value="item.id">{{ item.jobName }}</option>
@@ -2764,7 +3482,8 @@ onMounted(async () => {
               <el-form label-position="top" class="pro-form">
                 <el-row :gutter="14">
                   <el-col :xs="24" :md="8">
-                    <el-form-item label="危害因素模板">
+                    <el-form-item>
+                      <template #label>危害因素模板 <HelpMark anchor-id="project.factor-template" /></template>
                       <select v-model="resultForm.factorTemplateId" @change="applyFactorTemplate(String(resultForm.factorTemplateId || ''))">
                         <option :value="null">请选择危害因素模板</option>
                         <option v-for="item in factorTemplates" :key="item.id" :value="item.id">
@@ -2784,7 +3503,7 @@ onMounted(async () => {
                   <el-col :xs="24" :md="8"><el-form-item label="岗位名称"><input v-model="resultForm.jobName" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="危害因素"><input v-model="resultForm.factorName" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="指标类型"><input v-model="resultForm.metricType" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="8"><el-form-item label="原始值"><input v-model="resultForm.valueRaw" placeholder="如 <0.04" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item><template #label>原始值 <HelpMark anchor-id="project.raw-value" /></template><input v-model="resultForm.valueRaw" placeholder="如 <0.04" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="数值"><input v-model="resultForm.valueNum" type="number" step="0.001" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="单位"><input v-model="resultForm.unit" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="限值"><input v-model="resultForm.limitValue" type="number" step="0.001" /></el-form-item></el-col>
@@ -2797,16 +3516,19 @@ onMounted(async () => {
             <button class="ghost" :disabled="!canProjectOperate || loading || actionBusy.judgeProject" @click="judgeProject">
               {{ actionBusy.judgeProject ? '判定中...' : '自动判定' }}
             </button>
+            <HelpMark anchor-id="project.auto-calc" />
             <button class="ghost" :disabled="!canProjectOperate || loading || actionBusy.precheckProject" @click="precheckCurrentProject">
               {{ actionBusy.precheckProject ? '预检中...' : '报告预检' }}
             </button>
+            <HelpMark anchor-id="project.report-precheck" />
             <button class="ghost" :disabled="!canProjectOperate || loading || actionBusy.previewReport" @click="previewReport">
               {{ actionBusy.previewReport ? '预览加载中...' : '报告预览' }}
             </button>
+            <HelpMark anchor-id="report.preview" />
           </div>
 
           <label>
-            批量粘贴（每行：岗位,因素,指标,原始值,数值,单位,限值,限值单位；支持逗号/Tab/竖线）
+            批量粘贴（每行：岗位,因素,指标,原始值,数值,单位,限值,限值单位；支持逗号/Tab/竖线） <HelpMark anchor-id="project.batch-paste" />
             <textarea v-model="batchResultText" rows="4" placeholder="焊接,锰及其无机化合物,TWA,<0.04,,mg/m3,0.15,mg/m3"></textarea>
           </label>
           <div class="actions">
@@ -2841,7 +3563,7 @@ onMounted(async () => {
                 <td>{{ item.metricType }}</td>
                 <td>{{ item.valueRaw || item.valueNum }} {{ item.unit }}</td>
                 <td>{{ item.limitValue }} {{ item.limitUnit }}</td>
-                <td>{{ item.judgement }}</td>
+                <td>{{ codeLabel(item.judgement, '未判定') }}</td>
                 <td>
                   <button class="ghost tiny" :disabled="!canProjectOperate" @click="editResult(item)">编辑</button>
                   <button class="danger tiny" :disabled="!canProjectOperate" @click="removeResult(item.id)" style="margin-left:4px">删除</button>
@@ -2859,95 +3581,157 @@ onMounted(async () => {
             </div>
           </el-tab-pane>
 
-          <el-tab-pane label="报告管理" name="report" :disabled="!selectedProject">
-            <div v-if="selectedProject">
-              <section class="card" v-if="showPreviewPanel && reportPreview">
-                <h2>报告预览（生成前）</h2>
-                <p>项目：{{ reportPreview.project.projectCode }} / {{ reportPreview.project.companyName }}</p>
-                <p>样品名称：{{ reportPreview.project.sampleName || '-' }}；检测类别：{{ reportPreview.project.detectType || '-' }}</p>
-                <p>送检单位：{{ reportPreview.project.submitUnit || '-' }}；委托单位：{{ reportPreview.project.entrustUnit || '-' }}</p>
-                <p>声明日期：{{ reportPreview.project.statementDate || '-' }}</p>
-                <p>岗位数：{{ reportPreview.positions.length }}；结果数：{{ reportPreview.results.length }}</p>
-                <p>预检：<strong>{{ reportPreview.precheck.passed ? '通过' : '未通过' }}</strong></p>
-              </section>
-              <h2>报告文件（仅保留一份，重新生成会覆盖）</h2>
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>文件名</th>
-                    <th>生成人</th>
-                    <th>生成时间</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in reports" :key="item.id">
-                    <td>{{ item.id }}</td>
-                    <td>{{ item.fileName }}</td>
-                    <td>{{ item.generatedBy || '-' }}</td>
-                    <td>{{ item.generatedAt }}</td>
-                    <td>
-                      <button class="ghost tiny" :disabled="loading || actionBusy.downloadReport" @click="downloadReport(item.id, item.fileName)">
-                        {{ actionBusy.downloadReport ? '下载中...' : '下载' }}
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <h3>报告操作日志（覆盖记录）</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>操作</th>
-                    <th>操作人</th>
-                    <th>说明</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in reportLogs" :key="item.id">
-                    <td>{{ item.operatedAt }}</td>
-                    <td>{{ item.operationType }}</td>
-                    <td>{{ item.operatorName || '-' }}</td>
-                    <td>{{ item.operationMessage || '-' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div v-else class="empty-state">
-              <p class="small">请先在上方选择项目，或选中刚创建的项目后再进行报告操作。</p>
-              <div class="actions">
-                <button class="ghost tiny" @click="openBaseTab">返回项目信息</button>
-                <button class="ghost tiny" @click="selectLastCreatedProject">选中最近创建</button>
-              </div>
-            </div>
-          </el-tab-pane>
         </el-tabs>
+        <section v-if="selectedProject" class="report-overview-strip">
+          <div>
+            <strong>报告概况</strong>
+            <span v-if="reports.length">最近生成：{{ formatDateTime(reports[0].generatedAt) }} · {{ reports[0].fileName }}</span>
+            <span v-else>当前项目尚未生成报告</span>
+          </div>
+          <button class="ghost" type="button" @click="openProjectMenu('report')">进入报告管理</button>
+        </section>
       </section>
 
       <section class="card floating-actions">
+        <h2>流转状态 <HelpMark anchor-id="form.disabled-reason" /></h2>
+        <dl class="flow-status-list">
+          <div><dt>当前项目</dt><dd>{{ selectedProject?.projectCode || '未选择' }}</dd></div>
+          <div><dt>项目状态</dt><dd>{{ selectedProject ? statusText[selectedProject.status] : '待建档' }}</dd></div>
+          <div><dt>操作模式</dt><dd>{{ operating ? operationType || '编辑中' : '只读浏览' }}</dd></div>
+        </dl>
+        <div class="next-action-panel">
+          <strong>下一步操作</strong>
+          <p>{{ nextProjectAction }}</p>
+        </div>
         <div class="actions wrap">
-          <button :disabled="!canCreateProject" @click="beginCreateOperation">创建项目</button>
-          <button class="primary-strong" :disabled="!canManualSave" @click="saveCurrentOperation">
+          <button :disabled="!canCreateProject" :title="canCreateProject ? '创建新项目' : '当前账号没有创建项目权限'" @click="beginCreateOperation">创建项目</button>
+          <button class="primary-strong" :disabled="!canManualSave" :title="canManualSave ? '保存当前表单' : '需要先创建或编辑项目，并确认当前账号具有保存权限'" @click="saveCurrentOperation">
             {{ actionBusy.saveProject ? '保存中...' : '手动保存' }}
           </button>
-          <button class="ghost" :disabled="!canClearForm" @click="clearOperationForm">清空表单</button>
-          <button class="danger" :disabled="!canCancelCreate" @click="cancelCreateProject">
+          <button class="ghost" :disabled="!canClearForm" :title="canClearForm ? '清空当前未保存内容' : '当前没有可清空的编辑表单'" @click="clearOperationForm">清空表单</button>
+          <button class="danger" :disabled="!canCancelCreate" :title="canCancelCreate ? '取消当前创建操作' : '只有正在创建且尚未保存的项目可以取消'" @click="cancelCreateProject">
             {{ actionBusy.cancelCreate ? '取消中...' : '取消操作' }}
           </button>
-          <button class="ghost" :disabled="!canGenerateReport" @click="generateReport">
-            {{ actionBusy.generateReport ? '生成中...' : '生成报告（覆盖）' }}
-          </button>
+          <button class="ghost" :disabled="!selectedProject" :title="selectedProject ? '在报告管理中打开当前项目' : '需要先选择项目'" @click="openProjectMenu('report')">进入报告管理</button>
           <span class="hint" v-if="latestAction">最近操作：{{ latestAction }}</span>
         </div>
       </section>
     </section>
 
+    <section v-else-if="activeTab === 'reportCenter'" class="report-center-layout">
+      <section class="card report-center-main">
+        <div class="section-title-row">
+          <div>
+            <h2>报告队列 <HelpMark anchor-id="report.generate" /></h2>
+            <p>集中处理全部项目的预检、生成和归档，不依赖项目工作台当前选项。</p>
+          </div>
+          <el-tag type="info">共 {{ reportCenterTotal }} 个项目</el-tag>
+        </div>
+        <div class="report-center-filters">
+          <label>项目编号<input v-model="reportCenterQuery.projectCode" placeholder="输入项目编号" /></label>
+          <label>单位名称<input v-model="reportCenterQuery.companyName" placeholder="输入受检单位" /></label>
+          <label>报告状态
+            <select v-model="reportCenterQuery.reportStatus">
+              <option value="">全部状态</option>
+              <option value="PENDING">待生成</option>
+              <option value="GENERATED">已生成</option>
+            </select>
+          </label>
+          <label>生成日期从<input v-model="reportCenterQuery.generatedFrom" type="date" /></label>
+          <label>生成日期至<input v-model="reportCenterQuery.generatedTo" type="date" /></label>
+          <button :disabled="actionBusy.reportCenter" @click="fetchReportCenter">
+            {{ actionBusy.reportCenter ? '查询中...' : '查询' }}
+          </button>
+        </div>
+
+        <el-table
+          :data="reportCenterRows"
+          border
+          stripe
+          highlight-current-row
+          row-key="projectId"
+          empty-text="没有符合条件的项目"
+          @row-click="(row: ReportCenterRow) => selectReportCenterRow(row)"
+        >
+          <el-table-column prop="projectCode" label="项目编号" min-width="205" />
+          <el-table-column prop="companyName" label="受检单位" min-width="220" show-overflow-tooltip />
+          <el-table-column label="项目状态" width="120">
+            <template #default="{ row }">{{ row.projectStatusLabel || codeLabel(row.projectStatus) }}</template>
+          </el-table-column>
+          <el-table-column label="报告状态" width="110">
+            <template #default="{ row }">
+              <el-tag :type="row.reportId ? 'success' : 'warning'" size="small">{{ row.reportStatusLabel || codeLabel(row.reportStatus) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="生成时间" min-width="150">
+            <template #default="{ row }">{{ formatDateTime(row.generatedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="300" fixed="right">
+            <template #default="{ row }">
+              <button class="ghost tiny" @click.stop="selectReportCenterRow(row as ReportCenterRow)">查看</button>
+              <button class="ghost tiny" :disabled="actionBusy.generateReport" @click.stop="generateReportFromCenter(row as ReportCenterRow)">
+                {{ row.reportId ? '重新生成' : '生成报告' }}
+              </button>
+              <button v-if="row.reportId" class="ghost tiny" :disabled="actionBusy.downloadReport" @click.stop="downloadReport(row.reportId, row.fileName || `${row.projectCode}_report.doc`)">下载</button>
+              <button class="ghost tiny" @click.stop="openProjectFromReport(row as ReportCenterRow)">查看项目</button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-pagination
+          v-if="reportCenterTotal > reportCenterQuery.size"
+          class="report-pagination"
+          layout="prev, pager, next, total"
+          :total="reportCenterTotal"
+          :page-size="reportCenterQuery.size"
+          :current-page="reportCenterQuery.page + 1"
+          @current-change="(page: number) => { reportCenterQuery.page = page - 1; fetchReportCenter() }"
+        />
+      </section>
+
+      <aside class="card report-center-detail">
+        <template v-if="selectedReportCenterRow">
+          <div class="section-title-row">
+            <div><h2>报告详情 <HelpMark anchor-id="report.preview" /> <HelpMark anchor-id="report.traceability" /></h2><p>{{ selectedReportCenterRow.projectCode }}</p></div>
+            <el-tag :type="selectedReportCenterRow.reportId ? 'success' : 'warning'">{{ selectedReportCenterRow.reportStatusLabel || codeLabel(selectedReportCenterRow.reportStatus) }}</el-tag>
+          </div>
+          <dl class="flow-status-list">
+            <div><dt>受检单位</dt><dd>{{ selectedReportCenterRow.companyName }}</dd></div>
+            <div><dt>生成人</dt><dd>{{ selectedReportCenterRow.generatedBy || '尚未生成' }}</dd></div>
+            <div><dt>生成时间</dt><dd>{{ formatDateTime(selectedReportCenterRow.generatedAt) }}</dd></div>
+            <div><dt>报告文件</dt><dd>{{ selectedReportCenterRow.fileName || '尚未生成' }}</dd></div>
+          </dl>
+          <section v-if="reportCenterPreview" class="report-data-preview">
+            <h3>生成前检查 <HelpMark anchor-id="project.report-precheck" /></h3>
+            <p :class="reportCenterPreview.precheck.passed ? 'ok' : 'bad'">
+              {{ reportCenterPreview.precheck.passed ? '预检通过，可以生成报告' : `预检未通过，缺少 ${reportCenterPreview.precheck.missingItems.length} 项` }}
+            </p>
+            <ul v-if="!reportCenterPreview.precheck.passed">
+              <li v-for="item in reportCenterPreview.precheck.missingItems" :key="item">{{ mapMissingItem(item) }}</li>
+            </ul>
+            <p>岗位 {{ reportCenterPreview.positions.length }} 项，检测结果 {{ reportCenterPreview.results.length }} 项。</p>
+          </section>
+          <section v-if="reportCenterLogs.length" class="report-log-list">
+            <h3>最近操作 <HelpMark anchor-id="report.log" /></h3>
+            <ol>
+              <li v-for="item in reportCenterLogs.slice(0, 5)" :key="item.id">
+                <span>{{ formatDateTime(item.operatedAt) }}</span>
+                <strong>{{ item.operationTypeLabel || codeLabel(item.operationType) }}</strong>
+                <small>{{ item.operatorName || '系统' }}</small>
+              </li>
+            </ol>
+          </section>
+        </template>
+        <div v-else class="empty-state report-center-empty">
+          <strong>选择一项报告任务</strong>
+          <p>右侧将显示预检结果、生成文件和最近操作记录。</p>
+        </div>
+      </aside>
+    </section>
+
     <section v-else-if="activeTab === 'maintenance'" class="maintenance-grid">
       <section class="card" v-if="maintenanceChildMenu === 'company'">
-        <h2>单位信息维护</h2>
+        <h2>受检单位维护</h2>
         <div class="grid2">
           <label>单位名称<input v-model="companyProfileForm.companyName" /></label>
           <label>单位地址<input v-model="companyProfileForm.companyAddress" /></label>
@@ -3139,7 +3923,7 @@ onMounted(async () => {
           <thead><tr><th>分类</th><th>名称</th><th>启用</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="item in reportTextTemplates" :key="item.id">
-              <td>{{ item.templateType }}</td>
+              <td>{{ codeLabel(item.templateType) }}</td>
               <td>{{ item.templateName }}</td>
               <td>{{ item.enabled ? '是' : '否' }}</td>
               <td>
@@ -3156,7 +3940,7 @@ onMounted(async () => {
       <section v-else-if="activeTab === 'system'" class="maintenance-grid">
         <!-- 用户管理 -->
         <section class="card" v-if="systemChildMenu === 'user'">
-          <h2>用户管理</h2>
+          <h2>用户管理 <HelpMark anchor-id="system.user-role" /></h2>
           <div class="grid2 compact">
             <input v-model="userQuery.username" placeholder="用户名搜索" />
             <div>
@@ -3214,7 +3998,7 @@ onMounted(async () => {
           <!-- 重置密码弹窗 -->
           <div v-if="showResetDialog" class="modal-mask" @click.self="showResetDialog = false">
             <div class="modal-box">
-              <h3>重置密码 — {{ resetPasswordForm.username }}</h3>
+              <h3>重置密码：{{ resetPasswordForm.username }}</h3>
               <label>新密码<input v-model="resetPasswordForm.newPassword" type="password" placeholder="请输入新密码" /></label>
               <div class="actions" style="margin-top:12px">
                 <button @click="doResetPassword">确认重置</button>
@@ -3226,7 +4010,7 @@ onMounted(async () => {
           <!-- 分配角色弹窗 -->
           <div v-if="showRoleAssignDialog" class="modal-mask" @click.self="showRoleAssignDialog = false">
             <div class="modal-box" style="min-width:360px;max-width:480px">
-              <h3>分配角色 — {{ assigningUsername }}</h3>
+              <h3>分配角色：{{ assigningUsername }}</h3>
               <div v-if="roles.length === 0" class="small">暂无可用角色</div>
               <div v-else style="max-height:260px;overflow:auto;border:1px solid #d6deea;border-radius:8px;padding:8px">
                 <label v-for="r in roles" :key="r.id" style="flex-direction:row;align-items:center;gap:8px;padding:4px 0;font-size:14px;color:#223047;cursor:pointer">
@@ -3245,7 +4029,7 @@ onMounted(async () => {
 
         <!-- 角色管理 -->
         <section class="card" v-else-if="systemChildMenu === 'role'">
-          <h2>角色管理</h2>
+          <h2>角色管理 <HelpMark anchor-id="system.user-role" /></h2>
           <div class="grid2 compact">
             <input v-model="roleQuery.roleCode" placeholder="角色编码" />
             <input v-model="roleQuery.roleName" placeholder="角色名称" />
@@ -3296,12 +4080,12 @@ onMounted(async () => {
           <!-- 分配权限弹窗 -->
           <div v-if="showRolePermDialog" class="modal-mask" @click.self="showRolePermDialog = false">
             <div class="modal-box" style="min-width:400px;max-width:560px">
-              <h3>分配权限 — {{ assigningRoleName }}</h3>
+              <h3>分配权限：{{ assigningRoleName }}</h3>
               <div v-if="permissions.length === 0" class="small">暂无可用权限</div>
               <div v-else style="max-height:320px;overflow:auto;border:1px solid #d6deea;border-radius:8px;padding:8px">
                 <label v-for="p in permissions" :key="p.id" style="flex-direction:row;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:#223047;cursor:pointer">
                   <input type="checkbox" :value="p.id" v-model="selectedPermIds" style="width:auto;border:none;padding:0" />
-                  <el-tag size="small" :type="p.permType === 'MENU' ? 'primary' : p.permType === 'BUTTON' ? 'warning' : 'info'" style="margin-right:4px">{{ p.permType }}</el-tag>
+                  <el-tag size="small" :type="p.permType === 'MENU' ? 'primary' : p.permType === 'BUTTON' ? 'warning' : 'info'" style="margin-right:4px">{{ codeLabel(p.permType) }}</el-tag>
                   <span>{{ p.permName }}</span>
                   <span style="color:#6a7c98;font-size:12px">({{ p.permCode }})</span>
                 </label>
@@ -3384,7 +4168,7 @@ onMounted(async () => {
 
         <!-- 权限管理 -->
         <section class="card" v-else-if="systemChildMenu === 'permission'">
-          <h2>权限管理</h2>
+          <h2>权限管理 <HelpMark anchor-id="system.permission" /></h2>
           <div class="grid2 compact">
             <input v-model="permQuery.permCode" placeholder="权限码" />
             <input v-model="permQuery.permName" placeholder="权限名称" />
@@ -3428,7 +4212,7 @@ onMounted(async () => {
                 <td>{{ p.id }}</td>
                 <td><code>{{ p.permCode }}</code></td>
                 <td>{{ p.permName }}</td>
-                <td><el-tag size="small" :type="p.permType === 'MENU' ? 'primary' : p.permType === 'BUTTON' ? 'warning' : 'info'">{{ p.permType }}</el-tag></td>
+                <td><el-tag size="small" :type="p.permType === 'MENU' ? 'primary' : p.permType === 'BUTTON' ? 'warning' : 'info'">{{ codeLabel(p.permType) }}</el-tag></td>
                 <td>{{ p.apiMethod || '-' }}</td>
                 <td style="max-width:200px;word-break:break-all">{{ p.apiPath || '-' }}</td>
                 <td><el-tag :type="p.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ p.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
@@ -3475,14 +4259,14 @@ onMounted(async () => {
           </div>
           <div class="actions"><button @click="saveNotice">{{ noticeForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysNotices">刷新</button></div>
           <table><thead><tr><th>标题</th><th>类型</th><th>发布人</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in sysNotices" :key="item.id"><td>{{ item.title }}</td><td>{{ item.noticeType }}</td><td>{{ item.publisher }}</td><td><button class="danger tiny" @click="deleteNotice(item.id)">删除</button></td></tr></tbody>
+            <tbody><tr v-for="item in sysNotices" :key="item.id"><td>{{ item.title }}</td><td>{{ codeLabel(item.noticeType) }}</td><td>{{ item.publisher }}</td><td><button class="danger tiny" @click="deleteNotice(item.id)">删除</button></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="systemChildMenu === 'syslog'">
-          <h2>操作日志</h2>
+          <h2>操作日志 <HelpMark anchor-id="system.audit-log" /></h2>
           <div class="actions"><button class="ghost" @click="fetchSysLogs">刷新</button></div>
           <table><thead><tr><th>用户</th><th>操作</th><th>模块</th><th>结果</th><th>时间</th></tr></thead>
-            <tbody><tr v-for="item in sysLogs" :key="item.id"><td>{{ item.userName }}</td><td>{{ item.operation }}</td><td>{{ item.module }}</td><td>{{ item.resultType }}</td><td>{{ item.createdAt }}</td></tr></tbody>
+            <tbody><tr v-for="item in sysLogs" :key="item.id"><td>{{ item.userName }}</td><td>{{ codeLabel(item.operation) }}</td><td>{{ codeLabel(item.module) }}</td><td>{{ codeLabel(item.resultType) }}</td><td>{{ formatDateTime(item.createdAt) }}</td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="systemChildMenu === 'sysconfig'">
@@ -3502,36 +4286,64 @@ onMounted(async () => {
       <!-- 基础数据 -->
       <section v-else-if="activeTab === 'basicData'" class="maintenance-grid">
         <section class="card" v-if="basicDataChildMenu === 'law'">
-          <h2>法律法规</h2>
+          <div class="section-title-row"><div><h2>法律法规 <HelpMark anchor-id="basic.reference" /></h2><p>登记法规元数据并保留原文版本，历史项目引用不随新版本改变。</p></div></div>
           <div class="grid2">
             <label>标题<input v-model="lawForm.title" /></label>
             <label>文号<input v-model="lawForm.docNo" /></label>
             <label>级别
-              <select v-model="lawForm.level"><option value="NATIONAL">国家</option><option value="PROVINCIAL">省级</option><option value="LOCAL">地方</option></select>
+              <select v-model="lawForm.level"><option value="NATIONAL">国家法律法规</option><option value="DEPARTMENT">部门规章</option><option value="PROVINCIAL">省级法规</option><option value="LOCAL">地方性法规</option></select>
             </label>
             <label>发布日期<input v-model="lawForm.publishDate" type="date" /></label>
+            <label>生效日期<input v-model="lawForm.effectiveDate" type="date" /></label>
+            <label>发布机构<input v-model="lawForm.publisher" /></label>
+            <label>有效状态<select v-model="lawForm.isValid"><option :value="true">现行有效</option><option :value="false">失效或废止</option></select></label>
+            <label>公开状态<select v-model="lawForm.isOpen"><option :value="true">可公开使用</option><option :value="false">内部资料</option></select></label>
             <label class="full">备注<input v-model="lawForm.notes" /></label>
           </div>
-          <div class="actions"><button @click="saveLaw">{{ lawForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchLaws">刷新</button></div>
-          <table><thead><tr><th>标题</th><th>文号</th><th>级别</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in laws" :key="item.id"><td>{{ item.title }}</td><td>{{ item.docNo }}</td><td>{{ item.level }}</td><td><button class="ghost tiny" @click="editLaw(item)">编辑</button><button class="danger tiny" @click="deleteLaw(item.id)">删除</button></td></tr></tbody>
+          <section class="reference-upload-panel">
+            <label>原文文件（PDF、DOC、DOCX） <HelpMark anchor-id="basic.document-upload" /><input :key="referenceDocumentInputKey" type="file" accept=".pdf,.doc,.docx" @change="onReferenceDocumentSelected" /></label>
+            <label>版本名称 <HelpMark anchor-id="basic.document-version" /><input v-model="referenceVersionLabel" placeholder="如：2020 年发布版" /></label>
+            <label>官方来源网址<input v-model="referenceSourceUrl" placeholder="可选，填写官方发布页面" /></label>
+          </section>
+          <div class="actions"><button :disabled="actionBusy.uploadReferenceDocument" @click="saveLaw">{{ actionBusy.uploadReferenceDocument ? '上传中...' : (lawForm.id ? '更新' : '新增') }}</button><button class="ghost" @click="clearLawForm">清空</button><button class="ghost" @click="fetchLaws">刷新</button></div>
+          <table><thead><tr><th>标题</th><th>文号</th><th>级别</th><th>有效状态</th><th>当前原文</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in laws" :key="item.id"><td>{{ item.title }}</td><td>{{ item.docNo }}</td><td>{{ item.levelLabel || codeLabel(item.level) }}</td><td>{{ item.isValid === false ? '失效或废止' : '现行有效' }}</td><td><button v-if="item.currentDocument" class="link-button" @click="openReferenceDocument(item.currentDocument)">{{ item.currentDocument.versionLabel || item.currentDocument.originalName }}</button><span v-else>未上传</span></td><td><button class="ghost tiny" @click="editLaw(item)">编辑/版本</button><button class="danger tiny" @click="deleteLaw(item.id)">删除</button></td></tr></tbody>
           </table>
+          <section v-if="lawForm.id" class="reference-history">
+            <h3>原文版本记录</h3>
+            <p v-if="!referenceDocuments.length" class="small">尚未上传原文。</p>
+            <ol v-else><li v-for="item in referenceDocuments" :key="item.id"><div><strong>{{ item.versionLabel || `第 ${item.versionNo} 版` }}</strong><span>{{ item.originalName }} · {{ formatFileSize(item.fileSize) }} · {{ formatDateTime(item.uploadedAt) }}</span></div><el-tag v-if="item.current" type="success" size="small">当前版本</el-tag><button class="ghost tiny" @click="openReferenceDocument(item)">预览</button><button class="ghost tiny" @click="openReferenceDocument(item, true)">下载</button></li></ol>
+          </section>
         </section>
         <section class="card" v-else-if="basicDataChildMenu === 'standard'">
-          <h2>标准规范</h2>
+          <div class="section-title-row"><div><h2>标准规范 <HelpMark anchor-id="basic.reference" /></h2><p>维护检测、计算和判定使用的标准版本及可核验原文。</p></div></div>
           <div class="grid2">
             <label>标准名称<input v-model="standardForm.standardName" /></label>
             <label>标准编号<input v-model="standardForm.standardCode" /></label>
             <label>级别<select v-model="standardForm.level"><option value="NATIONAL">国标</option><option value="INDUSTRY">行标</option></select></label>
+            <label>发布日期<input v-model="standardForm.publishDate" type="date" /></label>
+            <label class="full">适用范围<input v-model="standardForm.useScope" placeholder="如：职业危害检测、DR 质量控制" /></label>
+            <label>有效状态<select v-model="standardForm.isValid"><option :value="true">现行有效</option><option :value="false">失效或废止</option></select></label>
+            <label>公开状态<select v-model="standardForm.isOpen"><option :value="true">可公开使用</option><option :value="false">内部资料</option></select></label>
             <label class="full">备注<input v-model="standardForm.notes" /></label>
           </div>
-          <div class="actions"><button @click="saveStandard">{{ standardForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchStandards">刷新</button></div>
-          <table><thead><tr><th>标准名称</th><th>编号</th><th>级别</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in standards" :key="item.id"><td>{{ item.standardName }}</td><td>{{ item.standardCode }}</td><td>{{ item.level }}</td><td><button class="ghost tiny" @click="editStandard(item)">编辑</button><button class="danger tiny" @click="deleteStandard(item.id)">删除</button></td></tr></tbody>
+          <section class="reference-upload-panel">
+            <label>标准原文（PDF、DOC、DOCX） <HelpMark anchor-id="basic.document-upload" /><input :key="referenceDocumentInputKey" type="file" accept=".pdf,.doc,.docx" @change="onReferenceDocumentSelected" /></label>
+            <label>版本名称 <HelpMark anchor-id="basic.document-version" /><input v-model="referenceVersionLabel" placeholder="如：2020 年发布版" /></label>
+            <label>官方来源网址<input v-model="referenceSourceUrl" placeholder="可选，填写官方发布页面" /></label>
+          </section>
+          <div class="actions"><button :disabled="actionBusy.uploadReferenceDocument" @click="saveStandard">{{ actionBusy.uploadReferenceDocument ? '上传中...' : (standardForm.id ? '更新' : '新增') }}</button><button class="ghost" @click="clearStandardForm">清空</button><button class="ghost" @click="fetchStandards">刷新</button></div>
+          <table><thead><tr><th>标准名称</th><th>编号</th><th>级别</th><th>适用范围</th><th>当前原文</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in standards" :key="item.id"><td>{{ item.standardName }}</td><td>{{ item.standardCode }}</td><td>{{ item.levelLabel || codeLabel(item.level) }}</td><td>{{ item.useScope || '-' }}</td><td><button v-if="item.currentDocument" class="link-button" @click="openReferenceDocument(item.currentDocument)">{{ item.currentDocument.versionLabel || item.currentDocument.originalName }}</button><span v-else>未上传</span></td><td><button class="ghost tiny" @click="editStandard(item)">编辑/版本</button><button class="danger tiny" @click="deleteStandard(item.id)">删除</button></td></tr></tbody>
           </table>
+          <section v-if="standardForm.id" class="reference-history">
+            <h3>原文版本记录</h3>
+            <p v-if="!referenceDocuments.length" class="small">尚未上传原文。</p>
+            <ol v-else><li v-for="item in referenceDocuments" :key="item.id"><div><strong>{{ item.versionLabel || `第 ${item.versionNo} 版` }}</strong><span>{{ item.originalName }} · {{ formatFileSize(item.fileSize) }} · {{ formatDateTime(item.uploadedAt) }}</span></div><el-tag v-if="item.current" type="success" size="small">当前版本</el-tag><button class="ghost tiny" @click="openReferenceDocument(item)">预览</button><button class="ghost tiny" @click="openReferenceDocument(item, true)">下载</button></li></ol>
+          </section>
         </section>
         <section class="card" v-else-if="basicDataChildMenu === 'region'">
-          <h2>地区字典</h2>
+          <h2>行政区划 <HelpMark anchor-id="basic.region" /></h2>
           <div class="grid2">
             <label>区域名称<input v-model="regionForm.regionName" /></label>
             <label>区域代码<input v-model="regionForm.regionCode" /></label>
@@ -3540,11 +4352,11 @@ onMounted(async () => {
           </div>
           <div class="actions"><button @click="saveRegion">{{ regionForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchRegions">刷新</button></div>
           <table><thead><tr><th>名称</th><th>代码</th><th>级别</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in regions" :key="item.id"><td>{{ item.regionName }}</td><td>{{ item.regionCode }}</td><td>{{ item.level }}</td><td><button class="ghost tiny" @click="editRegion(item)">编辑</button><button class="danger tiny" @click="deleteRegion(item.id)">删除</button></td></tr></tbody>
+            <tbody><tr v-for="item in regions" :key="item.id"><td>{{ item.regionName }}</td><td>{{ item.regionCode }}</td><td>{{ item.levelLabel || regionLevelLabel(item.level) }}</td><td><button class="ghost tiny" @click="editRegion(item)">编辑</button><button class="danger tiny" @click="deleteRegion(item.id)">删除</button></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="basicDataChildMenu === 'device'">
-          <h2>设备管理</h2>
+          <h2>检测仪器设备 <HelpMark anchor-id="basic.device" /></h2>
           <div class="grid2">
             <label>设备名称<input v-model="deviceForm.deviceName" /></label>
             <label>类型<select v-model="deviceForm.deviceType"><option value="LAB_INSTRUMENT">实验仪器</option><option value="SAMPLER">采样仪器</option></select></label>
@@ -3555,7 +4367,7 @@ onMounted(async () => {
           </div>
           <div class="actions"><button @click="saveDevice">{{ deviceForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDevices">刷新</button></div>
           <table><thead><tr><th>名称</th><th>型号</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in devices" :key="item.id"><td>{{ item.deviceName }}</td><td>{{ item.deviceModel }}</td><td>{{ item.deviceType === 'LAB_INSTRUMENT' ? '实验仪器' : '采样仪器' }}</td><td>{{ item.status }}</td><td><button class="ghost tiny" @click="editDevice(item)">编辑</button><button class="danger tiny" @click="deleteDevice(item.id)">删除</button></td></tr></tbody>
+            <tbody><tr v-for="item in devices" :key="item.id"><td>{{ item.deviceName }}</td><td>{{ item.deviceModel }}</td><td>{{ item.deviceTypeLabel || codeLabel(item.deviceType) }}</td><td>{{ item.statusLabel || codeLabel(item.status) }}</td><td><button class="ghost tiny" @click="editDevice(item)">编辑</button><button class="danger tiny" @click="deleteDevice(item.id)">删除</button></td></tr></tbody>
           </table>
         </section>
       </section>
@@ -3563,20 +4375,65 @@ onMounted(async () => {
       <!-- 危害因素管理 -->
       <section v-else-if="activeTab === 'hazardFactor'" class="maintenance-grid">
         <section class="card" v-if="hazardChildMenu === 'factor'">
-          <h2>危害因素库</h2>
+          <h2>危害因素库 <HelpMark anchor-id="hazard.category" /></h2>
           <div class="grid2">
             <label>因素名称<input v-model="hazardFactorForm.factorName" /></label>
-            <label>分类<select v-model="hazardFactorForm.factorCategory"><option value="PHYSICAL">物理因素</option><option value="CHEMICAL">化学因素</option><option value="DUST">粉尘</option><option value="BIOLOGICAL">生物因素</option><option value="RADIATION">放射因素</option><option value="OTHER">其他</option></select></label>
+            <label>分类 <HelpMark anchor-id="hazard.category" /><select v-model="hazardFactorForm.factorCategory"><option value="PHYSICAL">物理因素</option><option value="CHEMICAL">化学因素</option><option value="DUST">粉尘</option><option value="BIOLOGICAL">生物因素</option><option value="RADIATION">放射因素</option><option value="OTHER">其他</option></select></label>
             <label>因素编码<input v-model="hazardFactorForm.factorCode" /></label>
-            <label>CAS号<input v-model="hazardFactorForm.casNo" /></label>
+            <label>CAS号 <HelpMark anchor-id="hazard.cas" /><input v-model="hazardFactorForm.casNo" /></label>
           </div>
           <div class="actions"><button @click="saveHazardFactor">{{ hazardFactorForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchHazardFactors">刷新</button></div>
           <table><thead><tr><th>因素名称</th><th>分类</th><th>CAS号</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in hazardFactors" :key="item.id"><td>{{ item.factorName }}</td><td>{{ item.factorCategory }}</td><td>{{ item.casNo }}</td><td><button class="ghost tiny" @click="editHazardFactor(item)">编辑</button><button class="danger tiny" @click="deleteHazardFactor(item.id)">删除</button></td></tr></tbody>
+            <tbody><tr v-for="item in hazardFactors" :key="item.id" :class="{ 'row-selected': selectedHazardFactorId === item.id }">
+              <td>{{ item.factorName }}</td><td>{{ item.factorCategoryLabel || codeLabel(item.factorCategory) }}</td><td>{{ item.casNo }}</td>
+              <td>
+                <button class="ghost tiny" @click="editHazardFactor(item)">编辑</button>
+                <button class="ghost tiny" @click="viewFactorLimits(item)" style="margin-left:4px">限值管理</button>
+                <button class="danger tiny" @click="deleteHazardFactor(item.id)" style="margin-left:4px">删除</button>
+              </td>
+            </tr></tbody>
           </table>
+
+          <div v-if="selectedHazardFactorId" style="margin-top:16px;border-top:2px solid var(--primary);padding-top:12px">
+            <h3 style="margin-bottom:8px">「{{ selectedHazardFactorName }}」职业接触限值 <HelpMark anchor-id="hazard.limit" /></h3>
+            <div class="grid2">
+              <label>限值类型
+                <select v-model="limitForm.limitType">
+                  <option value="PC_TWA">PC-TWA（时间加权平均）</option>
+                  <option value="PC_STEL">PC-STEL（短时间接触）</option>
+                  <option value="MAC">MAC（最高容许浓度）</option>
+                  <option value="OEL">OEL</option>
+                  <option value="OTHER">其他</option>
+                </select>
+              </label>
+              <label>限值<input v-model="limitForm.limitValue" type="number" step="any" placeholder="如 0.15" /></label>
+              <label>单位<input v-model="limitForm.limitUnit" placeholder="如 mg/m3、dB(A)" /></label>
+              <label class="full">标准文号<input v-model="limitForm.standardCode" placeholder="如 GBZ 2.1-2019" /></label>
+            </div>
+            <div class="actions">
+              <button @click="saveFactorLimit">{{ limitForm.id ? '更新限值' : '新增限值' }}</button>
+              <button class="ghost" @click="resetLimitForm">清空</button>
+            </div>
+            <table>
+              <thead><tr><th>限值类型</th><th>限值</th><th>单位</th><th>标准文号</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="lim in factorLimits" :key="lim.id">
+                  <td>{{ lim.limitTypeLabel || codeLabel(lim.limitType) }}</td>
+                  <td>{{ lim.limitValue }}</td>
+                  <td>{{ lim.limitUnit }}</td>
+                  <td>{{ lim.standardCode }}</td>
+                  <td>
+                    <button class="ghost tiny" @click="editFactorLimit(lim)">编辑</button>
+                    <button class="danger tiny" @click="deleteFactorLimit(lim.id)" style="margin-left:4px">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="factorLimits.length === 0"><td colspan="5" style="text-align:center;color:#999">暂无限值，请新增</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
         <section class="card" v-else-if="hazardChildMenu === 'sds'">
-          <h2>SDS安全技术说明书</h2>
+          <h2>SDS安全技术说明书 <HelpMark anchor-id="hazard.sds" /></h2>
           <div class="grid2">
             <label>物质名称<input v-model="sdsForm.substanceName" /></label>
             <label>CAS号<input v-model="sdsForm.casNo" /></label>
@@ -3593,20 +4450,21 @@ onMounted(async () => {
       <!-- 配置中心 -->
       <section v-else-if="activeTab === 'configCenter'" class="maintenance-grid">
         <section class="card" v-if="configChildMenu === 'detectMethod'">
-          <h2>检测方法配置</h2>
+          <h2>检测方法配置 <HelpMark anchor-id="config.method" /></h2>
           <div class="grid2">
             <label>方法名称<input v-model="detectionMethodForm.methodName" /></label>
             <label>方法代码<input v-model="detectionMethodForm.methodCode" /></label>
             <label>简称<input v-model="detectionMethodForm.methodAbbr" /></label>
-            <label>计算公式<input v-model="detectionMethodForm.formula" /></label>
+            <label>计算公式 <HelpMark anchor-id="config.formula" /><input v-model="detectionMethodForm.formula" /></label>
+            <label class="full">检测依据（标准文号） <HelpMark anchor-id="config.standard-code" /><input v-model="detectionMethodForm.standardCode" placeholder="如 GBZ/T 300.17-2017；多个依据用分号分隔" /></label>
           </div>
           <div class="actions"><button @click="saveDetectionMethod">{{ detectionMethodForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDetectionMethods">刷新</button></div>
-          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>公式</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in detectionMethods" :key="item.id"><td>{{ item.methodName }}</td><td>{{ item.methodCode }}</td><td>{{ item.methodAbbr }}</td><td>{{ item.formula }}</td><td><button class="ghost tiny" @click="editDetectionMethod(item)">编辑</button><button class="danger tiny" @click="deleteDetectionMethod(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>检测依据</th><th>操作</th></tr></thead>
+            <tbody><tr v-for="item in detectionMethods" :key="item.id"><td>{{ item.methodName }}</td><td>{{ item.methodCode }}</td><td>{{ item.methodAbbr }}</td><td>{{ item.standardCode }}</td><td><button class="ghost tiny" @click="editDetectionMethod(item)">编辑</button><button class="danger tiny" @click="deleteDetectionMethod(item.id)">删除</button></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="configChildMenu === 'detectType'">
-          <h2>检测分类配置</h2>
+          <h2>检测分类配置 <HelpMark anchor-id="config.detect-type" /></h2>
           <div class="grid2">
             <label>分类名称<input v-model="detectTypeForm.typeName" /></label>
             <label>分类代码<input v-model="detectTypeForm.typeCode" /></label>
@@ -3619,7 +4477,7 @@ onMounted(async () => {
           </table>
         </section>
         <section class="card" v-else-if="configChildMenu === 'orgConfig'">
-          <h2>机构基础配置</h2>
+          <h2>机构基础配置 <HelpMark anchor-id="config.numbering" /></h2>
           <div class="grid2">
             <label>机构名称<input v-model="orgConfigForm.orgName" /></label>
             <label>统一社会信用代码<input v-model="orgConfigForm.orgCode" /></label>
@@ -3634,10 +4492,32 @@ onMounted(async () => {
         </section>
       </section>
 
+      <section v-else-if="activeTab === 'radiology'" class="radiology-module">
+        <RadiologyWorkbench
+          :token="token"
+          :modality="radiologyChildMenu"
+          :can-review="canReviewRadiology"
+          :can-approve="canApproveRadiology"
+          :can-generate-report="canGenerateRadiologyReport"
+          :can-manage-rules="canManageRadiologyRules"
+        />
+      </section>
+
+      <section v-else-if="activeTab === 'feedback'" class="feedback-module">
+        <FeedbackCenter
+          :token="token"
+          :can-read-all="canReadAllFeedback"
+          :can-handle="canHandleFeedback"
+          :can-close="canCloseFeedback"
+          :current-username="currentUsername"
+          :source-module="feedbackSourceModule"
+        />
+      </section>
+
       <!-- 实验管理 -->
       <section v-else-if="activeTab === 'labManage'" class="maintenance-grid">
         <section class="card" v-if="labChildMenu === 'task'">
-          <h2>内部检测任务单</h2>
+          <h2>内部检测任务单 <HelpMark anchor-id="lab.task" /></h2>
           <div class="grid2">
             <label>关联项目ID<input v-model.number="labTaskForm.projectId" type="number" /></label>
             <label>签发人<input v-model="labTaskForm.issuerName" /></label>
@@ -3646,7 +4526,7 @@ onMounted(async () => {
           <div class="actions"><button @click="createLabTask">创建任务单</button><button class="ghost" @click="fetchLabTasks">刷新</button></div>
           <table><thead><tr><th>任务单号</th><th>项目ID</th><th>状态</th><th>签发人</th><th>操作</th></tr></thead>
             <tbody><tr v-for="item in labTasks" :key="item.id">
-              <td>{{ item.taskCode }}</td><td>{{ item.projectId }}</td><td>{{ item.taskStatus }}</td><td>{{ item.issuerName }}</td>
+              <td>{{ item.taskCode }}</td><td>{{ item.projectId }}</td><td>{{ item.taskStatusLabel || codeLabel(item.taskStatus) }}</td><td>{{ item.issuerName }}</td>
               <td>
                 <button v-if="item.taskStatus === 'PENDING'" class="ghost tiny" @click="receiveTask(item.id, '当前用户')">领取</button>
                 <button v-if="item.taskStatus === 'IN_PROGRESS'" class="ghost tiny" @click="submitTask(item.id)">提交审核</button>
@@ -3655,7 +4535,7 @@ onMounted(async () => {
           </table>
         </section>
         <section class="card" v-else-if="labChildMenu === 'result'">
-          <h2>检测结果计算</h2>
+          <h2>结果计算与复核 <HelpMark anchor-id="lab.result" /></h2>
           <div class="actions"><button class="ghost" @click="fetchLabResults">刷新</button></div>
           <table><thead><tr><th>任务单ID</th><th>因素名称</th><th>检测方法</th><th>截距a</th><th>斜率b</th><th>相关系数R</th><th>结果值</th><th>操作</th></tr></thead>
             <tbody><tr v-for="item in labResults" :key="item.id">
@@ -3668,5 +4548,10 @@ onMounted(async () => {
       </section>
       </div>
     </section>
+    <ContextHelpDrawer
+      :anchor-id="contextHelpAnchorId"
+      @close="contextHelpAnchorId = null"
+      @open-topic="openDetailedHelp"
+    />
   </div>
 </template>

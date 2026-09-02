@@ -64,6 +64,7 @@ public final class LabDto {
         private String taskCode;
         private Long projectId;
         private String taskStatus;
+        private String taskStatusLabel;
         private String issuerName;
         private LocalDate issuedDate;
         private String receiverName;
@@ -85,6 +86,7 @@ public final class LabDto {
         private String taskCode;
         private Long projectId;
         private String taskStatus;
+        private String taskStatusLabel;
         private String issuerName;
         private LocalDate issuedDate;
         private String receiverName;

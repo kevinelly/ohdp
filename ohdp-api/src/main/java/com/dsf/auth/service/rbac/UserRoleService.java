@@ -42,17 +42,24 @@ public class UserRoleService {
             throw new BusinessException("role contains invalid id");
         }
 
-        List<SysUserRole> existed = sysUserRoleRepository.findByUserIdAndDeletedFalse(user.getId());
-        for (SysUserRole item : existed) {
-            item.setDeleted(true);
-        }
-        sysUserRoleRepository.saveAll(existed);
-
         Set<Long> dedupIds = new HashSet<>(ids);
+        List<SysUserRole> activeRelations = sysUserRoleRepository.findByUserIdAndDeletedFalse(user.getId());
+        for (SysUserRole item : activeRelations) {
+            if (!dedupIds.contains(item.getRoleId())) {
+                item.setDeleted(true);
+            }
+        }
+        sysUserRoleRepository.saveAll(activeRelations);
+
         for (Long roleId : dedupIds) {
-            SysUserRole relation = new SysUserRole();
-            relation.setUserId(user.getId());
-            relation.setRoleId(roleId);
+            SysUserRole relation = sysUserRoleRepository
+                    .findByUserIdAndRoleId(user.getId(), roleId)
+                    .orElseGet(() -> {
+                        SysUserRole created = new SysUserRole();
+                        created.setUserId(user.getId());
+                        created.setRoleId(roleId);
+                        return created;
+                    });
             relation.setDeleted(false);
             sysUserRoleRepository.save(relation);
         }

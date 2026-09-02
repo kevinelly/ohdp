@@ -22,6 +22,8 @@ public interface SysPermissionRepository extends JpaRepository<SysPermission, Lo
 
     Optional<SysPermission> findByIdAndDeletedFalse(Long id);
 
+    Optional<SysPermission> findByPermCodeAndDeletedFalse(String permCode);
+
     boolean existsByPermCodeAndDeletedFalse(String permCode);
 
     boolean existsByPermCodeAndDeletedFalseAndIdNot(String permCode, Long id);
