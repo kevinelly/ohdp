@@ -118,9 +118,9 @@ public class OhdpProject extends BaseAuditEntity {
      * <p>该字段保存单位基本信息、原辅材料、设备、防护设施、采样计划、
      * 现场条件和结论建议等结构化内容。数据作为项目快照保存，避免主数据
      * 后续修改导致已经归档的报告内容发生变化。</p>
-     */
+    */
     @Lob
-    @Column(name = "report_supplement_json")
+    @Column(name = "report_supplement_json", columnDefinition = "LONGTEXT")
     private String reportSupplementJson;
 
     @Enumerated(EnumType.STRING)
