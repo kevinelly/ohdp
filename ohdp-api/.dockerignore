@@ -1,0 +1,7 @@
+.git
+.idea
+.vscode
+storage
+*.log
+scripts/__pycache__
+src/test

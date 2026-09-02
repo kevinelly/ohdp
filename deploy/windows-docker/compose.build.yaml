@@ -1,0 +1,10 @@
+services:
+  api:
+    build:
+      context: ../../ohdp-api
+      dockerfile: Dockerfile
+
+  web:
+    build:
+      context: ../../ohdp-web
+      dockerfile: Dockerfile

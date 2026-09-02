@@ -29,8 +29,12 @@ import com.dsf.ohdp.repository.OhdpProjectRepository;
 import com.dsf.ohdp.repository.OhdpReportFileRepository;
 import com.dsf.ohdp.repository.OhdpReportOperationLogRepository;
 import com.dsf.ohdp.repository.OhdpReportTextTemplateRepository;
+import com.dsf.ohdp.entity.OhdpOrgConfig;
+import com.dsf.ohdp.repository.OhdpOrgConfigRepository;
 import com.dsf.ohdp.repository.OhdpResultItemRepository;
 import com.dsf.ohdp.repository.OhdpStaffProfileRepository;
+import com.dsf.ohdp.support.OhdpCodeLabels;
+import com.dsf.ohdp.support.BeiHaiPeriodicReportGenerator;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -72,51 +76,335 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     private static final DateTimeFormatter CHINESE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy\u5e74M\u6708d\u65e5");
     private static final Pattern NUMBER_PATTERN = Pattern.compile("-?\\d+(\\.\\d+)?");
     private static final Pattern MOJIBAKE_PATTERN = Pattern.compile("\uFFFD");
-    private static final String REPORT_TEMPLATE_PATH = "templates/occupational_report_template.doc";
+    private static final String REPORT_TEMPLATE_PATH = "templates/occupational_report_template.docx";
+    private static final String REPORT_GENERATOR_SCRIPT_PATH = "templates/generate_beihai_report.ps1";
     private static final Random RANDOM = new Random();
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String WORD_REPLACE_SCRIPT = """
-            param(
-                [string]$templatePath,
-                [string]$outputPath,
-                [string]$jsonPath
-            )
+            param([string]$templatePath, [string]$outputPath, [string]$jsonPath)
             $ErrorActionPreference = 'Stop'
-            $word = $null
-            $doc = $null
+
+            # Return ArrayList of all tables whose first 3 rows contain any of the keywords
+            function Get-MatchingTables($tables, $keywords) {
+                $matched = New-Object System.Collections.ArrayList
+                foreach ($t in $tables) {
+                    $found = $false
+                    for ($r = 1; $r -le [Math]::Min($t.Rows.Count,3) -and -not $found; $r++) {
+                        for ($c = 1; $c -le [Math]::Min($t.Columns.Count,10) -and -not $found; $c++) {
+                            try {
+                                $tx = $t.Cell($r,$c).Range.Text
+                                foreach ($kw in $keywords) {
+                                    if ($tx -like "*$kw*") { $null = $matched.Add($t); $found = $true; break }
+                                }
+                            } catch {}
+                        }
+                    }
+                }
+                return ,$matched
+            }
+
+            # Return index of header row (row containing 工种 / 岗位 / 序号)
+            function Get-HdrRow($t) {
+                for ($r = 1; $r -le [Math]::Min($t.Rows.Count,3); $r++) {
+                    for ($c = 1; $c -le [Math]::Min($t.Columns.Count,4); $c++) {
+                        try {
+                            $tx = $t.Cell($r,$c).Range.Text
+                            if ($tx -like '*工种*' -or $tx -like '*岗位*' -or $tx -like '*序号*') { return $r }
+                        } catch {}
+                    }
+                }
+                return 1
+            }
+
+            # Delete all rows after header row
+            function Clear-Rows($t, $hdr) {
+                $rc = $t.Rows.Count
+                for ($r = $rc; $r -gt $hdr; $r--) { try { $t.Rows.Item($r).Delete() } catch {} }
+            }
+
+            # Append a row with given cell values
+            function Add-Row($t, $vals) {
+                $nr = $t.Rows.Add()
+                $mc = [Math]::Min($t.Columns.Count, $vals.Count)
+                for ($c = 1; $c -le $mc; $c++) { try { $nr.Cells.Item($c).Range.Text = [string]$vals[$c-1] } catch {} }
+            }
+
+            $word = $null; $doc = $null
             try {
                 $word = New-Object -ComObject Word.Application
-                $word.Visible = $false
-                $word.DisplayAlerts = 0
+                $word.Visible = $false; $word.DisplayAlerts = 0
                 $doc = $word.Documents.Open($templatePath)
                 $obj = Get-Content -Path $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+                # 1. Text placeholder replacements
                 foreach ($prop in $obj.PSObject.Properties) {
-                    $findText = [string]$prop.Name
-                    if ($findText.StartsWith('__')) { continue }
-                    if ([string]::IsNullOrWhiteSpace($findText)) { continue }
-                    $replaceText = [string]$prop.Value
-                    $doc.Content.Find.Execute($findText, $false, $false, $false, $false, $false, $true, 1, $false, $replaceText, 2) | Out-Null
+                    $ft = [string]$prop.Name
+                    if ($ft.StartsWith('__') -or [string]::IsNullOrWhiteSpace($ft)) { continue }
+                    $doc.Content.Find.Execute($ft,$false,$false,$false,$false,$false,$true,1,$false,[string]$prop.Value,2) | Out-Null
                 }
+
+                # 2. Section 3 – Position table
+                # Template Table 4: 12 cols = 岗位/工种|生产班制|工时工日|总人数|每班最大作业人数|工作地点|作业类型|作业内容|作业时间|主要危害因素|个人防护用品|防护设施
+                if ($obj.PSObject.Properties.Name -contains '__POSITIONS_JSON__') {
+                    try {
+                        $posJ = [string]$obj.__POSITIONS_JSON__
+                        if ($posJ) {
+                            $positions = $posJ | ConvertFrom-Json
+                            $posTbls = Get-MatchingTables $doc.Tables @('岗位/工种')
+                            if ($posTbls.Count -gt 0 -and $positions.Count -gt 0) {
+                                $pt = $posTbls[0]; $hdr = Get-HdrRow $pt; Clear-Rows $pt $hdr
+                                foreach ($p in $positions) {
+                                    Add-Row $pt @(
+                                        [string]$p.jobName,
+                                        [string]$p.shiftSystem,
+                                        [string]$p.workingHours,
+                                        [string]$p.workerCount,
+                                        [string]$p.workerCount,
+                                        [string]$p.workLocation,
+                                        [string]$p.operationType,
+                                        [string]$p.operationContent,
+                                        [string]$p.operationDuration,
+                                        [string]$p.hazards,
+                                        [string]$p.ppe,
+                                        [string]$p.protectionFacilities
+                                    )
+                                }
+                            }
+                        }
+                    } catch { Write-Output "WARN_POS: $_" }
+                }
+
+                # 3. Section 6 – Results tables
+                # TWA tables (4 cols): keyword 'PC-TWA'   – fill jobName-factorName|value|limit|judgement
+                # STEL tables (9 cols): keyword 'PC-STEL' – fill jobName-factorName|loc|val|CSTEL|limit|judge|..|..|..
+                # PE/dust tables (10 cols): keyword 'CPE'  – fill jobName|loc|factor|factor|val|CPE|ratio|..|..|..
+                # LEX8H table (4 cols): keyword 'LEX,8h'  – fill jobName|value|limit|judgement
+                # LAeq table (5 cols): keyword 'LAeq'     – fill jobName|loc|value|..|..
+                if ($obj.PSObject.Properties.Name -contains '__RESULTS_JSON__') {
+                    try {
+                        $resJ = [string]$obj.__RESULTS_JSON__
+                        if ($resJ) {
+                            $allR  = $resJ | ConvertFrom-Json
+                            $twaR  = $allR | Where-Object { $_.metricType -eq 'TWA' }
+                            $stelR = $allR | Where-Object { $_.metricType -eq 'STEL' }
+                            $peR   = $allR | Where-Object { $_.metricType -eq 'PE' }
+                            $lexR  = $allR | Where-Object { $_.metricType -eq 'LEX8H' -or $_.metricType -eq 'LEX,8H' -or $_.metricType -eq 'LEX,8h' }
+                            $laeqR = $allR | Where-Object { $_.metricType -eq 'LAeq' }
+
+                            # TWA: clear all TWA tables, fill first with all TWA rows
+                            $twaTbls = Get-MatchingTables $doc.Tables @('PC-TWA')
+                            if ($twaTbls.Count -gt 0) {
+                                foreach ($t in $twaTbls) { Clear-Rows $t (Get-HdrRow $t) }
+                                foreach ($r in $twaR) {
+                                    Add-Row $twaTbls[0] @(
+                                        "$([string]$r.jobName)-$([string]$r.factorName)",
+                                        "$([string]$r.valueNum) $([string]$r.unit)",
+                                        "$([string]$r.limitValue) $([string]$r.limitUnit)",
+                                        [string]$r.judgement
+                                    )
+                                }
+                            }
+
+                            # STEL: clear all STEL tables, fill first
+                            $stelTbls = Get-MatchingTables $doc.Tables @('PC-STEL')
+                            if ($stelTbls.Count -gt 0) {
+                                foreach ($t in $stelTbls) { Clear-Rows $t (Get-HdrRow $t) }
+                                foreach ($r in $stelR) {
+                                    $v = "$([string]$r.valueNum) $([string]$r.unit)"
+                                    $l = "$([string]$r.limitValue) $([string]$r.limitUnit)"
+                                    Add-Row $stelTbls[0] @("$([string]$r.jobName)-$([string]$r.factorName)",'', $v, $v, $l, [string]$r.judgement,'','','')
+                                }
+                            }
+
+                            # PE/Dust: clear all CPE tables, fill first
+                            $peTbls = Get-MatchingTables $doc.Tables @('CPE')
+                            if ($peTbls.Count -gt 0) {
+                                foreach ($t in $peTbls) { Clear-Rows $t (Get-HdrRow $t) }
+                                foreach ($r in $peR) {
+                                    $v = "$([string]$r.valueNum) $([string]$r.unit)"
+                                    $ex = ''; try { if ([double]$r.limitValue -gt 0) { $ex = [string][Math]::Round([double]$r.valueNum/[double]$r.limitValue,2) } } catch {}
+                                    Add-Row $peTbls[0] @([string]$r.jobName,'', [string]$r.factorName, [string]$r.factorName, $v, $v, $ex,'','','')
+                                }
+                            }
+
+                            # LEX8H noise
+                            $lexTbls = Get-MatchingTables $doc.Tables @('LEX,8h','LEX8H')
+                            if ($lexTbls.Count -gt 0) {
+                                foreach ($t in $lexTbls) { Clear-Rows $t (Get-HdrRow $t) }
+                                foreach ($r in $lexR) {
+                                    Add-Row $lexTbls[0] @([string]$r.jobName,"$([string]$r.valueNum) $([string]$r.unit)","$([string]$r.limitValue) $([string]$r.limitUnit)",[string]$r.judgement)
+                                }
+                            }
+
+                            # LAeq noise
+                            $laeqTbls = Get-MatchingTables $doc.Tables @('LAeq')
+                            if ($laeqTbls.Count -gt 0) {
+                                foreach ($t in $laeqTbls) { Clear-Rows $t (Get-HdrRow $t) }
+                                foreach ($r in $laeqR) {
+                                    Add-Row $laeqTbls[0] @([string]$r.jobName,'',"$([string]$r.valueNum) $([string]$r.unit)",'','')
+                                }
+                            }
+                        }
+                    } catch { Write-Output "WARN_RES: $_" }
+                }
+
+                # 3.5. Section "检测依据、方法及使用仪器" – Tables 5 (physical) & 6 (chemical)
+                # Each factor occupies 3 rows (依据/方法/仪器及编号) with col 1 vertically merged
+                if ($obj.PSObject.Properties.Name -contains '__METHODS_JSON__') {
+                    try {
+                        $methJ = [string]$obj.__METHODS_JSON__
+                        if ($methJ) {
+                            $meth = $methJ | ConvertFrom-Json
+                            $methTbls = Get-MatchingTables $doc.Tables @('检测依据、方法及使用仪器')
+                            $physicalEntries = $meth.physical
+                            $chemicalEntries = $meth.chemical
+                            # Normalize to array form (single PSCustomObject -> array of 1)
+                            if ($physicalEntries -ne $null -and $physicalEntries -isnot [array]) { $physicalEntries = ,$physicalEntries }
+                            if ($chemicalEntries -ne $null -and $chemicalEntries -isnot [array]) { $chemicalEntries = ,$chemicalEntries }
+                            if ($physicalEntries -eq $null) { $physicalEntries = @() }
+                            if ($chemicalEntries -eq $null) { $chemicalEntries = @() }
+                            for ($mti = 0; $mti -lt $methTbls.Count; $mti++) {
+                                $mt = $methTbls[$mti]
+                                if ($mti -eq 0) { $entries = $physicalEntries } else { $entries = $chemicalEntries }
+                                if ($entries -eq $null) { $entries = @() }
+                                $entryCount = @($entries).Count
+                                $existingRows = $mt.Rows.Count - 1   # exclude header
+                                $existingSlots = [Math]::Floor($existingRows / 3)
+                                # Overwrite existing slots
+                                for ($si = 0; $si -lt $existingSlots; $si++) {
+                                    $baseRow = 2 + $si * 3
+                                    if ($si -lt $entryCount) {
+                                        $e = if ($entryCount -eq 1) { $entries } else { $entries[$si] }
+                                        $basis = [string]$e.basis; if (-not $basis) { $basis = '/' }
+                                        $method = [string]$e.method; if (-not $method) { $method = '/' }
+                                        $instr = [string]$e.instruments; if (-not $instr) { $instr = '/' }
+                                        try { $mt.Cell($baseRow, 1).Range.Text = [string]$e.factorName } catch {}
+                                        try { $mt.Cell($baseRow, 2).Range.Text = "依据：$basis" } catch {}
+                                        try { $mt.Cell($baseRow + 1, 2).Range.Text = "方法：$method" } catch {}
+                                        try { $mt.Cell($baseRow + 2, 2).Range.Text = "仪器及编号：$instr" } catch {}
+                                    } else {
+                                        # Clear unused slot
+                                        try { $mt.Cell($baseRow, 1).Range.Text = '' } catch {}
+                                        try { $mt.Cell($baseRow, 2).Range.Text = '' } catch {}
+                                        try { $mt.Cell($baseRow + 1, 2).Range.Text = '' } catch {}
+                                        try { $mt.Cell($baseRow + 2, 2).Range.Text = '' } catch {}
+                                    }
+                                }
+                                # Append rows for any extra factors beyond existing slots
+                                for ($si = $existingSlots; $si -lt $entryCount; $si++) {
+                                    $e = if ($entryCount -eq 1) { $entries } else { $entries[$si] }
+                                    $basis = [string]$e.basis; if (-not $basis) { $basis = '/' }
+                                    $method = [string]$e.method; if (-not $method) { $method = '/' }
+                                    $instr = [string]$e.instruments; if (-not $instr) { $instr = '/' }
+                                    Add-Row $mt @([string]$e.factorName, "依据：$basis")
+                                    Add-Row $mt @('', "方法：$method")
+                                    Add-Row $mt @('', "仪器及编号：$instr")
+                                }
+                            }
+                        }
+                    } catch { Write-Output "WARN_METH: $_" }
+                }
+
+                # 4. Section "项目分工" (Table 3) – staff name/title/cert
+                if ($obj.PSObject.Properties.Name -contains '__STAFF_JSON__') {
+                    try {
+                        $staffJ = [string]$obj.__STAFF_JSON__
+                        if ($staffJ) {
+                            $staff = $staffJ | ConvertFrom-Json
+                            $stTbls = Get-MatchingTables $doc.Tables @('项目分工')
+                            if ($stTbls.Count -gt 0) {
+                                $st = $stTbls[0]
+                                # Row 2 编写人, Row 3 审核人, Row 4 签发人
+                                $entries = @($staff.writer, $staff.reviewer, $staff.approver)
+                                for ($r = 0; $r -lt 3; $r++) {
+                                    $entry = $entries[$r]
+                                    $rowIdx = $r + 2
+                                    if ($rowIdx -le $st.Rows.Count) {
+                                        try { $st.Cell($rowIdx, 2).Range.Text = [string]$entry.name } catch {}
+                                        try { $st.Cell($rowIdx, 3).Range.Text = [string]$entry.title } catch {}
+                                        try { $st.Cell($rowIdx, 4).Range.Text = [string]$entry.cert } catch {}
+                                    }
+                                }
+                            }
+                            # Bottom signature table (keyword 授权签字人) – row 2 may be merged
+                            $sigTbls = Get-MatchingTables $doc.Tables @('授权签字人')
+                            if ($sigTbls.Count -gt 0) {
+                                $sg = $sigTbls[0]
+                                if ($sg.Rows.Count -ge 2) {
+                                    $existing = ''
+                                    try { $existing = $sg.Cell(2,1).Range.Text.Trim([char]13).Trim() } catch {}
+                                    # Try filling separate cells; if merged, fall back to combined cell text
+                                    $separateOk = $false
+                                    try {
+                                        $c2 = $sg.Cell(2,2); $c3 = $sg.Cell(2,3)
+                                        $c2.Range.Text = [string]$staff.reviewer.name
+                                        $c3.Range.Text = [string]$staff.approver.name
+                                        $sg.Cell(2,1).Range.Text = [string]$staff.writer.name
+                                        $separateOk = $true
+                                    } catch {}
+                                    if (-not $separateOk) {
+                                        $combined = "编制：$([string]$staff.writer.name)    复核：$([string]$staff.reviewer.name)    签发：$([string]$staff.approver.name)"
+                                        if ($existing) { $combined = $combined + "    " + $existing }
+                                        try { $sg.Cell(2,1).Range.Text = $combined } catch {}
+                                    }
+                                }
+                            }
+                        }
+                    } catch { Write-Output "WARN_STAFF: $_" }
+                }
+
+                # 5. Replace 任务由来 paragraph
+                if ($obj.PSObject.Properties.Name -contains '__TASK_ORIGIN_BODY__') {
+                    try {
+                        $newTaskOrigin = [string]$obj.__TASK_ORIGIN_BODY__
+                        if ($newTaskOrigin) {
+                            foreach ($p in $doc.Paragraphs) {
+                                $ptxt = $p.Range.Text
+                                if ($ptxt -like "*根据*自治区*" -or $ptxt -like "*根据《自治区*") {
+                                    $p.Range.Text = $newTaskOrigin + "`r"
+                                    break
+                                }
+                            }
+                        }
+                    } catch { Write-Output "WARN_TASK: $_" }
+                }
+
+                # 6. Replace 评价依据 list
+                if ($obj.PSObject.Properties.Name -contains '__EVALUATION_BASIS_BODY__') {
+                    try {
+                        $newBasis = [string]$obj.__EVALUATION_BASIS_BODY__
+                        if ($newBasis) {
+                            $startP = $null; $endP = $null; $startIdx = -1; $endIdx = -1; $idx = 0
+                            foreach ($p in $doc.Paragraphs) {
+                                $idx++
+                                $ptxt = $p.Range.Text
+                                if ($startP -eq $null -and $ptxt -like "*GBZ 2.1-2019*") { $startP = $p; $startIdx = $idx }
+                                if ($startP -ne $null -and $ptxt -like "*GBZ 2.2-2007*") { $endP = $p; $endIdx = $idx; break }
+                            }
+                            if ($startP -ne $null -and $endP -ne $null) {
+                                $rng = $doc.Range($startP.Range.Start, $endP.Range.End)
+                                $rng.Text = $newBasis + "`r"
+                            }
+                        }
+                    } catch { Write-Output "WARN_BASIS: $_" }
+                }
+
                 if ($obj.PSObject.Properties.Name -contains '__APPEND_SUMMARY__') {
-                    $doc.Content.InsertAfter(\"`r`n`r`n\" + [string]$obj.__APPEND_SUMMARY__) | Out-Null
+                    $doc.Content.InsertAfter("`r`n`r`n" + [string]$obj.__APPEND_SUMMARY__) | Out-Null
                 }
-                $doc.SaveAs([ref]$outputPath)
-                $doc.Close()
-                $word.Quit()
-                exit 0
+                $doc.SaveAs([ref]$outputPath); $doc.Close(); $word.Quit(); exit 0
             } catch {
                 if ($doc -ne $null) { try { $doc.Close() } catch {} }
                 if ($word -ne $null) { try { $word.Quit() } catch {} }
-                Write-Output $_.Exception.Message
-                exit 1
+                Write-Output $_.Exception.Message; exit 1
             }
             """;
 
     private static final String JUDGE_PENDING = "\u672a\u5224\u5b9a";
     private static final String JUDGE_PASS = "\u5408\u683c";
     private static final String JUDGE_FAIL = "\u4e0d\u5408\u683c";
-    private static final String DEFAULT_DETECT_TYPE = "\u76d1\u6d4b\u68c0\u9a8c";
-    private static final String DEFAULT_SAMPLE_NAME = "\u5de5\u4f5c\u573a\u6240\u7a7a\u6c14\u3001\u566a\u58f0\u7b49";
+    private static final String DEFAULT_DETECT_TYPE = "\u5b9a\u671f\u68c0\u6d4b";
+    private static final String DEFAULT_SAMPLE_NAME = "\u5de5\u4f5c\u573a\u6240\u7a7a\u6c14\u7b49";
     private static final String DEFAULT_SUBMIT_UNIT = "/";
     private static final String DEFAULT_ENTRUST_UNIT = "/";
     private static final String DEFAULT_WRITER_NAME = "/";
@@ -129,7 +417,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
             "1.\u300a\u5de5\u4f5c\u573a\u6240\u6709\u5bb3\u56e0\u7d20\u804c\u4e1a\u63a5\u89e6\u9650\u503c \u7b2c1\u90e8\u5206\uff1a\u5316\u5b66\u6709\u5bb3\u56e0\u7d20\u300b\uff08GBZ 2.1-2019\uff09\uff08\u542b\u7b2c1\u3001\u7b2c2\u53f7\u4fee\u6539\u5355\uff09\n"
                     + "2.\u300a\u5de5\u4f5c\u573a\u6240\u6709\u5bb3\u56e0\u7d20\u804c\u4e1a\u63a5\u89e6\u9650\u503c \u7b2c2\u90e8\u5206\uff1a\u7269\u7406\u56e0\u7d20\u300b\uff08GBZ 2.2-2007\uff09";
 
-    private static final String TEMPLATE_PROJECT_CODE = "\u804c202500XX";
+    private static final String TEMPLATE_PROJECT_CODE = "\u804c202600XX";
     private static final String TEMPLATE_COMPANY_A = "XXXXXXXXXXXXXX\u516c\u53f8";
     private static final String TEMPLATE_COMPANY_B = "XXXXXXXXXXXX\u516c\u53f8";
     private static final String TEMPLATE_COMPANY_C = "XXXXXXXXXXX\u516c\u53f8";
@@ -145,9 +433,14 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     private static final String TEMPLATE_COMPANY_C_ALT = "XXX\u5e7f\u897f\u793a\u4f8b\u79d1\u6280\u6709\u9650\u516c\u53f8";
     private static final String TEMPLATE_COMPANY_ADDRESS_ALT = "\u5e7f\u897f\u5317\u6d77\u5e02\u6d77\u57ce\u533a\u793a\u4f8b\u5927\u905388\u53f7";
     private static final String TEMPLATE_STATEMENT_COMPANY = "XXXXXXXXXXX\u516c\u53f8";
+    private static final String TEMPLATE_ORG_NAME = "\u5317\u6d77\u5e02\u75be\u75c5\u9884\u9632\u63a7\u5236\u4e2d\u5fc3\uff08\u5317\u6d77\u5e02\u536b\u751f\u76d1\u7763\u6240\uff09";
+    private static final String TEMPLATE_ORG_ADDRESS = "\u5317\u6d77\u5e02\u6d77\u57ce\u533a\u4e91\u5357\u5357\u8def18\u53f7";
+    private static final String TEMPLATE_ORG_PHONE = "0779-3902606\uff0c3909359";
+    private static final String TEMPLATE_WRITER_CERT = "\u6842\u804c\u9632\u57f9\uff08\u804c\u536b\u8bc4\u4ef7\uff092023-XXX\u53f7";
+    private static final String TEMPLATE_REVIEWER_CERT = "\u6842\u804c\u9632\u57f9\uff08\u804c\u536b\u8bc4\u4ef7\uff092023-XXXX\u53f7";
 
-    private static final String REPORT_TEMPLATE_VERSION = "WORD-TEMPLATE-V2";
-    private static final String REPORT_FILE_SUFFIX = "_report.doc";
+    private static final String REPORT_TEMPLATE_VERSION = "BEIHAI-PERIODIC-2026-V1";
+    private static final String REPORT_FILE_SUFFIX = "_report.docx";
     private static final String PREVIEW_FILE_PREFIX = "preview_";
     private static final long PREVIEW_RETENTION_MILLIS = 6L * 60 * 60 * 1000;
     private static final String TEMPLATE_TYPE_TASK_ORIGIN = "TASK_ORIGIN";
@@ -166,6 +459,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     private final OhdpStaffProfileRepository staffProfileRepository;
     private final OhdpReportTextTemplateRepository reportTextTemplateRepository;
     private final OhdpReportProperties reportProperties;
+    private final OhdpOrgConfigRepository orgConfigRepository;
 
     @Override
     @Transactional
@@ -392,7 +686,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         project = projectRepository.save(project);
         OhdpDto.ReportPrecheckResponse precheck = buildReportPrecheck(projectId, project);
         if (!Boolean.TRUE.equals(precheck.getPassed())) {
-            throw new BusinessException("report precheck failed: " + String.join("; ", precheck.getMissingItems()));
+            throw new BusinessException("报告生成前检查未通过：" + String.join("；", precheck.getMissingItems()));
         }
 
         Path dir = resolveReportStorageDir();
@@ -422,9 +716,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         projectRepository.save(project);
 
         if (overwrite) {
-            logReportOperation(projectId, "OVERWRITE", "report regenerated and old file overwritten");
+            logReportOperation(projectId, "OVERWRITE", "报告已重新生成，原文件已覆盖");
         } else {
-            logReportOperation(projectId, "CREATE", "report generated");
+            logReportOperation(projectId, "CREATE", "报告已生成");
         }
         return toReportResponse(saved);
     }
@@ -477,6 +771,30 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<OhdpDto.ReportCenterResponse> pageReportCenter(
+            String projectCode,
+            String companyName,
+            String reportStatus,
+            LocalDate generatedFrom,
+            LocalDate generatedTo,
+            int page,
+            int size) {
+        String normalizedStatus = reportStatus == null ? "" : reportStatus.trim().toUpperCase();
+        if (!normalizedStatus.isEmpty() && !List.of("GENERATED", "PENDING").contains(normalizedStatus)) {
+            throw new BusinessException("报告状态仅支持 GENERATED 或 PENDING");
+        }
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        LocalDateTime startTime = generatedFrom == null ? null : generatedFrom.atStartOfDay();
+        LocalDateTime endTime = generatedTo == null ? null : generatedTo.plusDays(1).atStartOfDay();
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        return projectRepository.findReportCenterPage(
+                        normalize(projectCode), normalize(companyName), normalizedStatus, startTime, endTime, pageable)
+                .map(row -> toReportCenterResponse((OhdpProject) row[0], (OhdpReportFile) row[1]));
+    }
+
+    @Override
     @Transactional
     public OhdpDto.ProjectResponse copyProject(Long sourceProjectId) {
         OhdpProject source = getActiveProject(sourceProjectId);
@@ -509,6 +827,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         copied.setApproverCertNo(source.getApproverCertNo());
         copied.setStatementDate(source.getStatementDate());
         copied.setNotes(source.getNotes());
+        copied.setReportSupplementJson(source.getReportSupplementJson());
         copied.setStatus(ProjectStatus.DRAFT);
         copied.setDeleted(false);
         copied = projectRepository.save(copied);
@@ -527,6 +846,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 OhdpResultItem target = new OhdpResultItem();
                 target.setProjectId(copied.getId());
                 target.setPositionId(src.getPositionId());
+                target.setFactorId(src.getFactorId());
                 target.setJobName(src.getJobName());
                 target.setFactorName(src.getFactorName());
                 target.setMetricType(src.getMetricType());
@@ -556,7 +876,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         try {
             Files.createDirectories(previewDir);
         } catch (IOException e) {
-            throw new BusinessException("failed to prepare preview directory");
+            throw new BusinessException("报告预览目录创建失败");
         }
         cleanupPreviewFiles(previewDir);
 
@@ -577,10 +897,10 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     public File getReportFile(Long reportId) {
         OhdpReportFile reportFile = reportFileRepository
                 .findByIdAndDeletedFalse(reportId)
-                .orElseThrow(() -> new BusinessException("report file not found: " + reportId));
+                .orElseThrow(() -> new BusinessException("报告文件记录不存在：" + reportId));
         File file = new File(reportFile.getFilePath());
         if (!file.exists() || !file.isFile()) {
-            throw new BusinessException("report file is missing on disk");
+            throw new BusinessException("报告文件在存储目录中不存在");
         }
         return file;
     }
@@ -1122,6 +1442,14 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         project.setApproverCertNo(approverCertNo);
         project.setStatementDate(request.getStatementDate() == null ? project.getReportDate() : request.getStatementDate());
         project.setNotes(trimNullable(request.getNotes()));
+        OhdpDto.ReportSupplement reportSupplement = request.getReportSupplement();
+        if (reportSupplement == null) {
+            reportSupplement = createMode
+                    ? defaultReportSupplement(profile, companyAddress)
+                    : readReportSupplement(project.getReportSupplementJson());
+        }
+        applyReportSupplementDefaults(reportSupplement, profile, companyAddress);
+        project.setReportSupplementJson(writeReportSupplement(reportSupplement));
     }
 
     private void applyPositionRequest(OhdpProjectPosition position, OhdpDto.PositionRequest request, boolean createMode) {
@@ -1233,6 +1561,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         }
 
         result.setPositionId(request.getPositionId() == null ? result.getPositionId() : request.getPositionId());
+        result.setFactorId(request.getFactorId() == null ? result.getFactorId() : request.getFactorId());
         result.setJobName(jobName);
         result.setFactorName(factorName);
         result.setMetricType(metricType.toUpperCase());
@@ -1304,28 +1633,15 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
             List<OhdpResultItem> results) {
         Path tempFile = null;
         Map<String, String> replacements = buildTemplateReplacements(project, positions, results);
-        if (writeReportByWordAutomation(filePath, replacements)) {
-            return;
-        }
         try {
-            tempFile = Files.createTempFile(filePath.getParent(), "ohdp-report-", ".doc");
+            tempFile = Files.createTempFile(filePath.getParent(), "ohdp-report-", ".docx");
             try (InputStream templateStream = new ClassPathResource(REPORT_TEMPLATE_PATH).getInputStream();
-                 HWPFDocument document = new HWPFDocument(templateStream);
                  OutputStream outputStream = Files.newOutputStream(tempFile)) {
-                Range range = document.getRange();
-                applyTemplateReplacements(range, replacements);
-                appendReportSummary(range, project, positions, results);
-                document.write(outputStream);
+                BeiHaiPeriodicReportGenerator.generate(templateStream, outputStream, replacements);
             }
-            if (!isReadableDocFile(tempFile)) {
-                if (!writeReportByWordAutomation(filePath, replacements)) {
-                    copyTemplateAsFallback(filePath);
-                }
-            } else {
-                Files.move(tempFile, filePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            throw new BusinessException("failed to generate template report document");
+            Files.move(tempFile, filePath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            throw new BusinessException("failed to generate BeiHai periodic report document: " + e.getMessage());
         } finally {
             if (tempFile != null) {
                 try {
@@ -1350,10 +1666,14 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
             }
 
             jsonFile = Files.createTempFile(outputFile.getParent(), "ohdp-replacements-", ".json");
-            Files.writeString(jsonFile, OBJECT_MAPPER.writeValueAsString(replacements), StandardCharsets.UTF_8);
+            String replacementsJson = OBJECT_MAPPER.writeValueAsString(replacements);
+            Files.writeString(jsonFile, replacementsJson, StandardCharsets.UTF_8);
 
             scriptFile = Files.createTempFile(outputFile.getParent(), "ohdp-word-", ".ps1");
-            Files.writeString(scriptFile, WORD_REPLACE_SCRIPT, StandardCharsets.UTF_8);
+            try (InputStream scriptStream = new ClassPathResource(REPORT_GENERATOR_SCRIPT_PATH).getInputStream()) {
+                String scriptText = new String(scriptStream.readAllBytes(), StandardCharsets.UTF_8);
+                Files.writeString(scriptFile, "\uFEFF" + scriptText, StandardCharsets.UTF_8);
+            }
 
             ProcessBuilder processBuilder = new ProcessBuilder(
                     resolvePowerShellExecutable(),
@@ -1367,8 +1687,12 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                     jsonFile.toString());
             processBuilder.redirectErrorStream(true);
             Process process = processBuilder.start();
-            process.getInputStream().readAllBytes();
+            byte[] scriptOut = process.getInputStream().readAllBytes();
             int exitCode = process.waitFor();
+            String scriptOutStr = new String(scriptOut, StandardCharsets.UTF_8).trim();
+            if (!scriptOutStr.isEmpty()) {
+                org.slf4j.LoggerFactory.getLogger(getClass()).warn("PS script output: {}", scriptOutStr);
+            }
             return exitCode == 0 && Files.exists(outputFile) && isReadableDocFile(outputFile);
         } catch (Exception ex) {
             return false;
@@ -1447,6 +1771,129 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         }
     }
 
+    private Map<String, Object> buildProjectData(OhdpProject project) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("projectCode", valueOf(project.getProjectCode()));
+        data.put("companyName", valueOf(project.getCompanyName()));
+        data.put("companyAddress", valueOf(project.getCompanyAddress()));
+        data.put("detectType", valueOf(project.getDetectType()));
+        data.put("samplingDate", formatChineseDate(project.getSamplingDate()));
+        data.put("reportDate", formatChineseDate(project.getReportDate()));
+        data.put("statementDate", formatChineseDate(project.getStatementDate()));
+        data.put("sampleName", valueOf(project.getSampleName()));
+        data.put("submitUnit", valueOf(project.getSubmitUnit()));
+        data.put("entrustUnit", valueOf(project.getEntrustUnit()));
+        data.put("taskOrigin", valueOf(project.getTaskOrigin()));
+        data.put("evaluationBasis", valueOf(project.getEvaluationBasis()));
+        data.put("writerName", valueOf(project.getWriterName()));
+        data.put("reviewerName", valueOf(project.getReviewerName()));
+        data.put("approverName", valueOf(project.getApproverName()));
+        OhdpOrgConfig org = orgConfigRepository.findFirstByDeletedFalse().orElse(null);
+        data.put("orgName", org == null ? TEMPLATE_ORG_NAME : firstNonBlank(org.getOrgName(), TEMPLATE_ORG_NAME));
+        data.put("orgAddress", org == null ? TEMPLATE_ORG_ADDRESS : firstNonBlank(org.getOrgAddress(), TEMPLATE_ORG_ADDRESS));
+        data.put("orgPhone", org == null ? TEMPLATE_ORG_PHONE : firstNonBlank(org.getContactPhone(), TEMPLATE_ORG_PHONE));
+        return data;
+    }
+
+    private OhdpDto.ReportSupplement defaultReportSupplement(OhdpCompanyProfile profile, String companyAddress) {
+        OhdpDto.ReportSupplement supplement = new OhdpDto.ReportSupplement();
+        applyReportSupplementDefaults(supplement, profile, companyAddress);
+        supplement.setPlanDeviation("已按现场采样与测量计划开展检测，未对计划进行变更。");
+        return supplement;
+    }
+
+    private void applyReportSupplementDefaults(
+            OhdpDto.ReportSupplement supplement,
+            OhdpCompanyProfile profile,
+            String companyAddress) {
+        if (supplement == null) {
+            return;
+        }
+        if (isBlank(supplement.getRegisteredAddress())) {
+            supplement.setRegisteredAddress(companyAddress);
+        }
+        if (isBlank(supplement.getTechnicalServiceAddress())) {
+            supplement.setTechnicalServiceAddress(companyAddress);
+        }
+        if (profile != null) {
+            if (isBlank(supplement.getContactName())) {
+                supplement.setContactName(profile.getContactName());
+            }
+            if (isBlank(supplement.getContactPhone())) {
+                supplement.setContactPhone(profile.getContactPhone());
+            }
+            if (isBlank(supplement.getIndustryCategory())) {
+                supplement.setIndustryCategory(profile.getIndustryType());
+            }
+        }
+        if (supplement.getEmployeeCount() == null) {
+            supplement.setEmployeeCount(0);
+        }
+        if (supplement.getOutsourcedWorkerCount() == null) {
+            supplement.setOutsourcedWorkerCount(0);
+        }
+        if (supplement.getDispatchedWorkerCount() == null) {
+            supplement.setDispatchedWorkerCount(0);
+        }
+        if (supplement.getMaterials() == null) {
+            supplement.setMaterials(new ArrayList<>());
+        }
+        if (supplement.getEquipment() == null) {
+            supplement.setEquipment(new ArrayList<>());
+        }
+        if (supplement.getProtectionFacilities() == null) {
+            supplement.setProtectionFacilities(new ArrayList<>());
+        }
+        if (supplement.getPersonalProtectiveEquipment() == null) {
+            supplement.setPersonalProtectiveEquipment(new ArrayList<>());
+        }
+        if (supplement.getSamplingPlans() == null) {
+            supplement.setSamplingPlans(new ArrayList<>());
+        }
+        if (supplement.getMaterialsConfirmedNotApplicable() == null) {
+            supplement.setMaterialsConfirmedNotApplicable(Boolean.FALSE);
+        }
+        if (supplement.getEquipmentConfirmedNotApplicable() == null) {
+            supplement.setEquipmentConfirmedNotApplicable(Boolean.FALSE);
+        }
+        if (supplement.getProtectionFacilitiesConfirmedNotApplicable() == null) {
+            supplement.setProtectionFacilitiesConfirmedNotApplicable(Boolean.FALSE);
+        }
+        if (supplement.getPpeConfirmedNotApplicable() == null) {
+            supplement.setPpeConfirmedNotApplicable(Boolean.FALSE);
+        }
+    }
+
+    private String writeReportSupplement(OhdpDto.ReportSupplement supplement) {
+        if (supplement == null) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.writeValueAsString(supplement);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new BusinessException("报告补充信息格式无效");
+        }
+    }
+
+    private OhdpDto.ReportSupplement readReportSupplement(String json) {
+        if (isBlank(json)) {
+            return defaultReportSupplement(null, null);
+        }
+        try {
+            OhdpDto.ReportSupplement supplement = OBJECT_MAPPER.readValue(json, OhdpDto.ReportSupplement.class);
+            applyReportSupplementDefaults(supplement, null, null);
+            return supplement;
+        } catch (Exception ex) {
+            throw new BusinessException("报告补充信息无法读取，请重新保存项目");
+        }
+    }
+
+    private void addMissing(List<String> missingItems, String key, String value) {
+        if (isBlank(value)) {
+            missingItems.add(key);
+        }
+    }
+
     private Map<String, String> buildTemplateReplacements(
             OhdpProject project,
             List<OhdpProjectPosition> positions,
@@ -1470,8 +1917,140 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         replacements.put(TEMPLATE_SAMPLE_NAME_ALT, valueOf(project.getSampleName()));
         replacements.put("{{POSITION_COUNT}}", String.valueOf(positions.size()));
         replacements.put("{{RESULT_COUNT}}", String.valueOf(results.size()));
-        replacements.put("__APPEND_SUMMARY__", buildSummaryText(project, positions, results));
+        // Org config replacements
+        OhdpOrgConfig org = orgConfigRepository.findFirstByDeletedFalse().orElse(null);
+        replacements.put(TEMPLATE_ORG_NAME, org != null && !isBlank(org.getOrgName()) ? org.getOrgName() : TEMPLATE_ORG_NAME);
+        replacements.put(TEMPLATE_ORG_ADDRESS, org != null && !isBlank(org.getOrgAddress()) ? org.getOrgAddress() : TEMPLATE_ORG_ADDRESS);
+        replacements.put(TEMPLATE_ORG_PHONE, org != null && !isBlank(org.getContactPhone()) ? org.getContactPhone() : TEMPLATE_ORG_PHONE);
+        // Cert number replacements
+        replacements.put(TEMPLATE_WRITER_CERT, isBlank(project.getWriterCertNo()) ? TEMPLATE_WRITER_CERT : project.getWriterCertNo());
+        replacements.put(TEMPLATE_REVIEWER_CERT, isBlank(project.getReviewerCertNo()) ? TEMPLATE_REVIEWER_CERT : project.getReviewerCertNo());
+        // Dynamic table data: positions (Section 3) and results (Section 6)
+        try {
+            replacements.put("__PROJECT_JSON__", OBJECT_MAPPER.writeValueAsString(buildProjectData(project)));
+            replacements.put("__REPORT_SUPPLEMENT_JSON__", OBJECT_MAPPER.writeValueAsString(readReportSupplement(project.getReportSupplementJson())));
+            List<java.util.Map<String, Object>> posData = new java.util.ArrayList<>();
+            for (int i = 0; i < positions.size(); i++) {
+                OhdpProjectPosition p = positions.get(i);
+                java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("seq", i + 1);
+                row.put("jobName", valueOf(p.getJobName()));
+                row.put("shiftSystem", valueOf(p.getShiftSystem()));
+                row.put("workingHours", valueOf(p.getWorkingHours()));
+                row.put("workerCount", p.getWorkerCount() != null ? p.getWorkerCount().toString() : "");
+                row.put("workLocation", valueOf(p.getWorkLocation()));
+                row.put("operationType", valueOf(p.getOperationType()));
+                row.put("operationContent", valueOf(p.getOperationContent()));
+                row.put("operationDuration", valueOf(p.getOperationDuration()));
+                row.put("hazards", valueOf(p.getHazards()));
+                row.put("ppe", valueOf(p.getPpe()));
+                row.put("protectionFacilities", valueOf(p.getProtectionFacilities()));
+                posData.add(row);
+            }
+            replacements.put("__POSITIONS_JSON__", OBJECT_MAPPER.writeValueAsString(posData));
+
+            Map<Long, OhdpProjectPosition> positionById = new LinkedHashMap<>();
+            for (OhdpProjectPosition position : positions) {
+                if (position.getId() != null) {
+                    positionById.put(position.getId(), position);
+                }
+            }
+            List<java.util.Map<String, Object>> resData = new java.util.ArrayList<>();
+            for (int i = 0; i < results.size(); i++) {
+                OhdpResultItem r = results.get(i);
+                java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("seq", i + 1);
+                row.put("jobName", valueOf(r.getJobName()));
+                OhdpProjectPosition position = r.getPositionId() == null ? null : positionById.get(r.getPositionId());
+                row.put("workLocation", position == null ? "" : valueOf(position.getWorkLocation()));
+                row.put("factorName", valueOf(r.getFactorName()));
+                row.put("metricType", valueOf(r.getMetricType()));
+                row.put("valueRaw", r.getValueRaw() != null ? r.getValueRaw() : "");
+                row.put("valueNum", r.getValueNum() != null ? r.getValueNum().toPlainString() : "");
+                row.put("unit", valueOf(r.getUnit()));
+                row.put("limitValue", r.getLimitValue() != null ? r.getLimitValue().toPlainString() : "");
+                row.put("limitUnit", valueOf(r.getLimitUnit()));
+                row.put("judgement", valueOf(r.getJudgement()));
+                resData.add(row);
+            }
+            replacements.put("__RESULTS_JSON__", OBJECT_MAPPER.writeValueAsString(resData));
+
+            java.util.Map<String, Object> staffData = new java.util.LinkedHashMap<>();
+            staffData.put("writer", buildStaffEntry(project.getWriterStaffId(), project.getWriterName(), project.getWriterCertNo(), TEMPLATE_WRITER_CERT));
+            staffData.put("reviewer", buildStaffEntry(project.getReviewerStaffId(), project.getReviewerName(), project.getReviewerCertNo(), TEMPLATE_REVIEWER_CERT));
+            staffData.put("approver", buildStaffEntry(project.getApproverStaffId(), project.getApproverName(), project.getApproverCertNo(), DEFAULT_APPROVER_CERT_NO));
+            replacements.put("__STAFF_JSON__", OBJECT_MAPPER.writeValueAsString(staffData));
+
+            replacements.put("__METHODS_JSON__", OBJECT_MAPPER.writeValueAsString(buildMethodologyEntries(results)));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+        }
+        String taskOrigin = isBlank(project.getTaskOrigin()) ? defaultTaskOrigin(valueOf(project.getCompanyName())) : project.getTaskOrigin();
+        String evaluationBasis = isBlank(project.getEvaluationBasis()) ? DEFAULT_EVALUATION_BASIS : project.getEvaluationBasis();
+        replacements.put("__TASK_ORIGIN_BODY__", taskOrigin);
+        replacements.put("__EVALUATION_BASIS_BODY__", evaluationBasis);
         return replacements;
+    }
+
+    private java.util.Map<String, List<java.util.Map<String, String>>> buildMethodologyEntries(List<OhdpResultItem> results) {
+        java.util.LinkedHashMap<String, java.util.Map<String, String>> byFactor = new java.util.LinkedHashMap<>();
+        for (OhdpResultItem r : results) {
+            String factorName = valueOf(r.getFactorName());
+            String metricType = valueOf(r.getMetricType());
+            if (isBlank(factorName) || byFactor.containsKey(factorName)) {
+                continue;
+            }
+            String basis = "";
+            String method = "";
+            String instruments = "";
+            List<OhdpFactorTemplate> hits = factorTemplateRepository.findByDeletedFalseAndFactorName(factorName);
+            if (!hits.isEmpty()) {
+                OhdpFactorTemplate ft = hits.get(0);
+                basis = valueOf(ft.getDetectionBasis());
+                method = valueOf(ft.getDetectionMethod());
+                instruments = valueOf(ft.getDetectionInstruments());
+            }
+            java.util.Map<String, String> row = new java.util.LinkedHashMap<>();
+            row.put("factorName", factorName);
+            row.put("metricType", metricType);
+            row.put("basis", basis);
+            row.put("method", method);
+            row.put("instruments", instruments);
+            byFactor.put(factorName, row);
+        }
+        List<java.util.Map<String, String>> physical = new java.util.ArrayList<>();
+        List<java.util.Map<String, String>> chemical = new java.util.ArrayList<>();
+        for (java.util.Map<String, String> row : byFactor.values()) {
+            String mt = valueOf(row.get("metricType"));
+            if ("LEX8H".equalsIgnoreCase(mt) || "LAeq".equalsIgnoreCase(mt) || "LEX,8h".equalsIgnoreCase(mt) || "LEX,8H".equalsIgnoreCase(mt)) {
+                physical.add(row);
+            } else {
+                chemical.add(row);
+            }
+        }
+        java.util.Map<String, List<java.util.Map<String, String>>> grouped = new java.util.LinkedHashMap<>();
+        grouped.put("physical", physical);
+        grouped.put("chemical", chemical);
+        return grouped;
+    }
+
+    private java.util.Map<String, String> buildStaffEntry(Long staffId, String fallbackName, String certNo, String defaultCert) {
+        java.util.Map<String, String> entry = new java.util.LinkedHashMap<>();
+        String name = "";
+        String title = "";
+        if (staffId != null) {
+            OhdpStaffProfile sp = staffProfileRepository.findByIdAndDeletedFalse(staffId).orElse(null);
+            if (sp != null) {
+                name = valueOf(sp.getStaffName());
+                title = valueOf(sp.getStaffTitle());
+            }
+        }
+        if (isBlank(name)) {
+            name = isBlank(fallbackName) ? "" : fallbackName;
+        }
+        entry.put("name", name);
+        entry.put("title", title);
+        entry.put("cert", isBlank(certNo) ? defaultCert : certNo);
+        return entry;
     }
 
     private void applyTemplateReplacements(Range range, Map<String, String> replacements) {
@@ -1487,36 +2066,6 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                         range.replaceText(source, target);
                     }
                 });
-    }
-
-    private void appendReportSummary(
-            Range range,
-            OhdpProject project,
-            List<OhdpProjectPosition> positions,
-            List<OhdpResultItem> results) {
-        range.insertAfter(buildSummaryText(project, positions, results));
-    }
-
-    private String buildSummaryText(
-            OhdpProject project,
-            List<OhdpProjectPosition> positions,
-            List<OhdpResultItem> results) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("\r\n\r\n[SYSTEM INPUT]\r\n");
-        builder.append("ProjectCode: ").append(valueOf(project.getProjectCode())).append("\r\n");
-        builder.append("Company: ").append(valueOf(project.getCompanyName())).append("\r\n");
-        builder.append("Address: ").append(valueOf(project.getCompanyAddress())).append("\r\n");
-        builder.append("DetectType: ").append(valueOf(project.getDetectType())).append("\r\n");
-        builder.append("SampleName: ").append(valueOf(project.getSampleName())).append("\r\n");
-        builder.append("SubmitUnit: ").append(valueOf(project.getSubmitUnit())).append("\r\n");
-        builder.append("EntrustUnit: ").append(valueOf(project.getEntrustUnit())).append("\r\n");
-        builder.append("Writer: ").append(valueOf(project.getWriterName())).append("\r\n");
-        builder.append("Reviewer: ").append(valueOf(project.getReviewerName())).append("\r\n");
-        builder.append("Approver: ").append(valueOf(project.getApproverName())).append("\r\n");
-        builder.append("PositionCount: ").append(positions.size()).append("; ResultCount: ").append(results.size()).append("\r\n");
-        builder.append("TaskOrigin: ").append(valueOf(project.getTaskOrigin())).append("\r\n");
-        builder.append("EvaluationBasis: ").append(valueOf(project.getEvaluationBasis())).append("\r\n");
-        return builder.toString();
     }
 
     private String formatChineseDate(LocalDate date) {
@@ -1564,11 +2113,11 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
 
     private String defaultTaskOrigin(String companyName) {
         String unitName = isBlank(companyName) ? "\u53d7\u68c0\u5355\u4f4d" : companyName;
-        return "\u6839\u636e\u81ea\u6cbb\u533a\u804c\u4e1a\u5065\u5eb7\u76f8\u5173\u76d1\u6d4b\u4efb\u52a1\u8981\u6c42\uff0c"
-                + "\u4e3a\u843d\u5b9e\u91cd\u70b9\u884c\u4e1a\u804c\u4e1a\u75c5\u5371\u5bb3\u56e0\u7d20\u76d1\u6d4b\u5de5\u4f5c\uff0c"
-                + "\u5317\u6d77\u5e02\u75be\u75c5\u9884\u9632\u63a7\u5236\u4e2d\u5fc3\uff08\u5317\u6d77\u5e02\u536b\u751f\u76d1\u7763\u6240\uff09\u5bf9"
+        return "\u4e3a\u9884\u9632\u3001\u63a7\u5236\u548c\u6d88\u9664\u53ef\u80fd\u4ea7\u751f\u7684\u804c\u4e1a\u75c5\u5371\u5bb3\uff0c"
+                + "\u5c65\u884c\u4fdd\u62a4\u52b3\u52a8\u8005\u5065\u5eb7\u7684\u804c\u8d23\uff0c"
                 + unitName
-                + "\u5b58\u5728\u804c\u4e1a\u75c5\u5371\u5bb3\u56e0\u7d20\u7684\u90e8\u5206\u5de5\u4f5c\u573a\u6240\u548c\u5c97\u4f4d\u5f00\u5c55\u62bd\u6837\u68c0\u6d4b\u3002";
+                + "\u59d4\u6258\u5317\u6d77\u5e02\u75be\u75c5\u9884\u9632\u63a7\u5236\u4e2d\u5fc3\uff08\u5317\u6d77\u5e02\u536b\u751f\u76d1\u7763\u6240\uff09"
+                + "\u5bf9\u5176\u7ba1\u7406\u7684\u73b0\u6709\u5de5\u4f5c\u573a\u6240\u8fdb\u884c\u804c\u4e1a\u75c5\u5371\u5bb3\u56e0\u7d20\u68c0\u6d4b\u3002";
     }
 
     private OhdpDto.ReportPrecheckResponse buildReportPrecheck(Long projectId, OhdpProject project) {
@@ -1618,6 +2167,47 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                         || containsMojibake(item.getMetricType())
                         || containsMojibake(item.getJudgement()))) {
             missingItems.add("results.garbled");
+        }
+        OhdpDto.ReportSupplement supplement = readReportSupplement(project.getReportSupplementJson());
+        addMissing(missingItems, "report.reportHeaderName", supplement.getReportHeaderName());
+        addMissing(missingItems, "report.socialCreditCode", supplement.getSocialCreditCode());
+        addMissing(missingItems, "report.legalRepresentative", supplement.getLegalRepresentative());
+        addMissing(missingItems, "report.industryCategory", supplement.getIndustryCategory());
+        addMissing(missingItems, "report.detectionScope", supplement.getDetectionScope());
+        addMissing(missingItems, "report.productionProcess", supplement.getProductionProcess());
+        addMissing(missingItems, "report.radiationSourceSummary", supplement.getRadiationSourceSummary());
+        addMissing(missingItems, "report.vocAnalysisConclusion", supplement.getVocAnalysisConclusion());
+        addMissing(missingItems, "report.exclusionScreeningConclusion", supplement.getExclusionScreeningConclusion());
+        addMissing(missingItems, "report.rawRecordCompletenessNote", supplement.getRawRecordCompletenessNote());
+        addMissing(missingItems, "report.productionCondition", supplement.getProductionCondition());
+        addMissing(missingItems, "report.samplingLayoutDescription", supplement.getSamplingLayoutDescription());
+        addMissing(missingItems, "report.detectionConditions", supplement.getDetectionConditions());
+        addMissing(missingItems, "report.environmentConditions", supplement.getEnvironmentConditions());
+        addMissing(missingItems, "report.onsiteInspectors", supplement.getOnsiteInspectors());
+        addMissing(missingItems, "report.planDeviation", supplement.getPlanDeviation());
+        addMissing(missingItems, "report.riskCategory", supplement.getRiskCategory());
+        addMissing(missingItems, "report.majorHazards", supplement.getMajorHazards());
+        addMissing(missingItems, "report.overLimitSummary", supplement.getOverLimitSummary());
+        addMissing(missingItems, "report.majorProblems", supplement.getMajorProblems());
+        addMissing(missingItems, "report.recommendations", supplement.getRecommendations());
+        if ((supplement.getMaterials() == null || supplement.getMaterials().isEmpty())
+                && !Boolean.TRUE.equals(supplement.getMaterialsConfirmedNotApplicable())) {
+            missingItems.add("report.materials.unconfirmed");
+        }
+        if ((supplement.getEquipment() == null || supplement.getEquipment().isEmpty())
+                && !Boolean.TRUE.equals(supplement.getEquipmentConfirmedNotApplicable())) {
+            missingItems.add("report.equipment.unconfirmed");
+        }
+        if ((supplement.getProtectionFacilities() == null || supplement.getProtectionFacilities().isEmpty())
+                && !Boolean.TRUE.equals(supplement.getProtectionFacilitiesConfirmedNotApplicable())) {
+            missingItems.add("report.protectionFacilities.unconfirmed");
+        }
+        if ((supplement.getPersonalProtectiveEquipment() == null || supplement.getPersonalProtectiveEquipment().isEmpty())
+                && !Boolean.TRUE.equals(supplement.getPpeConfirmedNotApplicable())) {
+            missingItems.add("report.ppe.unconfirmed");
+        }
+        if (supplement.getSamplingPlans() == null || supplement.getSamplingPlans().isEmpty()) {
+            missingItems.add("report.samplingPlans.empty");
         }
         return OhdpDto.ReportPrecheckResponse.builder()
                 .projectId(projectId)
@@ -1748,7 +2338,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .approverCertNo(project.getApproverCertNo())
                 .statementDate(project.getStatementDate())
                 .notes(project.getNotes())
+                .reportSupplement(readReportSupplement(project.getReportSupplementJson()))
                 .status(project.getStatus())
+                .statusLabel(OhdpCodeLabels.label(project.getStatus().name()))
                 .createdAt(project.getCreatedAt())
                 .updatedAt(project.getUpdatedAt())
                 .build();
@@ -1777,6 +2369,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .id(item.getId())
                 .projectId(item.getProjectId())
                 .positionId(item.getPositionId())
+                .factorId(item.getFactorId())
                 .jobName(item.getJobName())
                 .factorName(item.getFactorName())
                 .metricType(item.getMetricType())
@@ -1786,6 +2379,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .limitValue(item.getLimitValue())
                 .limitUnit(item.getLimitUnit())
                 .judgement(item.getJudgement())
+                .judgementLabel(OhdpCodeLabels.label(item.getJudgement()))
                 .build();
     }
 
@@ -1806,9 +2400,28 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .id(log.getId())
                 .projectId(log.getProjectId())
                 .operationType(log.getOperationType())
+                .operationTypeLabel(OhdpCodeLabels.label(log.getOperationType()))
                 .operatorName(log.getOperatorName())
                 .operationMessage(log.getOperationMessage())
                 .operatedAt(log.getOperatedAt())
+                .build();
+    }
+
+    private OhdpDto.ReportCenterResponse toReportCenterResponse(OhdpProject project, OhdpReportFile report) {
+        boolean generated = report != null;
+        return OhdpDto.ReportCenterResponse.builder()
+                .projectId(project.getId())
+                .projectCode(project.getProjectCode())
+                .companyName(project.getCompanyName())
+                .projectStatus(project.getStatus())
+                .projectStatusLabel(OhdpCodeLabels.label(project.getStatus().name()))
+                .reportStatus(generated ? "GENERATED" : "PENDING")
+                .reportStatusLabel(generated ? "已生成" : "待生成")
+                .reportId(generated ? report.getId() : null)
+                .fileName(generated ? report.getFileName() : null)
+                .generatedBy(generated ? report.getGeneratedBy() : null)
+                .generatedAt(generated ? report.getGeneratedAt() : null)
+                .projectCreatedAt(project.getCreatedAt())
                 .build();
     }
 

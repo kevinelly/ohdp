@@ -47,12 +47,14 @@ public final class BasicDataDto {
         private String title;
         private String docNo;
         private String level;
+        private String levelLabel;
         private LocalDate publishDate;
         private LocalDate effectiveDate;
         private String publisher;
         private Boolean isValid;
         private Boolean isOpen;
         private Long fileId;
+        private ReferenceDocumentResponse currentDocument;
         private String notes;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
@@ -86,11 +88,13 @@ public final class BasicDataDto {
         private String standardName;
         private String standardCode;
         private String level;
+        private String levelLabel;
         private String useScope;
         private LocalDate publishDate;
         private Boolean isValid;
         private Boolean isOpen;
         private Long fileId;
+        private ReferenceDocumentResponse currentDocument;
         private String notes;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
@@ -123,6 +127,7 @@ public final class BasicDataDto {
         private String regionCode;
         private String regionName;
         private Integer level;
+        private String levelLabel;
         private Integer sortNo;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
@@ -156,14 +161,36 @@ public final class BasicDataDto {
         private Long id;
         private String deviceName;
         private String deviceType;
+        private String deviceTypeLabel;
         private String deviceModel;
         private String deviceNo;
         private String manufacturer;
         private LocalDate calibrationDate;
         private LocalDate calibrationExpiry;
         private String status;
+        private String statusLabel;
         private String notes;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReferenceDocumentResponse {
+        private Long id;
+        private String referenceType;
+        private Long referenceId;
+        private Integer versionNo;
+        private String versionLabel;
+        private String originalName;
+        private String contentType;
+        private Long fileSize;
+        private String sha256;
+        private String sourceUrl;
+        private String uploadedBy;
+        private LocalDateTime uploadedAt;
+        private Boolean current;
     }
 }

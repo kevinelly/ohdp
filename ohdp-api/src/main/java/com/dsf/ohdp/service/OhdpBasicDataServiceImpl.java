@@ -10,6 +10,7 @@ import com.dsf.ohdp.repository.OhdpDeviceRepository;
 import com.dsf.ohdp.repository.OhdpLawRepository;
 import com.dsf.ohdp.repository.OhdpRegionRepository;
 import com.dsf.ohdp.repository.OhdpStandardRepository;
+import com.dsf.ohdp.support.OhdpCodeLabels;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +31,7 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
     private final OhdpStandardRepository standardRepository;
     private final OhdpRegionRepository regionRepository;
     private final OhdpDeviceRepository deviceRepository;
+    private final OhdpReferenceDocumentService referenceDocumentService;
 
     // ==================== 法律法规 ====================
 
@@ -94,12 +96,14 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
                 .title(entity.getTitle())
                 .docNo(entity.getDocNo())
                 .level(entity.getLevel())
+                .levelLabel(OhdpCodeLabels.label(entity.getLevel()))
                 .publishDate(entity.getPublishDate())
                 .effectiveDate(entity.getEffectiveDate())
                 .publisher(entity.getPublisher())
                 .isValid(entity.getIsValid())
                 .isOpen(entity.getIsOpen())
                 .fileId(entity.getFileId())
+                .currentDocument(referenceDocumentService.latest(OhdpReferenceDocumentService.LAW, entity.getId()).orElse(null))
                 .notes(entity.getNotes())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
@@ -168,11 +172,13 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
                 .standardName(entity.getStandardName())
                 .standardCode(entity.getStandardCode())
                 .level(entity.getLevel())
+                .levelLabel(OhdpCodeLabels.label(entity.getLevel()))
                 .useScope(entity.getUseScope())
                 .publishDate(entity.getPublishDate())
                 .isValid(entity.getIsValid())
                 .isOpen(entity.getIsOpen())
                 .fileId(entity.getFileId())
+                .currentDocument(referenceDocumentService.latest(OhdpReferenceDocumentService.STANDARD, entity.getId()).orElse(null))
                 .notes(entity.getNotes())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
@@ -239,6 +245,7 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
                 .regionCode(entity.getRegionCode())
                 .regionName(entity.getRegionName())
                 .level(entity.getLevel())
+                .levelLabel(OhdpCodeLabels.regionLevel(entity.getLevel()))
                 .sortNo(entity.getSortNo())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
@@ -315,12 +322,14 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
                 .id(entity.getId())
                 .deviceName(entity.getDeviceName())
                 .deviceType(entity.getDeviceType())
+                .deviceTypeLabel(OhdpCodeLabels.label(entity.getDeviceType()))
                 .deviceModel(entity.getDeviceModel())
                 .deviceNo(entity.getDeviceNo())
                 .manufacturer(entity.getManufacturer())
                 .calibrationDate(entity.getCalibrationDate())
                 .calibrationExpiry(entity.getCalibrationExpiry())
                 .status(entity.getStatus())
+                .statusLabel(OhdpCodeLabels.label(entity.getStatus()))
                 .notes(entity.getNotes())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())

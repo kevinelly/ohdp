@@ -41,17 +41,24 @@ public class RolePermissionService {
             throw new BusinessException("permission contains invalid id");
         }
 
-        List<SysRolePermission> existed = sysRolePermissionRepository.findByRoleIdAndDeletedFalse(role.getId());
-        for (SysRolePermission item : existed) {
-            item.setDeleted(true);
-        }
-        sysRolePermissionRepository.saveAll(existed);
-
         Set<Long> dedupIds = new HashSet<>(ids);
+        List<SysRolePermission> activeRelations = sysRolePermissionRepository.findByRoleIdAndDeletedFalse(role.getId());
+        for (SysRolePermission item : activeRelations) {
+            if (!dedupIds.contains(item.getPermissionId())) {
+                item.setDeleted(true);
+            }
+        }
+        sysRolePermissionRepository.saveAll(activeRelations);
+
         for (Long permissionId : dedupIds) {
-            SysRolePermission relation = new SysRolePermission();
-            relation.setRoleId(role.getId());
-            relation.setPermissionId(permissionId);
+            SysRolePermission relation = sysRolePermissionRepository
+                    .findByRoleIdAndPermissionId(role.getId(), permissionId)
+                    .orElseGet(() -> {
+                        SysRolePermission created = new SysRolePermission();
+                        created.setRoleId(role.getId());
+                        created.setPermissionId(permissionId);
+                        return created;
+                    });
             relation.setDeleted(false);
             sysRolePermissionRepository.save(relation);
         }

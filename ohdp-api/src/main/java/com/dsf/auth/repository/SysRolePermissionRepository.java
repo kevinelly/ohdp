@@ -3,6 +3,7 @@ package com.dsf.auth.repository;
 import com.dsf.auth.entity.SysRolePermission;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -18,5 +19,6 @@ public interface SysRolePermissionRepository extends JpaRepository<SysRolePermis
     List<SysRolePermission> findByRoleIdAndDeletedFalse(Long roleId);
 
     List<SysRolePermission> findByRoleIdInAndDeletedFalse(Collection<Long> roleIds);
-}
 
+    Optional<SysRolePermission> findByRoleIdAndPermissionId(Long roleId, Long permissionId);
+}

@@ -89,7 +89,20 @@ def main() -> None:
         "sys_role_permission.sql",
         "sys_role_data_scope.sql",
         "ohdp_core.sql",
+        "ohdp_upgrade_v2_report_fields.sql",
+        "ohdp_upgrade_v3_master_data.sql",
+        "ohdp_upgrade_v4_position_decouple.sql",
+        "ohdp_upgrade_v5_new_modules.sql",
+        "ohdp_upgrade_v6_result_factor_link.sql",
+        "ohdp_upgrade_v7_factor_methodology.sql",
+        "ohdp_upgrade_v8_methodology_seed.sql",
+        "ohdp_upgrade_v9_radiology_qc.sql",
+        "ohdp_upgrade_v10_radiology_profiles_annual_dose.sql",
         "sys_rbac_seed.sql",
+        "ohdp_upgrade_v11_radiology_rbac.sql",
+        "ohdp_upgrade_v12_reference_documents.sql",
+        "ohdp_upgrade_v13_feedback.sql",
+        "ohdp_upgrade_v14_beihai_report.sql",
     ]
 
     with pymysql.connect(db=config.database, **connect_kwargs) as conn:

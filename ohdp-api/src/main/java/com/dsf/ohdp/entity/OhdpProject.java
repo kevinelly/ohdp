@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDate;
@@ -110,6 +111,17 @@ public class OhdpProject extends BaseAuditEntity {
 
     @Column(name = "notes", length = 1000)
     private String notes;
+
+    /**
+     * 北海市 2026 定期检测报告的项目快照数据。
+     *
+     * <p>该字段保存单位基本信息、原辅材料、设备、防护设施、采样计划、
+     * 现场条件和结论建议等结构化内容。数据作为项目快照保存，避免主数据
+     * 后续修改导致已经归档的报告内容发生变化。</p>
+     */
+    @Lob
+    @Column(name = "report_supplement_json")
+    private String reportSupplementJson;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)

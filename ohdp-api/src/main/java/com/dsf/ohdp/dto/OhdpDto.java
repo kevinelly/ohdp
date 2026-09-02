@@ -90,6 +90,9 @@ public final class OhdpDto {
 
         @Size(max = 1000)
         private String notes;
+
+        @Valid
+        private ReportSupplement reportSupplement;
     }
 
     @Data
@@ -126,9 +129,167 @@ public final class OhdpDto {
         private String approverCertNo;
         private LocalDate statementDate;
         private String notes;
+        private ReportSupplement reportSupplement;
         private ProjectStatus status;
+        private String statusLabel;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
+    }
+
+    /**
+     * 《（2026）定期检测报告模板-北海》专用报告补充数据。
+     * 所有字段均为项目快照；未开展或不适用的项目允许留空，但报告预检会
+     * 对正式报告必须内容给出明确提示。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportSupplement {
+        @Size(max = 80)
+        private String reportHeaderName;
+        @Size(max = 64)
+        private String socialCreditCode;
+        @Size(max = 100)
+        private String legalRepresentative;
+        @Size(max = 255)
+        private String registeredAddress;
+        @Size(max = 255)
+        private String technicalServiceAddress;
+        @Size(max = 100)
+        private String contactName;
+        @Size(max = 50)
+        private String contactPhone;
+        @Size(max = 200)
+        private String industryCategory;
+        @Size(max = 50)
+        private String commissioningDate;
+        @Size(max = 100)
+        private String economicType;
+        @Size(max = 100)
+        private String companyScale;
+        private Integer employeeCount;
+        private Integer outsourcedWorkerCount;
+        private Integer dispatchedWorkerCount;
+
+        @Size(max = 6000)
+        private String detectionScope;
+        @Size(max = 6000)
+        private String productionProcess;
+        @Size(max = 3000)
+        private String radiationSourceSummary;
+        @Size(max = 2000)
+        private String vocAnalysisConclusion;
+        @Size(max = 2000)
+        private String exclusionScreeningConclusion;
+        @Size(max = 2000)
+        private String rawRecordCompletenessNote;
+        @Size(max = 3000)
+        private String productionCondition;
+        @Size(max = 3000)
+        private String samplingLayoutDescription;
+        @Size(max = 3000)
+        private String detectionConditions;
+        @Size(max = 1000)
+        private String environmentConditions;
+        @Size(max = 1000)
+        private String onsiteInspectors;
+        @Size(max = 2000)
+        private String planDeviation;
+        @Size(max = 100)
+        private String riskCategory;
+        @Size(max = 2000)
+        private String majorHazards;
+        @Size(max = 3000)
+        private String overLimitSummary;
+        @Size(max = 4000)
+        private String majorProblems;
+        @Size(max = 6000)
+        private String recommendations;
+
+        @Valid
+        private List<MaterialItem> materials;
+        @Valid
+        private List<EquipmentItem> equipment;
+        @Valid
+        private List<ProtectionFacilityItem> protectionFacilities;
+        @Valid
+        private List<PpeItem> personalProtectiveEquipment;
+        @Valid
+        private List<SamplingPlanItem> samplingPlans;
+        private Boolean materialsConfirmedNotApplicable;
+        private Boolean equipmentConfirmedNotApplicable;
+        private Boolean protectionFacilitiesConfirmedNotApplicable;
+        private Boolean ppeConfirmedNotApplicable;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MaterialItem {
+        @Size(max = 150) private String workplace;
+        @Size(max = 150) private String materialName;
+        @Size(max = 150) private String processStage;
+        @Size(max = 500) private String mainComponents;
+        @Size(max = 100) private String annualAmount;
+        @Size(max = 50) private String physicalState;
+        @Size(max = 300) private String positions;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class EquipmentItem {
+        @Size(max = 150) private String workplace;
+        @Size(max = 150) private String location;
+        @Size(max = 150) private String equipmentName;
+        private Integer totalCount;
+        private Integer runningCount;
+        @Size(max = 300) private String operatingPositions;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProtectionFacilityItem {
+        @Size(max = 150) private String workplace;
+        @Size(max = 150) private String locationOrPosition;
+        @Size(max = 150) private String facilityName;
+        @Size(max = 100) private String facilityType;
+        private Integer totalCount;
+        private Integer runningCount;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PpeItem {
+        @Size(max = 150) private String ppeName;
+        @Size(max = 150) private String manufacturer;
+        @Size(max = 100) private String model;
+        @Size(max = 300) private String protectionParameters;
+        @Size(max = 300) private String positions;
+        @Size(max = 100) private String usageStatus;
+        @Size(max = 100) private String category;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SamplingPlanItem {
+        @Size(max = 150) private String workplace;
+        @Size(max = 100) private String jobName;
+        @Size(max = 100) private String operationType;
+        private Integer workersPerShift;
+        @Size(max = 300) private String targetLocationTiming;
+        @Size(max = 150) private String factorName;
+        @Size(max = 100) private String limitType;
+        @Size(max = 100) private String contactType;
+        @Size(max = 100) private String detectionMode;
+        @Size(max = 100) private String detectionTimeType;
+        private Integer pointsPerDay;
+        private Integer timesPerDay;
+        private Integer days;
     }
 
     @Data
@@ -192,6 +353,7 @@ public final class OhdpDto {
     public static class ResultItemRequest {
         private Long factorTemplateId;
         private Long positionId;
+        private Long factorId;
 
         @Size(max = 100)
         private String jobName;
@@ -240,6 +402,7 @@ public final class OhdpDto {
         private Long id;
         private Long projectId;
         private Long positionId;
+        private Long factorId;
         private String jobName;
         private String factorName;
         private String metricType;
@@ -249,6 +412,7 @@ public final class OhdpDto {
         private BigDecimal limitValue;
         private String limitUnit;
         private String judgement;
+        private String judgementLabel;
     }
 
     @Data
@@ -285,6 +449,7 @@ public final class OhdpDto {
         private Long id;
         private Long projectId;
         private String operationType;
+        private String operationTypeLabel;
         private String operatorName;
         private String operationMessage;
         private LocalDateTime operatedAt;
@@ -309,6 +474,25 @@ public final class OhdpDto {
         private List<PositionResponse> positions;
         private List<ResultItemResponse> results;
         private ReportPrecheckResponse precheck;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportCenterResponse {
+        private Long projectId;
+        private String projectCode;
+        private String companyName;
+        private ProjectStatus projectStatus;
+        private String projectStatusLabel;
+        private String reportStatus;
+        private String reportStatusLabel;
+        private Long reportId;
+        private String fileName;
+        private String generatedBy;
+        private LocalDateTime generatedAt;
+        private LocalDateTime projectCreatedAt;
     }
 
     @Data

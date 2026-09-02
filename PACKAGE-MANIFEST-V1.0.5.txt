@@ -1,0 +1,32 @@
+BHFYZX Windows Docker Offline Package Manifest
+Version: V1.0.5
+Platform: Windows 10/11 x86_64 + Docker Desktop + WSL 2 + Linux containers
+Operation: First install, upgrade from V1.0.4, and normal operation can remain fully offline
+Default URL: http://localhost:8088
+
+Bundled runtime images:
+- mysql:8.4
+- bhfyzx-api:1.0.5
+- bhfyzx-web:1.0.5
+
+Image archive:
+deploy\windows-docker\images\bhfyzx-offline-images.tar.gz
+SHA-256: 40DC5A45E4095785DF3780F5B862EC2B78BD756FB4F2D8802A2D14BDD7039284
+
+Changes in V1.0.5:
+- New formula-free DR/CT import templates with instructions, units, required/optional markers and a hidden field dictionary.
+- DR templates include calibration factors, DDI baseline and RPD conversion factors.
+- Import rejects multiple data rows instead of silently ignoring them.
+- Import rejects formula cells and incomplete item groups before database writes.
+- Calculation version upgraded to 2026.2; TVD/ETD mixed-unit results remain separated.
+- TVD/ETD grouped results are persisted as final text results so review, approval and report generation work end to end.
+- LCR retains signed delta and uses absolute difference as the main result.
+
+Validated on 2026-08-26:
+- 14 backend tests pass.
+- Frontend production build passes.
+- API review/approval/report workflow passes for both DR and CT.
+- Image archive SHA-256 is included and checked by the installer/upgrader.
+- Compose uses --no-build --pull never for fully offline operation.
+
+Important: WSL 2 and Docker Desktop must already be installed before the computer is disconnected from the network.

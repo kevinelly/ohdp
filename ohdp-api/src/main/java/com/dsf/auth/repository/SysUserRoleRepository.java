@@ -3,6 +3,7 @@ package com.dsf.auth.repository;
 import com.dsf.auth.entity.SysUserRole;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -18,5 +19,6 @@ public interface SysUserRoleRepository extends JpaRepository<SysUserRole, Long> 
     List<SysUserRole> findByUserIdAndDeletedFalse(Long userId);
 
     List<SysUserRole> findByUserIdInAndDeletedFalse(Collection<Long> userIds);
-}
 
+    Optional<SysUserRole> findByUserIdAndRoleId(Long userId, Long roleId);
+}

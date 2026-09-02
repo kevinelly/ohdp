@@ -1,0 +1,5 @@
+FROM bhfyzx-api:1.0.5
+USER root
+COPY target/ohdp-api-*.jar /app/app.jar
+RUN chown bhfyzx:bhfyzx /app/app.jar
+USER bhfyzx
