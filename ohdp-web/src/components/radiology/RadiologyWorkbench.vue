@@ -219,6 +219,10 @@ function detectionGroupLabel(group: string) {
   const labels: Record<string,string> = {GENERAL:'通用质控',SPECIAL:'DR专用质控',QC:'CT质量控制',PROTECTION:'场所防护'}
   return labels[group] || group
 }
+function calibrationLabel(mode?: string) {
+  const labels: Record<string,string> = {NONE:'无需修正',INSTRUMENT:'仅仪器刻度修正',TIME:'仅时间响应修正',BOTH:'仪器刻度与时间响应修正'}
+  return labels[mode || ''] || '未登记'
+}
 
 interface CaseForm {
   caseCode: string
@@ -415,7 +419,7 @@ const completenessText = computed(() => {
 })
 const completenessHint = computed(() => selectedCase.value?.submissionIssues?.length
   ? '仍有 ' + selectedCase.value.submissionIssues.length + ' 项提交条件待补齐'
-  : '已完成项目 / 应检清单全部项目')
+  : '已处理项目 / 项目清单总数（含不检测）')
 const nextQcAction = computed(() => {
   const status = selectedCase.value?.status
   if (!status) return `创建或选择一个 ${props.modality} 案例开始录入。`
@@ -1140,16 +1144,33 @@ function showMeasurementHelp(field: FieldDefinition) {
             <el-tab-pane label="基本信息" name="base">
               <div class="info-grid">
                 <div><span>受理编号</span><strong>{{ selectedCase.sampleAcceptanceNo || '-' }}</strong></div>
+                <div><span>检测类别</span><strong>{{ selectedCase.detectionCategory || '-' }}</strong></div>
+                <div><span>样品名称</span><strong>{{ selectedCase.profile?.sampleName || '-' }}</strong></div>
+                <div><span>送检单位</span><strong>{{ selectedCase.profile?.submittingUnit || '-' }}</strong></div>
+                <div><span>委托单位</span><strong>{{ selectedCase.profile?.commissionedUnit || '-' }}</strong></div>
+                <div><span>所在地市 / 县区</span><strong>{{ [selectedCase.city,selectedCase.county].filter(Boolean).join(' / ') || '-' }}</strong></div>
                 <div><span>设备编号</span><strong>{{ selectedCase.equipmentNo || '-' }}</strong></div>
                 <div><span>生产厂家 <HelpMark anchor-id="radiology.equipment" /></span><strong>{{ selectedCase.manufacturer || '-' }}</strong></div>
                 <div v-if="modality === 'CT'"><span>检测模体 <HelpMark anchor-id="radiology.phantom" /></span><strong>{{ selectedCase.phantomName || '-' }}</strong></div>
                 <div v-if="modality === 'CT'"><span>模体厂家/型号 <HelpMark anchor-id="radiology.phantom" /></span><strong>{{ [selectedCase.phantomManufacturer, selectedCase.phantomModel].filter(Boolean).join(' / ') || '-' }}</strong></div>
                 <div><span>检测地点</span><strong>{{ selectedCase.detectionLocation || '-' }}</strong></div>
-                <div><span>检测日期</span><strong>{{ selectedCase.inspectionDate || '-' }}</strong></div>
+                <div><span>检测起止日期</span><strong>{{ selectedCase.inspectionDate || '-' }} 至 {{ selectedCase.inspectionEndDate || '未填写' }}</strong></div>
+                <div><span>检测人</span><strong>{{ selectedCase.profile?.detectorName || '-' }}</strong></div>
+                <div><span>检测范围</span><strong>{{ (selectedCase.profile?.selectedGroups || blankProfile(modality).selectedGroups || []).map(detectionGroupLabel).join('、') }}</strong></div>
+                <div><span>校准方式</span><strong>{{ calibrationLabel(selectedCase.profile?.calibrationMode || (selectedCase.protectionMode==='RESPONSE_CORRECTED' ? 'BOTH' : undefined)) }}</strong></div>
+                <div><span>仪器响应时间</span><strong>{{ selectedCase.profile?.instrumentResponseTime || '-' }}</strong></div>
                 <div><span>计算版本 <HelpMark anchor-id="radiology.calculation" /></span><strong>{{ selectedCase.calculationVersion }}</strong></div>
               </div>
+              <div v-if="selectedCase.profile?.equipmentParameters" class="text-block"><span>设备参数</span><p>{{ selectedCase.profile.equipmentParameters }}</p></div>
               <div class="text-block"><span>检测依据 <HelpMark anchor-id="basic.reference" /></span><p>{{ selectedCase.standardBasis || '-' }}</p></div>
               <div class="text-block"><span>检测仪器 <HelpMark anchor-id="radiology.instrument" /></span><p>{{ selectedCase.instrumentDescription || '-' }}</p></div>
+              <el-table v-if="selectedCase.profile?.instruments?.length" :data="selectedCase.profile.instruments" border class="instrument-snapshot">
+                <el-table-column prop="name" label="仪器名称" min-width="150" />
+                <el-table-column prop="model" label="型号" min-width="110" />
+                <el-table-column prop="deviceNo" label="仪器编号" min-width="110" />
+                <el-table-column prop="certificateNo" label="证书编号" min-width="150" />
+                <el-table-column label="证书有效期" min-width="220"><template #default="s">{{ s.row.validFrom || '—' }} 至 {{ s.row.validTo || '—' }}</template></el-table-column>
+              </el-table>
             </el-tab-pane>
 
             <el-tab-pane label="检测数据与计算" name="data">
@@ -1248,9 +1269,9 @@ function showMeasurementHelp(field: FieldDefinition) {
                     <template #default="scope">{{ itemResultDisplay(scope.row) }}</template>
                   </el-table-column>
                   <el-table-column label="状态" width="120">
-                    <template #default="scope"><el-tag :type="scope.row.complete ? 'success' : 'danger'">{{ scope.row.complete ? '完成' : '不完整' }}</el-tag></template>
+                    <template #default="scope"><el-tag :type="scope.row.judgement==='NOT_APPLICABLE' ? 'info' : scope.row.complete ? 'success' : 'danger'">{{ scope.row.judgement==='NOT_APPLICABLE' ? '不检测' : scope.row.complete ? '完成' : '不完整' }}</el-tag></template>
                   </el-table-column>
-                  <el-table-column label="判定" width="130">
+                  <el-table-column label="判定" width="130" fixed="right">
                     <template #default="scope">{{ judgementText(scope.row.judgement) }}</template>
                   </el-table-column>
                   <el-table-column prop="ruleDescription" label="标准判定依据" min-width="320" />
@@ -1579,6 +1600,8 @@ function showMeasurementHelp(field: FieldDefinition) {
 .qc-tabs { margin-top:10px; }
 .info-grid,.approval-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .info-grid div,.approval-grid div { padding:16px; border-radius:10px; background:#f6f8fa; border:1px solid #ebeff3; }
+.info-grid strong { overflow-wrap:anywhere; }
+.instrument-snapshot { margin-top:12px; }
 .info-grid > div > span,.approval-grid > div > span,.text-block > span { display:block; color:#7b8794; font-size:12px; margin-bottom:7px; }
 .text-block { margin-top:14px; padding:16px; border:1px solid #d6e1e3; background:#f7fafb; }
 .text-block p { margin:0; line-height:1.7; }
@@ -1690,7 +1713,7 @@ function showMeasurementHelp(field: FieldDefinition) {
   .qc-layout { grid-template-columns:240px minmax(0,1fr) 222px; }
   .field-grid,.computed-panel { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
-@media (max-width:1250px) {
+@media (max-width:1500px) {
   .qc-layout { grid-template-columns:238px minmax(0,1fr); }
   .qc-status-rail { position:static; grid-column:1 / -1; display:grid; grid-template-columns:repeat(3,1fr); }
   .qc-status-rail section { border-right:1px solid #dce4e6; border-bottom:0; }
