@@ -294,7 +294,8 @@ const selectedCase = ref<InspectionCase | null>(null)
 const catalog = ref<ItemDefinition[]>([])
 const rules = ref<Rule[]>([])
 const calculation = ref<CalculationResponse | null>(null)
-const workTab = ref('base')
+type WorkbenchTab = 'base' | 'data' | 'points' | 'attachments' | 'report' | 'rules'
+const workTab = ref<WorkbenchTab>('base')
 const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20, year: undefined as number | undefined,
   from: '', to: '', city: '', county: '', receipt: '', company: '', modalities: [props.modality] as Modality[] })
 const queryVisible = ref(false)
@@ -1281,7 +1282,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                     <template #default="scope"><el-tag :type="calculationStatusType(scope.row)">{{ calculationStatus(scope.row) }}</el-tag></template>
                   </el-table-column>
                   <el-table-column label="判定" width="130" fixed="right">
-                    <template #default="scope"><el-button v-if="isProtectionRecord(scope.row)" link @click="workTab='protection'">见防护点位</el-button><span v-else>{{ judgementText(scope.row.judgement) }}</span></template>
+                    <template #default="scope"><el-button v-if="isProtectionRecord(scope.row)" link @click="workTab='points'">见防护点位</el-button><span v-else>{{ judgementText(scope.row.judgement) }}</span></template>
                   </el-table-column>
                   <el-table-column prop="ruleDescription" label="标准判定依据" min-width="320" />
                   <el-table-column prop="message" label="提示" min-width="220" />
