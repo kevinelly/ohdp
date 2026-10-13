@@ -80,34 +80,39 @@ public class RadiologyReportService {
 
     @Transactional
     public RadiologyDto.ReportResponse generate(Long caseId) {
-        RadiologyCase entity = caseService.requireCase(caseId);
+        caseService.requirePermission("RADIOLOGY:REPORT:GENERATE");
+        RadiologyCase live = caseService.requireCase(caseId);
+        RadiologyCase entity=live;
         if (entity.getStatus() != RadiologyCaseStatus.APPROVED && entity.getStatus() != RadiologyCaseStatus.REPORTED) {
             throw new BusinessException("报告仅可在批准后生成");
         }
-        List<RadiologyMeasurement> measurements = measurementRepository.findByCaseIdAndDeletedFalseOrderByItemCodeAscSortNoAsc(caseId);
-        if (measurements.stream().noneMatch(value -> value.getFieldRole() == RadiologyFieldRole.FINAL)) {
-            throw new BusinessException("没有可写入报告的最终检测结果");
-        }
-        List<RadiologyProtectionPoint> points = protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(caseId);
-        List<RadiologyAttachment> attachments = attachmentRepository.findByCaseIdAndDeletedFalseOrderByUploadedAtDesc(caseId);
-        String reportNo = entity.getCaseCode() + "-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
-        String fileName = safeName(reportNo) + "-检测报告-" + LocalDateTime.now().format(FILE_TIME) + ".docx";
+        if (!StringUtils.hasText(live.getApprovedSnapshotJson()))
+            throw new BusinessException("历史案例未保存批准快照，请创建修订版重新计算和审批；原报告仍可下载");
+        RadiologyCaseService.ApprovedSnapshot approved;
+        try { approved=objectMapper.readValue(live.getApprovedSnapshotJson(),RadiologyCaseService.ApprovedSnapshot.class); }
+        catch (JsonProcessingException ex) { throw new BusinessException("批准快照读取失败"); }
+        entity=approved.inspectionCase();
+        List<RadiologyMeasurement> measurements=approved.measurements();
+        List<RadiologyProtectionPoint> points=approved.protectionPoints();
+        List<RadiologyAttachment> attachments=approved.attachments();
+        if (!templateHash(entity.getModality()).equals(approved.templateSha256()))
+            throw new BusinessException("模板与批准版本不一致，请恢复批准时模板后生成报告");
+        String reportNo=entity.getSampleAcceptanceNo();
+        if (!StringUtils.hasText(reportNo)) throw new BusinessException("批准快照缺少受理编号");
+        String fileName = safeName(reportNo) + "-R" + entity.getRevisionNo() + "-检测报告-" + LocalDateTime.now().format(FILE_TIME) + "-" + java.util.UUID.randomUUID().toString().substring(0,8) + ".docx";
         Path root = Path.of(properties.getBaseDir()).toAbsolutePath().normalize();
         Path directory = root.resolve(String.valueOf(caseId)).resolve("reports").normalize();
         Path target = directory.resolve(fileName).normalize();
         if (!target.startsWith(root)) throw new BusinessException("报告存储路径不合法");
         try {
             Files.createDirectories(directory);
-            try (XWPFDocument document = new XWPFDocument()) {
-                configurePage(document);
-                buildCover(document, entity, reportNo);
-                document.createParagraph().createRun().addBreak(BreakType.PAGE);
+            try (XWPFDocument document = new XWPFDocument(new org.springframework.core.io.ClassPathResource(templatePath(entity.getModality())).getInputStream())) {
+                replaceTemplateFields(document,entity,reportNo);
                 buildBasicInfoPage(document, entity);
                 document.createParagraph().createRun().addBreak(BreakType.PAGE);
                 buildResultsPage(document, entity, measurements, points);
-                document.createParagraph().createRun().addBreak(BreakType.PAGE);
                 buildConclusionPage(document, entity, measurements, points, attachments);
-                addFooter(document);
+
                 try (var output = Files.newOutputStream(target)) {
                     document.write(output);
                 }
@@ -116,7 +121,7 @@ public class RadiologyReportService {
             throw new BusinessException("报告生成失败：" + ex.getMessage());
         }
 
-        String snapshot = snapshot(entity, measurements, points, attachments);
+        String snapshot = live.getApprovedSnapshotJson();
         RadiologyReport report = new RadiologyReport();
         report.setCaseId(caseId);
         report.setReportNo(reportNo);
@@ -127,9 +132,8 @@ public class RadiologyReportService {
         report.setGeneratedBy(AuthContext.get() == null ? "system" : AuthContext.get().getUsername());
         report.setGeneratedAt(LocalDateTime.now());
         report = reportRepository.save(report);
-        entity.setStatus(RadiologyCaseStatus.REPORTED);
-        entity.setReportDate(entity.getReportDate() == null ? LocalDate.now() : entity.getReportDate());
-        caseRepository.save(entity);
+        live.setStatus(RadiologyCaseStatus.REPORTED);
+        caseRepository.save(live);
         return toResponse(report);
     }
 
@@ -149,6 +153,29 @@ public class RadiologyReportService {
         if (!path.startsWith(root)) throw new BusinessException("报告路径越界");
         if (!Files.isRegularFile(path)) throw new BusinessException("报告文件不存在");
         return new Download(new FileSystemResource(path), report.getFileName(), Files.exists(path) ? path.toFile().length() : 0);
+    }
+
+    private static String templatePath(com.dsf.radiology.model.RadiologyModality modality) {
+        return "templates/radiology/"+modality.name()+"-v20261013.docx";
+    }
+    public static String templateHash(com.dsf.radiology.model.RadiologyModality modality) {
+        try (var input=new org.springframework.core.io.ClassPathResource(templatePath(modality)).getInputStream()) {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+        } catch (Exception ex) { throw new BusinessException("批准模板不可用"); }
+    }
+    private void replaceTemplateFields(XWPFDocument document,RadiologyCase entity,String reportNo) {
+        Map<String,String> values=Map.of("{{REPORT_NO}}",reportNo,"{{UNIT}}",blank(entity.getInspectedUnitName()),
+                "{{EQUIPMENT}}",blank(entity.getEquipmentName()),"{{MODEL}}",blank(entity.getEquipmentModel()),
+                "{{EQUIPMENT_NO}}",blank(entity.getEquipmentNo()),"{{AGENCY}}",blank(entity.getAgencyName()),
+                "{{DATE}}",date(entity.getReportDate()),"{{DETECTION_DATE}}",date(entity.getInspectionDate()));
+        List<XWPFParagraph> paragraphs=new ArrayList<>(document.getParagraphs());
+        for (var table:document.getTables()) for(var row:table.getRows()) for(var cell:row.getTableCells()) paragraphs.addAll(cell.getParagraphs());
+        for (var header:document.getHeaderList()) paragraphs.addAll(header.getParagraphs());
+        for (var footer:document.getFooterList()) paragraphs.addAll(footer.getParagraphs());
+        for(var paragraph:paragraphs) for(var run:paragraph.getRuns()) {
+            String text=run.getText(0);
+            if(text!=null) { for(var value:values.entrySet()) text=text.replace(value.getKey(),value.getValue());run.setText(text,0); }
+        }
     }
 
     private void buildCover(XWPFDocument document, RadiologyCase entity, String reportNo) {
@@ -212,28 +239,31 @@ public class RadiologyReportService {
             List<RadiologyProtectionPoint> points) {
         heading(document, "五、设备质量控制检测结果", 16);
         Map<String, RadiologyMeasurement> finals = finalMeasurements(measurements);
-        XWPFTable table = document.createTable(1, 6);
+        XWPFTable table = document.createTable(1, 5);
         table.setWidth("100%");
-        String[] headers = {"序号", "项目代码", "检测项目", "结果", "判定依据", "结论"};
-        for (int i = 0; i < headers.length; i++) setTableCell(table.getRow(0).getCell(i), headers[i], true);
-        int sequence = 1;
-        for (RadiologyCatalogService.ItemDefinition item : catalogService.getCatalog(entity.getModality())) {
+        String[] headers = {"检测项目", "检测条件", "检测结果", "标准要求", "评价"};
+        for (int i=0;i<headers.length;i++) setTableCell(table.getRow(0).getCell(i),headers[i],true);
+        table.getRow(0).setRepeatHeader(true);
+        var results=caseService.itemResults(entity);
+        var conditions=caseService.itemConditions(entity);
+        for (var item:catalogService.getCatalog(entity.getModality())) {
             if (item.code().equals("RPD")) continue;
-            RadiologyMeasurement result = finals.get(item.code());
-            if (result == null) continue;
-            XWPFTableCell[] cells = table.createRow().getTableCells().toArray(XWPFTableCell[]::new);
-            RuleView rule = ruleView(entity, item.code(), result, measurements);
-            setTableCell(cells[0], String.valueOf(sequence++), false);
-            setTableCell(cells[1], item.code(), false);
-            setTableCell(cells[2], item.name(), false);
-            setTableCell(cells[3], display(result), false);
-            setTableCell(cells[4], rule.basis(), false);
-            setTableCell(cells[5], rule.conclusion(), false);
+            var result=results.stream().filter(r->r.itemCode().equals(item.code())).findFirst().orElse(null);
+            if (result==null) throw new BusinessException("批准快照缺少项目："+item.name());
+            var cells=table.createRow().getTableCells();
+            setTableCell(cells.get(0),item.name(),false);
+            setTableCell(cells.get(1),conditions.getOrDefault(item.code(),entity.getDetectionCategory()),false);
+            setTableCell(cells.get(2),result.resultText()!=null ? result.resultText() :
+                    number(result.resultValue())+(StringUtils.hasText(result.resultUnit()) ? " "+result.resultUnit():""),false);
+            setTableCell(cells.get(3),result.ruleDescription(),false);
+            setTableCell(cells.get(4),conclusion(result.judgement()),false);
         }
 
+        document.createParagraph().createRun().addBreak(BreakType.PAGE);
         heading(document, "六、场所卫生防护检测结果", 16);
         XWPFTable pointTable = document.createTable(1, 8);
         pointTable.setWidth("100%");
+        pointTable.getRow(0).setRepeatHeader(true);
         String[] pointHeaders = {"点位", "位置描述", "原始读数", "平均值", "结果(μSv/h)", "年工作负荷(mAs/a)", "年有效剂量(mSv/a)", "控制值/结论"};
         for (int i = 0; i < pointHeaders.length; i++) setTableCell(pointTable.getRow(0).getCell(i), pointHeaders[i], true);
         for (RadiologyProtectionPoint point : points) {
@@ -249,7 +279,11 @@ public class RadiologyReportService {
             if (point.getAnnualDoseLimit() != null) limitText += "；年剂量≤" + number(point.getAnnualDoseLimit()) + " mSv/a";
             setTableCell(cells[7], limitText + " / " + conclusion(point.getJudgement()), false);
         }
-        if (points.isEmpty()) body(document, "本案例未录入场所卫生防护点位数据。");
+        body(document,"防护数据处理："+switch(entity.getProtectionMode()==null ? "UNSUBTRACTED":entity.getProtectionMode()) {
+            case "SUBTRACTED" -> "已扣除本底";
+            case "RESPONSE_CORRECTED" -> "已扣除本底并按记录的k2进行响应时间修正";
+            default -> "未扣除本底";
+        }+"；原始读数单位："+blank(entity.getRpdUnit())+"；CT控制值≤2.5 μSv/h，DR短时摄影控制值≤25 μSv/h，超过时另评价年有效剂量。");
     }
 
     private void buildConclusionPage(
@@ -308,21 +342,9 @@ public class RadiologyReportService {
 
     private RuleView ruleView(
             RadiologyCase entity, String itemCode, RadiologyMeasurement result, List<RadiologyMeasurement> measurements) {
-        Map<String, BigDecimal> raw = new LinkedHashMap<>();
-        List<RadiologyCalculationEngine.CalculatedField> calculated = new ArrayList<>();
-        for (RadiologyMeasurement value : measurements) {
-            if (!value.getItemCode().equals(itemCode) || Boolean.TRUE.equals(value.getDeleted())) continue;
-            if (value.getFieldRole() == RadiologyFieldRole.RAW && value.getValueNum() != null) {
-                raw.put(value.getFieldCode(), value.getValueNum());
-            } else if (value.getFieldRole() != RadiologyFieldRole.RAW) {
-                calculated.add(new RadiologyCalculationEngine.CalculatedField(
-                        value.getFieldCode(), value.getFieldLabel(), value.getValueNum(), value.getValueText(), value.getUnit()));
-            }
-        }
-        RadiologyStandardEvaluator.Evaluation evaluation = standardEvaluator.evaluate(
-                entity.getModality(), entity.getDetectionCategory(), itemCode, true,
-                result.getValueNum(), result.getValueText(), raw, calculated);
-        return new RuleView(evaluation.description(), conclusion(evaluation.judgement()));
+        var evaluation=caseService.itemResults(entity).stream().filter(r->r.itemCode().equals(itemCode)).findFirst()
+                .orElseThrow(()->new BusinessException("批准快照缺少判定："+itemCode));
+        return new RuleView(evaluation.ruleDescription(),conclusion(evaluation.judgement()));
     }
 
     private String snapshot(
@@ -389,7 +411,10 @@ public class RadiologyReportService {
         XWPFParagraph paragraph = document.createParagraph();
         paragraph.setAlignment(ParagraphAlignment.CENTER);
         try (InputStream input = Files.newInputStream(path)) {
-            run(paragraph, "", 10, false).addPicture(input, pictureType, attachment.getOriginalName(), Units.toEMU(520), Units.toEMU(300));
+            var pixels=javax.imageio.ImageIO.read(path.toFile());
+            if (pixels==null) throw new IllegalArgumentException("图片内容无效");
+            double scale=Math.min(460.0/pixels.getWidth(),360.0/pixels.getHeight());
+            run(paragraph, "", 10, false).addPicture(input, pictureType, attachment.getOriginalName(), Units.toEMU(pixels.getWidth()*scale), Units.toEMU(pixels.getHeight()*scale));
         } catch (Exception ex) {
             body(document, "点位图插入失败：" + attachment.getOriginalName());
         }
@@ -427,6 +452,7 @@ public class RadiologyReportService {
     }
 
     private void setTableCell(XWPFTableCell cell, String text, boolean bold) {
+        cell.getTableRow().setCantSplitRow(true);
         cell.setText("");
         XWPFParagraph paragraph = cell.getParagraphs().get(0);
         paragraph.setAlignment(ParagraphAlignment.CENTER);
@@ -453,7 +479,7 @@ public class RadiologyReportService {
     }
 
     private String number(BigDecimal value) {
-        return value == null ? "—" : value.stripTrailingZeros().toPlainString();
+        return value == null ? "—" : value.setScale(6,java.math.RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString();
     }
 
     private String date(LocalDate value) {
@@ -472,6 +498,7 @@ public class RadiologyReportService {
             case INCOMPLETE -> "数据不完整";
             case NOT_CONFIGURED -> "未配置";
             case NOT_APPLICABLE -> "不适用";
+            case BASELINE_ESTABLISHED -> "建立基线";
             case NEEDS_ASSESSMENT -> "需进一步评估";
         };
     }

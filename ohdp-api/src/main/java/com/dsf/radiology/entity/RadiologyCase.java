@@ -113,6 +113,40 @@ public class RadiologyCase extends BaseAuditEntity {
     @Column(name = "calculation_version", nullable = false, length = 50)
     private String calculationVersion = "2026.1";
 
+    @jakarta.persistence.Version
+    @Column(name = "lock_version", columnDefinition = "bigint default 0")
+    private Long lockVersion = 0L;
+    @Column(name = "data_version", columnDefinition = "bigint default 0")
+    private Long dataVersion = 0L;
+    @Column(name = "calculated_data_version")
+    private Long calculatedDataVersion;
+    @Column(name = "has_aec")
+    private Boolean hasAec = true;
+    @Column(name = "has_raw_images")
+    private Boolean hasRawImages = true;
+    @Column(name = "feature_reason", length = 1000)
+    private String featureReason;
+    @Column(name = "agency_name", length = 255)
+    private String agencyName;
+    @Column(name = "region", length = 255)
+    private String region;
+    @Column(name = "inspection_end_date")
+    private LocalDate inspectionEndDate;
+    @Column(name = "item_conditions_json", columnDefinition = "longtext")
+    private String itemConditionsJson;
+    @Column(name = "calculation_json", columnDefinition = "longtext")
+    private String calculationJson;
+    @Column(name = "approved_snapshot_json", columnDefinition = "longtext")
+    private String approvedSnapshotJson;
+    @Column(name = "workflow_history_json", columnDefinition = "longtext")
+    private String workflowHistoryJson;
+    @Column(name = "rule_fingerprint", length = 64)
+    private String ruleFingerprint;
+    @Column(name = "protection_mode", length = 32)
+    private String protectionMode = "UNSUBTRACTED";
+    @Column(name = "rpd_unit", length = 16)
+    private String rpdUnit = "nSv/h";
+
     @Enumerated(EnumType.STRING)
     @Column(name = "case_status", nullable = false, length = 32)
     private RadiologyCaseStatus status = RadiologyCaseStatus.DRAFT;

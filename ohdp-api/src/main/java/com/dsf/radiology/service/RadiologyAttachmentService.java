@@ -85,7 +85,9 @@ public class RadiologyAttachmentService {
         attachment.setSha256(sha256(target));
         attachment.setUploadedBy(AuthContext.get() == null ? "system" : AuthContext.get().getUsername());
         attachment.setUploadedAt(LocalDateTime.now());
-        return toResponse(repository.save(attachment));
+        var saved=repository.save(attachment);
+        caseService.invalidate(entity);
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -115,6 +117,7 @@ public class RadiologyAttachmentService {
         }
         attachment.setDeleted(true);
         repository.save(attachment);
+        caseService.invalidate(entity);
     }
 
     private RadiologyAttachment requireAttachment(Long id) {

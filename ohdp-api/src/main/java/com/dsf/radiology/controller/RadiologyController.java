@@ -165,6 +165,11 @@ public class RadiologyController {
         return caseService.approve(id, request);
     }
 
+    @PostMapping("/cases/{id}/workflow/return")
+    public RadiologyDto.CaseDetail returnForCorrection(@PathVariable Long id, @RequestBody RadiologyDto.WorkflowRequest request) {
+        return caseService.returnForCorrection(id,request);
+    }
+
     @PostMapping("/cases/{id}/workflow/revision")
     public RadiologyDto.CaseDetail createRevision(@PathVariable Long id) {
         return caseService.reopenAsRevision(id);

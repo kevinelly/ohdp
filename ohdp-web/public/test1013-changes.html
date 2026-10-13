@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>10月13日新版改动对照</title><style>body{font:16px/1.8 system-ui,"Microsoft YaHei",sans-serif;color:#203b31;background:#f4f7f5;margin:0}main{max-width:1100px;margin:36px auto;background:white;padding:32px;border-radius:16px}h1{font-size:28px}h2{font-size:20px;margin-top:28px}a{color:#176347}nav{display:flex;gap:16px;flex-wrap:wrap;margin:20px 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;border:1px solid #d1ded7;padding:12px;vertical-align:top}th{background:#e9f3ef}tr:nth-child(even){background:#f8faf9}code{font-size:14px}li{margin:8px 0}@media(max-width:700px){main{margin:12px;padding:16px}table{font-size:13px}td,th{padding:7px}}</style><main><h1>10月13日新版改动对照</h1><p>线上运行新版，本地保留改造前的旧代码。两者使用各自数据库，录入的数据不会自动同步。对照时可打开相同的 DR 或 CT 模块，使用相同原始读数观察录入、计算、审批和报告变化。</p><nav><a href="/">打开线上新版</a><a href="http://127.0.0.1:5173/" target="_blank" rel="noopener">打开本地旧版</a></nav><table><thead><tr><th>对照项目</th><th>旧版行为</th><th>新版行为</th></tr></thead><tbody>
+<tr><td>漏检控制</td><td>未录入的项目被计算循环跳过</td><td>计算列出全部项目，缺项及缺少检测条件逐项提示并阻止提交</td></tr>
+<tr><td>修改原始数据</td><td>旧结果可能仍显示已计算</td><td>修改数据、条件、点位或附件后计算失效；清除过期结果，重新计算后才可提交</td></tr>
+<tr><td>应检范围</td><td>检测类别及设备能力未完整参与范围控制</td><td>按验收、状态、稳定性矩阵及AEC、未处理图像能力保留不检测项目与理由</td></tr>
+<tr><td>CTDI</td><td>无条件要求头模与体模</td><td>验收要求头模与体模；状态和稳定性仅要求头模</td></tr>
+<tr><td>CT临界值</td><td>部分上限和下限包含边界</td><td>噪声及低对比严格小于控制值；高对比严格大于控制值。状态噪声0.45%判为不符合</td></tr>
+<tr><td>稳定性</td><td>部分项目沿用固定状态阈值</td><td>水CT值、均匀性、噪声、层厚及CTDI与对应基线比较；缺少基线时待补充依据</td></tr>
+<tr><td>数值精度</td><td>中间值及结果较早修约</td><td>原始数字文本保留，计算与显示精度分开；显示按项目位数作半偶修约</td></tr>
+<tr><td>本底处理</td><td>主要使用统一修正系数</td><td>明确不扣本底、扣本底及扣本底后响应修正；单位可选nSv/h、μSv/h和mSv/h，响应修正须提供k2</td></tr>
+<tr><td>复核与签发</td><td>只有通过流程，姓名可来自前端</td><td>可退回并保留意见与历史；操作人取登录账户，服务端检查复核、签发和规则管理权限</td></tr>
+<tr><td>判定规则</td><td>维护表与计算判定脱节</td><td>独立版本规则参与实际评价，可限定检测类别及严格比较。规则变化使未批准计算过期</td></tr>
+<tr><td>报告</td><td>通用代码生成，编号拼接日期；生成时重新判定</td><td>使用版本化CT/DR模板、封面和封二，五列结果表保留不检测理由；采用受理编号及批准快照</td></tr>
+<tr><td>历史版本与并发</td><td>变更和重新生成的追溯较弱</td><td>批准快照保留数据、判定、附件与模板哈希；并发冲突提示刷新，报告文件不会同名覆盖</td></tr>
+<tr><td>查询</td><td>主要按案例编号筛选</td><td>关键词可查编号、受理编号、单位、设备编号和地区；保留设备类别和状态筛选</td></tr>
+</tbody></table><h2>建议的对照路径</h2><ol><li>打开CT模块，进入状态检测案例。新版计算表会显示倾角及CT值线性“不适用”，CTDI不要求体模。</li><li>只填水CT值后计算。新版会列出其他缺项，提交审核不可用。</li><li>完整计算后修改一个读数并保存。新版会标记需要重新计算，不允许沿用旧结果。</li><li>在CT状态检测中将噪声录数设为4.5、4.5、4.5，层厚10 mm。新版得到0.45%并判为不符合；不符合结果仍可如实进入审批。</li><li>提交完整案例后，使用“退回修改”填写原因，再查看报告页的操作历史。</li><li>查看生成的报告：编号等于受理编号、质量控制表包含检测条件及不检测理由。历史已批准案例若没有新快照，应创建修订版重新审批。</li></ol><h2>业务核定事项</h2><p>机构受控表号、真实签章、资质、仪器证书、模体参数及厂家规定值仍需检测机构核定。模板根据提供的材料重建结构并修正CT错配内容，软件测试案例均为虚构数据。牙科CBCT、高分辨扫描的特殊评价及其他设备类别应使用独立确认的规则，不套用普通CT项目。</p></main></html>

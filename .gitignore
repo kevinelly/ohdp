@@ -38,3 +38,5 @@ deploy/tencent-cloud/app.jar
 .env
 .env.*
 !.env.example
+
+/.task/

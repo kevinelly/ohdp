@@ -49,6 +49,15 @@ public final class RadiologyDto {
         private String writerName;
         private String reviewerName;
         private String approverName;
+        private Boolean hasAec = true;
+        private Boolean hasRawImages = true;
+        private String featureReason;
+        private String agencyName;
+        private String region;
+        private LocalDate inspectionEndDate;
+        private String protectionMode = "UNSUBTRACTED";
+        private String rpdUnit = "nSv/h";
+        private Long expectedDataVersion;
         private String notes;
     }
 
@@ -105,8 +114,23 @@ public final class RadiologyDto {
             List<AttachmentResponse> attachments,
             List<ReportResponse> reports,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt) {
+            LocalDateTime updatedAt,
+            Long dataVersion,
+            Long calculatedDataVersion,
+            boolean calculationFresh,
+            Boolean hasAec,
+            Boolean hasRawImages,
+            String featureReason,
+            String agencyName,
+            String region,
+            LocalDate inspectionEndDate,
+            String protectionMode,
+            String rpdUnit,
+            List<ItemCalculationResponse> itemResults,
+            List<WorkflowEvent> workflowHistory,
+            List<String> submissionIssues, java.util.Map<String,String> itemConditions) {
     }
+    public record WorkflowEvent(String action, String operator, String comment, Long dataVersion, LocalDateTime at) {}
 
     @Data
     public static class MeasurementRequest {
@@ -120,9 +144,11 @@ public final class RadiologyDto {
 
     @Data
     public static class MeasurementBatchRequest {
+        private Long expectedDataVersion;
         @NotEmpty
         @Valid
         private List<MeasurementRequest> values;
+        private java.util.Map<String,String> conditions;
     }
 
     public record MeasurementResponse(
@@ -135,7 +161,7 @@ public final class RadiologyDto {
             String valueText,
             String unit,
             Integer sortNo,
-            String valueSource) {
+            String valueSource, String displayValue) {
     }
 
     public record ItemCalculationResponse(
@@ -175,6 +201,7 @@ public final class RadiologyDto {
 
     @Data
     public static class ProtectionPointBatchRequest {
+        private Long expectedDataVersion;
         @NotEmpty
         @Valid
         private List<ProtectionPointRequest> points;
@@ -214,6 +241,9 @@ public final class RadiologyDto {
         private String standardCode;
         @NotBlank
         private String standardName;
+        private String detectionCategory;
+        private Boolean lowerInclusive = true;
+        private Boolean upperInclusive = true;
         private Boolean enabled = true;
     }
 
@@ -229,11 +259,12 @@ public final class RadiologyDto {
             String unit,
             String standardCode,
             String standardName,
-            Boolean enabled) {
+            Boolean enabled, String detectionCategory, Boolean lowerInclusive, Boolean upperInclusive) {
     }
 
     @Data
     public static class WorkflowRequest {
+        private Long expectedDataVersion;
         private String operatorName;
         private String comment;
     }

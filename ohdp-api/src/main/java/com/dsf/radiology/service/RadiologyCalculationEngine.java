@@ -13,9 +13,16 @@ import org.springframework.stereotype.Component;
 @Component
 public class RadiologyCalculationEngine {
 
-    public record CalculatedField(String code, String label, BigDecimal valueNum, String valueText, String unit) {
+    public record CalculatedField(String code, String label, BigDecimal valueNum, String valueText, String unit, Integer displayScale) {
+        public CalculatedField(String code,String label,BigDecimal valueNum,String valueText,String unit) {
+            this(code,label,valueNum,valueText,unit,6);
+        }
+        public String displayValue() {
+            return valueText!=null ? valueText : valueNum==null ? "" : valueNum.setScale(displayScale==null ? 6:displayScale,RoundingMode.HALF_EVEN).toPlainString();
+        }
         static CalculatedField number(String code, String label, double value, int scale, String unit) {
-            return new CalculatedField(code, label, round(value, scale), null, unit);
+            if (!Double.isFinite(value)) throw new ArithmeticException("结果不是有限数值");
+            return new CalculatedField(code, label, BigDecimal.valueOf(value), null, unit, scale);
         }
 
         static CalculatedField text(String code, String label, String value) {
@@ -334,6 +341,10 @@ public class RadiologyCalculationEngine {
     private CalculationResult lcr(Map<String, BigDecimal> n) {
         double details = req(n, "LCR1（可观察细节数）");
         double contrast = req(n, "LCR2（可观察对比度）");
+        if (value(n,"__ESTABLISH_BASELINE",0)==1)
+            return complete("LCR",details,"建立基线", "个细节",List.of(
+                    CalculatedField.number("CONTRAST","可观察对比度",contrast,3,"%"),
+                    CalculatedField.number("RESULT","可观察细节数基线",details,2,"个细节")));
         double baseline = req(n, "厂家规定值/基线值");
         double signedDelta = details - baseline;
         double result = Math.abs(signedDelta);
@@ -373,10 +384,12 @@ public class RadiologyCalculationEngine {
     private CalculationResult ctdi(Map<String, BigDecimal> n) {
         List<CalculatedField> out = new ArrayList<>();
         double head = ctdiGroup(n, "H", "层数n1", "层厚T1", "刻度系数k1", out);
-        double body = ctdiGroup(n, "S", "层数n2", "层厚T2", "刻度系数k2", out);
+        double body = value(n, "__HEAD_ONLY", 0) == 1 ? head : ctdiGroup(n, "S", "层数n2", "层厚T2", "刻度系数k2", out);
         double result = Math.max(head, body);
         out.add(CalculatedField.number("RESULT", "CTDIw 最大值", result, 1, "mGy"));
-        return complete("CTDI", result, null, "mGy", out);
+        String description="头模 CTDIw："+round(head,1).toPlainString()+" mGy";
+        if (value(n,"__HEAD_ONLY",0)!=1) description+="；体模 CTDIw："+round(body,1).toPlainString()+" mGy";
+        return complete("CTDI", result, description, "mGy", out);
     }
 
     private double ctdiGroup(Map<String, BigDecimal> n, String prefix, String nKey, String tKey, String kKey, List<CalculatedField> out) {
@@ -388,6 +401,7 @@ public class RadiologyCalculationEngine {
         for (String direction : List.of("U", "D", "L", "R")) {
             peripheral.add(mean(req(n, prefix + direction + "D1"), req(n, prefix + direction + "D2"), req(n, prefix + direction + "D3")));
         }
+        if (layers <= 0 || thickness <= 0 || factor <= 0) throw new IncompleteException("CTDI层数、层厚和校准系数必须大于0");
         double scale = 10 * factor / (layers * thickness);
         double center100 = center * scale;
         double peripheral100 = mean(peripheral) * scale;
@@ -402,7 +416,8 @@ public class RadiologyCalculationEngine {
     private CalculationResult rst(Map<String, BigDecimal> n) {
         double half = n.get("CThm") == null ? (req(n, "CTbackground") + req(n, "CTmax")) / 2 : req(n, "CThm");
         double average = mean(req(n, "R1"), req(n, "R2"), req(n, "R3"), req(n, "R4"));
-        double factor = value(n, "RST-FACTOR", 0.42);
+        double factor = req(n, "RST-FACTOR");
+        if (factor <= 0) throw new IncompleteException("层厚换算系数必须大于0，并有模体说明书依据");
         double measured = average * factor;
         double result = measured - req(n, "R0");
         return complete("RST", Math.abs(result), null, "mm", List.of(
@@ -509,7 +524,7 @@ public class RadiologyCalculationEngine {
                 * (k == null ? 1 : k.doubleValue())
                 * (a == null ? 0.001 : a.doubleValue())
                 * (normalizationFactor == null ? 1 : normalizationFactor.doubleValue());
-        return List.of(round(average, 1), round(result, 3));
+        return List.of(BigDecimal.valueOf(average), BigDecimal.valueOf(result));
     }
 
     private List<Regression> regressions(double[] x, double[] y) {
@@ -590,7 +605,7 @@ public class RadiologyCalculationEngine {
 
     private CalculationResult complete(
             String item, double result, String resultText, String unit, List<CalculatedField> fields) {
-        return new CalculationResult(item, true, "计算完成", round(result, 6), resultText, unit, List.copyOf(fields));
+        return new CalculationResult(item, true, "计算完成", BigDecimal.valueOf(result), resultText, unit, List.copyOf(fields));
     }
 
     private CalculationResult completeGrouped(String item, List<String> summaries, List<CalculatedField> fields) {

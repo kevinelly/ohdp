@@ -133,7 +133,7 @@ public class RadiologyImportService {
             if (!duplicateHeaders.isEmpty()) {
                 errors.add(new RadiologyDto.ImportCellError(1, String.join("、", duplicateHeaders), "", "字段代码重复"));
             }
-            validateRequiredGroups(entity.getModality(), suppliedFields, measurementValues, errors);
+            validateRequiredGroups(entity, suppliedFields, measurementValues, errors);
             for (Map.Entry<Integer, List<BigDecimal>> entry : pointReadings.entrySet()) {
                 if (entry.getValue().size() != 5) {
                     errors.add(new RadiologyDto.ImportCellError(
@@ -276,7 +276,7 @@ public class RadiologyImportService {
     }
 
     private void validateRequiredGroups(
-            RadiologyModality modality,
+            RadiologyCase entity,
             Map<String, Set<String>> suppliedFields,
             List<RadiologyDto.MeasurementRequest> values,
             List<RadiologyDto.ImportCellError> errors) {
@@ -285,11 +285,15 @@ public class RadiologyImportService {
             if (StringUtils.hasText(value.getValueText())) textValues.put(value.getFieldCode(), value.getValueText().trim());
         }
         for (Map.Entry<String, Set<String>> entry : suppliedFields.entrySet()) {
-            var item = catalogService.findItem(modality, entry.getKey()).orElse(null);
+            var item = catalogService.findItem(entity.getModality(), entry.getKey()).orElse(null);
             if (item == null) continue;
             boolean noResidualImage = item.code().equals("ILA") && isNo(textValues.get("是否有残影（如“否”无需填后两项）"));
             for (RadiologyCatalogService.FieldDefinition field : item.fields()) {
                 if (!field.required()) continue;
+                if (item.code().equals("CTDI") && !RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")
+                        && (field.code().matches("S[CDULR]D[123]") || List.of("层数n2", "层厚T2", "刻度系数k2").contains(field.code()))) continue;
+                if (item.code().equals("LCR") && RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")
+                        && field.code().equals("厂家规定值/基线值")) continue;
                 if (noResidualImage && (field.code().equals("残影区D1") || field.code().equals("非残影区D0"))) continue;
                 if (!entry.getValue().contains(field.code().toUpperCase(Locale.ROOT))) {
                     errors.add(new RadiologyDto.ImportCellError(1, field.code(), "", item.name() + "缺少必填字段"));

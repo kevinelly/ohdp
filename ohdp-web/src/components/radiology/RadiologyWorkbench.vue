@@ -36,6 +36,7 @@ interface Measurement {
   valueText?: string
   unit?: string
   sortNo: number
+  displayValue?: string
   valueSource: string
 }
 
@@ -110,6 +111,21 @@ interface InspectionCase {
   notes?: string
   calculationVersion: string
   status: CaseStatus
+  itemConditions: Record<string,string>
+  dataVersion: number
+  calculatedDataVersion?: number
+  calculationFresh: boolean
+  hasAec?: boolean
+  hasRawImages?: boolean
+  featureReason?: string
+  agencyName?: string
+  region?: string
+  inspectionEndDate?: string
+  protectionMode?: string
+  rpdUnit?: string
+  itemResults: CalculationItem[]
+  submissionIssues: string[]
+  workflowHistory: Array<{action:string;operator:string;comment:string;dataVersion:number;at:string}>
   measurements: Measurement[]
   protectionPoints: ProtectionPoint[]
   attachments: Attachment[]
@@ -142,6 +158,9 @@ interface Rule {
   unit?: string
   standardCode: string
   standardName: string
+  detectionCategory?: string
+  lowerInclusive?: boolean
+  upperInclusive?: boolean
   enabled: boolean
 }
 
@@ -200,6 +219,14 @@ interface CaseForm {
   writerName: string
   reviewerName: string
   approverName: string
+  hasAec: boolean
+  hasRawImages: boolean
+  featureReason: string
+  agencyName: string
+  region: string
+  inspectionEndDate: string
+  protectionMode: string
+  rpdUnit: string
   notes: string
 }
 
@@ -232,6 +259,7 @@ const rules = ref<Rule[]>([])
 const calculation = ref<CalculationResponse | null>(null)
 const workTab = ref('base')
 const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20 })
+const conditionValues = reactive<Record<string,string>>({})
 const measurementValues = reactive<Record<string, string | number>>({})
 const pointDrafts = ref<Array<ProtectionPoint & { readingsText: string }>>([])
 const caseDialogVisible = ref(false)
@@ -249,7 +277,7 @@ const importPreview = ref<ImportPreview | null>(null)
 const attachmentCategory = ref<'POINT_MAP' | 'CERTIFICATE' | 'PHANTOM_MANUAL' | 'OTHER'>('POINT_MAP')
 const ruleDialogVisible = ref(false)
 const editingRuleId = ref<number | null>(null)
-const calculationItems = computed(() => calculation.value?.items || [])
+const calculationItems = computed(() => calculation.value?.items || selectedCase.value?.itemResults || [])
 
 const blankCaseForm = (modality: Modality): CaseForm => ({
   caseCode: '', modality, sampleAcceptanceNo: '', inspectedUnitName: '', inspectedUnitAddress: '',
@@ -261,12 +289,13 @@ const blankCaseForm = (modality: Modality): CaseForm => ({
     ? 'WS 76-2020《医用常规X射线诊断设备质量控制检测规范》；GBZ 130-2020《放射诊断放射防护要求》'
     : 'WS 519-2019《X射线计算机体层摄影装置质量控制检测规范》；GBZ 130-2020《放射诊断放射防护要求》',
   instrumentDescription: '', writerName: '', reviewerName: '', approverName: '', notes: '',
+  hasAec: true, hasRawImages: true, featureReason: '', agencyName: '', region: '', inspectionEndDate: '', protectionMode: 'UNSUBTRACTED', rpdUnit: 'nSv/h',
 })
 
 const caseForm = reactive<CaseForm>(blankCaseForm(props.modality))
 const ruleForm = reactive({
   modality: props.modality as Modality, itemCode: '', ruleVersion: '2026.4-WS', lowerLimit: undefined as number | undefined,
-  upperLimit: undefined as number | undefined, expectedText: '', unit: '', standardCode: '', standardName: '', enabled: true,
+  upperLimit: undefined as number | undefined, expectedText: '', unit: '', standardCode: '', standardName: '', enabled: true, detectionCategory: '验收检测', lowerInclusive: true, upperInclusive: true,
 })
 
 const editable = computed(() => selectedCase.value !== null && ['DRAFT', 'DATA_ENTERED', 'CALCULATED'].includes(selectedCase.value.status))
@@ -280,21 +309,13 @@ const qcFlowStage = computed(() => {
 })
 const completenessText = computed(() => {
   if (!selectedCase.value) return '未选择'
-  if (!calculation.value) {
-    return ['CALCULATED', 'PENDING_REVIEW', 'REVIEWED', 'APPROVED', 'REPORTED'].includes(selectedCase.value.status)
-      ? '已完成计算'
-      : '待计算'
-  }
-  const total = calculation.value.completedItems + calculation.value.incompleteItems
-  return `${calculation.value.completedItems} / ${total}`
+  const results=calculationItems.value
+  if (!results.length) return '待计算'
+  return results.filter(r=>r.complete).length + ' / ' + results.length
 })
-const completenessHint = computed(() => {
-  if (calculation.value) return '已完成项目 / 全部项目'
-  if (selectedCase.value && ['CALCULATED', 'PENDING_REVIEW', 'REVIEWED', 'APPROVED', 'REPORTED'].includes(selectedCase.value.status)) {
-    return '完整性已在自动计算时校验'
-  }
-  return '保存原始数据后执行自动计算'
-})
+const completenessHint = computed(() => selectedCase.value?.submissionIssues?.length
+  ? '仍有 ' + selectedCase.value.submissionIssues.length + ' 项提交条件待补齐'
+  : '已完成项目 / 应检清单全部项目')
 const nextQcAction = computed(() => {
   const status = selectedCase.value?.status
   if (!status) return `创建或选择一个 ${props.modality} 案例开始录入。`
@@ -385,6 +406,8 @@ async function selectCase(id: number) {
 function syncCaseState() {
   for (const key of Object.keys(measurementValues)) delete measurementValues[key]
   const current = selectedCase.value
+  for (const name of Object.keys(conditionValues)) delete conditionValues[name]
+  Object.assign(conditionValues,current?.itemConditions || {})
   if (!current) return
   for (const value of current.measurements.filter(item => item.fieldRole === 'RAW')) {
     measurementValues[`${value.itemCode}::${value.fieldCode}`] = value.valueNum ?? value.valueText ?? ''
@@ -450,6 +473,8 @@ function openCreateCase() {
 
 function openEditCase() {
   const current = selectedCase.value
+  for (const name of Object.keys(conditionValues)) delete conditionValues[name]
+  Object.assign(conditionValues,current?.itemConditions || {})
   if (!current) return
   caseFormHydrating.value = true
   resetCaseDialogState()
@@ -457,7 +482,7 @@ function openEditCase() {
   const form = blankCaseForm(current.modality)
   for (const key of Object.keys(form) as Array<keyof CaseForm>) {
     const value = current[key as keyof InspectionCase]
-    if (typeof value === 'string') (form[key] as string) = value
+    if (typeof value === 'string' || typeof value === 'boolean') (form as unknown as Record<string, unknown>)[key] = value
   }
   form.modality = current.modality
   form.caseCode = current.caseCode
@@ -531,9 +556,11 @@ async function saveCase() {
   }
   const wasEditing = Boolean(editingCaseId.value)
   await run(async () => {
+    const payload = { ...caseForm, inspectionDate: caseForm.inspectionDate || null, reportDate: caseForm.reportDate || null,
+      inspectionEndDate: caseForm.inspectionEndDate || null, expectedDataVersion: selectedCase.value?.dataVersion }
     const response = editingCaseId.value
-      ? await api.put<InspectionCase>(`/api/radiology/cases/${editingCaseId.value}`, caseForm)
-      : await api.post<InspectionCase>('/api/radiology/cases', caseForm)
+      ? await api.put<InspectionCase>(`/api/radiology/cases/${editingCaseId.value}`, payload)
+      : await api.post<InspectionCase>('/api/radiology/cases', payload)
     selectedCase.value = response.data
     syncCaseState()
     caseDialogCommitted.value = true
@@ -567,11 +594,15 @@ function computedFields(itemCode: string) {
 
 async function saveMeasurements() {
   if (!selectedCase.value) return
-  const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number; valueText?: string }> = []
+  const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number | null; valueText?: string | null }> = []
   for (const item of catalog.value) {
     for (const field of item.fields) {
       const raw = measurementValues[key(item.code, field.code)]
-      if (raw === '' || raw === undefined || raw === null) continue
+      if (raw === '' || raw === undefined || raw === null) {
+        if (selectedCase.value.measurements.some(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW'))
+          values.push({ itemCode: item.code, fieldCode: field.code, valueNum: null, valueText: null })
+        continue
+      }
       if (isTextField(item.code, field.code)) values.push({ itemCode: item.code, fieldCode: field.code, valueText: String(raw) })
       else {
         const number = Number(raw)
@@ -588,7 +619,7 @@ async function saveMeasurements() {
     return
   }
   await run(async () => {
-    const response = await api.put<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/measurements`, { values })
+    const response = await api.put<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/measurements`, { values, conditions: conditionValues, expectedDataVersion: selectedCase.value?.dataVersion })
     selectedCase.value = response.data
     syncCaseState()
     await loadCases()
@@ -597,6 +628,20 @@ async function saveMeasurements() {
 
 async function calculateCase() {
   if (!selectedCase.value) return
+  const conditionsPending = JSON.stringify(conditionValues) !== JSON.stringify(selectedCase.value.itemConditions || {})
+  const pending = conditionsPending || catalog.value.some(item => item.fields.some(field => {
+    const current = measurementValues[key(item.code, field.code)] ?? ''
+    const stored = selectedCase.value!.measurements.find(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW')
+    return String(current) !== String(stored?.valueNum ?? stored?.valueText ?? '')
+  }))
+  if (pending) {
+    await saveMeasurements()
+    const stillPending = catalog.value.some(item => item.fields.some(field => {
+      const stored = selectedCase.value!.measurements.find(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW')
+      return String(measurementValues[key(item.code,field.code)] ?? '') !== String(stored?.valueNum ?? stored?.valueText ?? '')
+    }))
+    if (stillPending) return
+  }
   await run(async () => {
     const response = await api.post<CalculationResponse>(`/api/radiology/cases/${selectedCase.value?.id}/calculate`)
     await selectCase(selectedCase.value!.id)
@@ -607,6 +652,7 @@ async function calculateCase() {
 }
 
 function resultDisplay(value: Measurement) {
+  if (value.displayValue) return value.displayValue + (value.unit ? " " + value.unit : "")
   if (value.valueText) return value.valueText
   if (value.valueNum === undefined || value.valueNum === null) return '-'
   return `${value.valueNum}${value.unit ? ` ${value.unit}` : ''}`
@@ -665,7 +711,7 @@ async function saveProtectionPoints() {
     })
   }
   await run(async () => {
-    const response = await api.put<ProtectionPoint[]>(`/api/radiology/cases/${selectedCase.value?.id}/protection-points`, { points })
+    const response = await api.put<ProtectionPoint[]>(`/api/radiology/cases/${selectedCase.value?.id}/protection-points`, { points, expectedDataVersion: selectedCase.value?.dataVersion })
     pointDrafts.value = response.data.map(point => ({ ...point, readingsText: point.readings.join(', ') }))
     await selectCase(selectedCase.value!.id)
   }, '防护点位已保存并计算')
@@ -705,13 +751,13 @@ async function removeAttachment(item: Attachment) {
   }, '附件已删除')
 }
 
-async function workflow(action: 'submit' | 'review' | 'approve') {
+async function workflow(action: 'submit' | 'review' | 'approve' | 'return') {
   if (!selectedCase.value) return
-  const names = { submit: '提交审核', review: '审核通过', approve: '批准' }
+  const names = { submit: '提交审核', review: '审核通过', approve: '批准', return: '退回修改' }
   const input = await ElMessageBox.prompt(`请输入${names[action]}意见（可留空）`, names[action], { inputType: 'textarea' }).catch(() => null)
   if (!input) return
   await run(async () => {
-    const response = await api.post<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/workflow/${action}`, { comment: input.value })
+    const response = await api.post<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/workflow/${action}`, { comment: input.value, expectedDataVersion: selectedCase.value?.dataVersion })
     selectedCase.value = response.data
     syncCaseState()
     await loadCases()
@@ -756,16 +802,17 @@ async function downloadBlob(url: string, fallback: string) {
 function openCreateRule() {
   editingRuleId.value = null
   Object.assign(ruleForm, {
-    modality: props.modality, itemCode: catalog.value[0]?.code || '', ruleVersion: '2026.1', lowerLimit: undefined,
+    modality: props.modality, itemCode: catalog.value[0]?.code || '', ruleVersion: '2026.10.13-custom', lowerLimit: undefined,
     upperLimit: undefined, expectedText: '', unit: '', standardCode: props.modality === 'DR' ? 'WS 76-2020' : 'WS 519-2019',
-    standardName: '设备质量控制检测规范', enabled: true,
+    standardName: '设备质量控制检测规范', enabled: true, detectionCategory: '验收检测', lowerInclusive: true, upperInclusive: true,
   })
   ruleDialogVisible.value = true
 }
 
 function openEditRule(item: Rule) {
-  editingRuleId.value = item.id
+  editingRuleId.value = item.ruleVersion.startsWith('WS-') ? null : item.id
   Object.assign(ruleForm, item)
+  if (item.ruleVersion.startsWith('WS-')) { ruleForm.ruleVersion = '2026.10.13-custom'; ruleForm.detectionCategory = '验收检测' }
   ruleDialogVisible.value = true
 }
 
@@ -807,7 +854,7 @@ function statusType(status: CaseStatus) {
 function judgementText(value?: string) {
   return ({
     QUALIFIED: '合格', UNQUALIFIED: '不合格', NOT_CONFIGURED: '待补充依据', INCOMPLETE: '数据不完整',
-    NOT_APPLICABLE: '本类别不适用', NEEDS_ASSESSMENT: '需年剂量评估',
+    NOT_APPLICABLE: '本类别不适用', BASELINE_ESTABLISHED: '建立基线', NEEDS_ASSESSMENT: '需年剂量评估',
   } as Record<string, string>)[value || ''] || value || '-'
 }
 
@@ -826,12 +873,17 @@ function showMeasurementHelp(field: FieldDefinition) {
 
 <template>
   <div class="radiology-workbench" v-loading="busy">
+    <div class="comparison-banner">
+      <strong>10月13日新版 · 应检清单与审批改造</strong>
+      <span>原始数据修改后重新计算；报告采用批准快照</span>
+      <a href="/test1013-changes.html" target="_blank" rel="noopener">查看改动对照</a>
+    </div>
     <header class="qc-hero">
       <div>
         <span class="modality-mark">{{ modality }}</span>
         <div>
           <h2>{{ modality }} 设备质量控制检测 <HelpMark anchor-id="radiology.case" /></h2>
-          <p>{{ modality === 'DR' ? 'WS 76-2020' : 'WS 519-2019' }} · GBZ 130-2020 · 计算规则 2026.4-WS</p>
+          <p>{{ modality === 'DR' ? 'WS 76-2020' : 'WS 519-2019' }} · GBZ 130-2020 · 计算规则 2026.10.13</p>
         </div>
       </div>
       <div class="hero-actions">
@@ -906,14 +958,23 @@ function showMeasurementHelp(field: FieldDefinition) {
               <el-button v-if="editable" @click="openEditCase">编辑信息</el-button>
               <el-button v-if="editable" type="primary" plain @click="saveMeasurements">保存数据</el-button>
               <el-button v-if="editable" type="primary" @click="calculateCase">自动计算</el-button><HelpMark v-if="editable" anchor-id="radiology.calculation" />
-              <el-button v-if="selectedCase.status === 'CALCULATED'" type="warning" @click="workflow('submit')">提交审核</el-button><HelpMark v-if="selectedCase.status === 'CALCULATED'" anchor-id="radiology.review" />
+              <el-button v-if="selectedCase.status === 'CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="warning" @click="workflow('submit')">提交审核</el-button><HelpMark v-if="selectedCase.status === 'CALCULATED'" anchor-id="radiology.review" />
               <el-button v-if="selectedCase.status === 'PENDING_REVIEW' && props.canReview" type="warning" @click="workflow('review')">审核通过</el-button><HelpMark v-if="selectedCase.status === 'PENDING_REVIEW' && props.canReview" anchor-id="radiology.review" />
               <el-button v-if="selectedCase.status === 'REVIEWED' && props.canApprove" type="success" @click="workflow('approve')">批准</el-button><HelpMark v-if="selectedCase.status === 'REVIEWED' && props.canApprove" anchor-id="radiology.approve" />
               <el-button v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" type="success" @click="generateReport">生成报告</el-button><HelpMark v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" anchor-id="radiology.report" />
+              <el-button v-if="(selectedCase.status === 'PENDING_REVIEW' && props.canReview) || (selectedCase.status === 'REVIEWED' && props.canApprove)" type="danger" plain @click="workflow('return')">退回修改</el-button>
               <el-button v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" @click="createRevision">创建修订版</el-button>
             </div>
           </section>
 
+          <section v-if="editable" class="submission-check">
+            <strong>{{ selectedCase.calculationFresh ? '计算与当前数据一致' : '需要重新计算' }}</strong>
+            <span>数据版本 {{ selectedCase.dataVersion }} · 计算版本 {{ selectedCase.calculatedDataVersion ?? '未计算' }}</span>
+            <details v-if="selectedCase.submissionIssues?.length">
+              <summary>提交前需要完成 {{ selectedCase.submissionIssues.length }} 项</summary>
+              <ul><li v-for="issue in selectedCase.submissionIssues" :key="issue">{{ issue }}</li></ul>
+            </details>
+          </section>
           <el-tabs v-model="workTab" class="qc-tabs">
             <el-tab-pane label="基本信息" name="base">
               <div class="info-grid">
@@ -969,6 +1030,10 @@ function showMeasurementHelp(field: FieldDefinition) {
                       <el-tag v-if="computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
                     </div>
                   </template>
+                  <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
+                    {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
+                  </p>
+                  <el-input v-if="item.code !== 'RPD'" v-model="conditionValues[item.code]" :disabled="!editable" type="textarea" :rows="2" placeholder="检测条件：曝光参数、扫描模式、模体/滤过、SID及其他方法条件" style="margin:8px 0 14px" />
                   <div class="field-grid">
                     <label v-for="field in item.fields" :key="field.code" class="field-card">
                       <span>{{ field.label }} <em v-if="field.required">*</em> <HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" /></span>
@@ -988,10 +1053,10 @@ function showMeasurementHelp(field: FieldDefinition) {
                         v-else
                         v-model="measurementValues[key(item.code, field.code)]"
                         :type="isTextField(item.code, field.code) ? 'text' : 'number'"
-                        :disabled="!editable"
+                        :disabled="!editable || field.code === 'a'"
                         :placeholder="field.code"
                       >
-                        <template v-if="field.unit" #append>{{ field.unit }}</template>
+                        <template v-if="field.unit" #append>{{ item.code === 'RPD' && field.code.startsWith('RPD0-') ? selectedCase.rpdUnit : field.unit }}</template>
                       </el-input>
                     </label>
                   </div>
@@ -1010,7 +1075,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <el-table-column prop="itemCode" label="代码" width="84" />
                   <el-table-column prop="itemName" label="检测项目" min-width="170" />
                   <el-table-column label="结果" min-width="120">
-                    <template #default="scope">{{ scope.row.resultText || scope.row.resultValue || '-' }} {{ scope.row.resultUnit }}</template>
+                    <template #default="scope">{{ scope.row.resultText || (scope.row.resultValue ?? '-') }} {{ scope.row.resultUnit }}</template>
                   </el-table-column>
                   <el-table-column label="状态" width="120">
                     <template #default="scope"><el-tag :type="scope.row.complete ? 'success' : 'danger'">{{ scope.row.complete ? '完成' : '不完整' }}</el-tag></template>
@@ -1075,6 +1140,13 @@ function showMeasurementHelp(field: FieldDefinition) {
               </div>
               <div class="report-rule-heading">报告生成规则 <HelpMark anchor-id="radiology.report" /></div>
               <el-alert type="info" :closable="false" description="仅已批准案例可生成报告；每次生成均固化案例、测量值、点位、附件哈希和审批信息快照，历史报告不会覆盖。" />
+              <el-table :data="selectedCase.workflowHistory || []" border style="margin:16px 0">
+                <el-table-column prop="at" label="时间" min-width="180" />
+                <el-table-column label="操作" width="100"><template #default="scope">{{ ({SUBMIT:'提交',REVIEW:'复核通过',APPROVE:'批准',RETURN:'退回'} as Record<string,string>)[scope.row.action] || scope.row.action }}</template></el-table-column>
+                <el-table-column prop="operator" label="操作人" width="120" />
+                <el-table-column prop="comment" label="意见" min-width="200" />
+                <el-table-column prop="dataVersion" label="数据版本" width="100" />
+              </el-table>
               <el-table :data="selectedCase.reports" border class="report-table">
                 <el-table-column prop="reportNo" label="报告编号" min-width="180" />
                 <el-table-column prop="fileName" label="文件名" min-width="260" />
@@ -1121,7 +1193,7 @@ function showMeasurementHelp(field: FieldDefinition) {
           <p>{{ nextQcAction }}</p>
           <p v-if="editabilityReason" class="action-constraint"><strong>当前限制：</strong>{{ editabilityReason }} <HelpMark anchor-id="form.disabled-reason" /></p>
           <el-button v-if="editable" type="primary" @click="saveMeasurements">保存当前数据</el-button>
-          <el-button v-if="selectedCase.status === 'CALCULATED'" type="warning" @click="workflow('submit')">提交审核</el-button>
+          <el-button v-if="selectedCase.status === 'CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="warning" @click="workflow('submit')">提交审核</el-button>
           <el-button v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" type="success" @click="generateReport">生成检测报告</el-button>
         </section>
       </aside>
@@ -1148,6 +1220,14 @@ function showMeasurementHelp(field: FieldDefinition) {
       <el-alert v-if="caseValidationMessage" class="case-validation-alert" type="warning" :closable="false" :title="caseValidationMessage" show-icon />
 
       <el-form label-position="top" class="case-step-form">
+        <el-row :gutter="14" v-if="caseDialogStep === 2">
+          <el-col :span="12"><el-form-item label="检测机构名称"><el-input v-model="caseForm.agencyName" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="地区"><el-input v-model="caseForm.region" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="检测结束日期"><el-date-picker v-model="caseForm.inspectionEndDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="防护原始读数单位"><el-select v-model="caseForm.rpdUnit"><el-option v-for="unit in ['nSv/h','μSv/h','mSv/h']" :key="unit" :value="unit" :label="unit" /></el-select></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /><el-option label="扣本底并作响应时间修正（须填写k2）" value="RESPONSE_CORRECTED" /></el-select></el-form-item></el-col>
+          <el-col :span="24" v-if="modality === 'DR'"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
+        </el-row>
         <section v-if="caseDialogStep === 0" class="case-form-section">
           <div class="case-section-title"><div><span>第 1 步</span><h3>受检单位与案例信息</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
           <el-row :gutter="16">
@@ -1227,6 +1307,9 @@ function showMeasurementHelp(field: FieldDefinition) {
         <el-row :gutter="14">
           <el-col :span="12"><el-form-item label="检测项目"><el-select v-model="ruleForm.itemCode" style="width:100%"><el-option v-for="item in catalog" :key="item.code" :label="`${item.code} / ${item.name}`" :value="item.code" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item><template #label>规则版本 <HelpMark anchor-id="radiology.calculation" /></template><el-input v-model="ruleForm.ruleVersion" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="适用检测类别"><el-select v-model="ruleForm.detectionCategory"><el-option v-for="category in ['验收检测','状态检测','稳定性检测']" :key="category" :label="category" :value="category" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-checkbox v-model="ruleForm.lowerInclusive">下限包含边界（≥）</el-checkbox></el-col>
+          <el-col :span="12"><el-checkbox v-model="ruleForm.upperInclusive">上限包含边界（≤）</el-checkbox></el-col>
           <el-col :span="8"><el-form-item label="下限"><el-input-number v-model="ruleForm.lowerLimit" :controls="false" style="width:100%" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="上限"><el-input-number v-model="ruleForm.upperLimit" :controls="false" style="width:100%" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="单位"><el-input v-model="ruleForm.unit" /></el-form-item></el-col>
@@ -1247,6 +1330,12 @@ function showMeasurementHelp(field: FieldDefinition) {
 .qc-hero h2 { margin:3px 0 7px; font-size:25px; letter-spacing:.04em; }
 .qc-hero p { margin:0; color:rgba(255,255,255,.78); }
 .eyebrow { font-size:11px; letter-spacing:.18em; font-weight:700; }
+.comparison-banner { display:flex; flex-wrap:wrap; align-items:center; gap:16px; padding:14px 20px; background:#e9f3ef; border-bottom:1px solid #a7c6b8; color:#1c5140; }
+.comparison-banner a { margin-left:auto; color:#176347; }
+.submission-check { padding:14px 18px; margin:14px 0; background:#f8faf9; border:1px solid #d1ded7; border-radius:8px; }
+.submission-check span { display:block; margin:6px 0; color:#597066; }
+.submission-check summary { cursor:pointer; }
+.item-exclusion { color:#55685d; padding:8px; background:#f1f4f2; }
 .hero-actions,.workflow-actions,.section-toolbar,.import-strip,.upload-zone { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .qc-layout { display:grid; grid-template-columns:300px minmax(0,1fr); gap:16px; margin-top:16px; }
 .case-rail,.case-main { background:#fff; border:1px solid #e3e9ef; border-radius:14px; box-shadow:0 8px 28px rgba(29,55,72,.06); }

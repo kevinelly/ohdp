@@ -70,7 +70,7 @@ public class RadiologyStandardEvaluator {
             case "ART" -> expectedNo(resultText, "不得有影响临床诊断的伪影", standard);
             case "HCR" -> lower(result, 90, "%（相对厂家规定值或基线）", standard);
             case "LCR" -> type == DetectionType.ACCEPTANCE
-                    ? evaluation(RadiologyJudgement.NOT_CONFIGURED, standard + "：验收检测应建立基线，不作数值合格判定")
+                    ? evaluation(RadiologyJudgement.BASELINE_ESTABLISHED, standard + "：验收检测建立基线，不作数值合格判定")
                     : upper(result, 2, "个可观察细节（相对基线的绝对变化）", standard);
             case "RPD" -> evaluation(RadiologyJudgement.NOT_APPLICABLE, "场所防护按点位逐项判定");
             default -> evaluation(RadiologyJudgement.NOT_CONFIGURED, "没有内置标准判定规则");
@@ -84,6 +84,8 @@ public class RadiologyStandardEvaluator {
             Map<String, BigDecimal> raw,
             Map<String, BigDecimal> calculated) {
         String standard = "WS 519—2019";
+        if (type == DetectionType.STABILITY && List.of("HUA", "HUU", "NPS", "RST").contains(item))
+            return stability(item, result, raw, calculated);
         return switch (item) {
             case "TPA" -> upper(result, 2, "mm", standard);
             case "GTA" -> type == DetectionType.ACCEPTANCE
@@ -92,16 +94,16 @@ public class RadiologyStandardEvaluator {
             case "CTDI" -> evaluateCtdi(type, raw, calculated);
             case "LBA" -> upper(result, type == DetectionType.ACCEPTANCE ? 2 : 3, "mm", standard);
             case "RST" -> evaluateSliceThickness(type, result, raw.get("R0"));
-            case "MTF" -> lower(result, type == DetectionType.ACCEPTANCE ? 6 : 5,
+            case "MTF" -> strictLower(result, type == DetectionType.ACCEPTANCE ? 6 : 5,
                     "lp/cm（普通扫描模式；高分辨模式需设备资料）", standard);
-            case "LCD" -> upper(result, type == DetectionType.ACCEPTANCE ? 2.5 : 3, "mm", standard);
+            case "LCD" -> strictUpper(result, type == DetectionType.ACCEPTANCE ? 2.5 : 3, "mm", standard);
             case "HUL" -> type == DetectionType.ACCEPTANCE
                     ? upper(result, 50, "HU（相对模体标称值）", standard)
                     : evaluation(RadiologyJudgement.NOT_APPLICABLE, standard + "：CT值线性仅列入验收检测");
             case "HUA" -> upper(result == null ? null : result.abs(), type == DetectionType.ACCEPTANCE ? 4 : 6,
                     "HU（水 CT 值绝对值）", standard);
             case "HUU" -> upper(result, type == DetectionType.ACCEPTANCE ? 5 : 6, "HU", standard);
-            case "NPS" -> upper(result, type == DetectionType.ACCEPTANCE ? 0.35 : 0.45, "%", standard);
+            case "NPS" -> strictUpper(result, type == DetectionType.ACCEPTANCE ? 0.35 : 0.45, "%", standard);
             case "RPD" -> evaluation(RadiologyJudgement.NOT_APPLICABLE, "场所防护按点位逐项判定");
             default -> evaluation(RadiologyJudgement.NOT_CONFIGURED, "没有内置标准判定规则");
         };
@@ -115,7 +117,7 @@ public class RadiologyStandardEvaluator {
             double measured = required(calculated, "MEAN_" + group);
             double error = Math.abs(measured - nominal);
             double tolerance = Math.max(5, nominal * 0.05);
-            qualified &= error <= tolerance + 1e-9;
+            qualified &= BigDecimal.valueOf(error).compareTo(BigDecimal.valueOf(tolerance)) <= 0;
             if (group > 1) details.append("；");
             details.append("第").append(group).append("组 |Δ|=").append(number(error))
                     .append(" kV，限值≤").append(number(tolerance)).append(" kV");
@@ -131,7 +133,7 @@ public class RadiologyStandardEvaluator {
             double measured = required(calculated, "MEAN_" + group);
             double error = Math.abs(measured - nominal);
             double tolerance = nominal >= 100 ? nominal * 0.10 : Math.max(2, nominal * 0.15);
-            qualified &= error <= tolerance + 1e-9;
+            qualified &= BigDecimal.valueOf(error).compareTo(BigDecimal.valueOf(tolerance)) <= 0;
             if (group > 1) details.append("；");
             details.append("第").append(group).append("组 |Δ|=").append(number(error))
                     .append(" ms，限值≤").append(number(tolerance)).append(" ms");
@@ -182,7 +184,7 @@ public class RadiologyStandardEvaluator {
         }
         double deviation1 = relativeDeviation(measured1, reference1);
         double deviation2 = label2 == null ? 0 : relativeDeviation(measured2, reference2);
-        boolean qualified = deviation1 <= tolerancePercent + 1e-9 && deviation2 <= tolerancePercent + 1e-9;
+        boolean qualified = deviation1 <= tolerancePercent && deviation2 <= tolerancePercent;
         String description = standard + "：" + label1 + "偏差=" + number(deviation1) + "%"
                 + (label2 == null ? "" : "；" + label2 + "偏差=" + number(deviation2) + "%")
                 + "，限值±" + number(tolerancePercent) + "%";
@@ -208,14 +210,42 @@ public class RadiologyStandardEvaluator {
 
     private Evaluation upper(BigDecimal value, double limit, String unit, String standard) {
         if (value == null) return evaluation(RadiologyJudgement.INCOMPLETE, "缺少最终数值");
-        return evaluation(value.doubleValue() <= limit + 1e-9 ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
+        return evaluation(value.compareTo(BigDecimal.valueOf(limit)) <= 0 ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
                 standard + "：≤" + number(limit) + " " + unit);
     }
 
     private Evaluation lower(BigDecimal value, double limit, String unit, String standard) {
         if (value == null) return evaluation(RadiologyJudgement.INCOMPLETE, "缺少最终数值");
-        return evaluation(value.doubleValue() + 1e-9 >= limit ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
+        return evaluation(value.compareTo(BigDecimal.valueOf(limit)) >= 0 ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
                 standard + "：≥" + number(limit) + " " + unit);
+    }
+
+    private Evaluation strictUpper(BigDecimal value, double limit, String unit, String standard) {
+        if (value == null) return evaluation(RadiologyJudgement.INCOMPLETE, "缺少最终数值");
+        return evaluation(value.compareTo(BigDecimal.valueOf(limit)) < 0 ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
+                standard + "：<" + number(limit) + " " + unit);
+    }
+    private Evaluation strictLower(BigDecimal value, double limit, String unit, String standard) {
+        if (value == null) return evaluation(RadiologyJudgement.INCOMPLETE, "缺少最终数值");
+        return evaluation(value.compareTo(BigDecimal.valueOf(limit)) > 0 ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
+                standard + "：>" + number(limit) + " " + unit);
+    }
+    private Evaluation stability(String item, BigDecimal result, Map<String, BigDecimal> raw, Map<String, BigDecimal> calculated) {
+        BigDecimal baseline = raw.get(item + "-BASELINE");
+        BigDecimal actual = item.equals("RST") ? calculated.get("MEASURED") : result;
+        if (baseline == null || actual == null) return evaluation(RadiologyJudgement.NOT_CONFIGURED, "WS 519—2019：缺少" + item + "稳定性基线");
+        BigDecimal allowed = switch(item) {
+            case "HUA" -> new BigDecimal("4");
+            case "HUU" -> new BigDecimal("2");
+            case "NPS" -> baseline.abs().multiply(new BigDecimal("0.10"));
+            case "RST" -> baseline.abs().multiply(new BigDecimal("0.20")).max(BigDecimal.ONE);
+            default -> BigDecimal.ZERO;
+        };
+        if ((item.equals("NPS") || item.equals("RST")) && baseline.signum() <= 0)
+            return evaluation(RadiologyJudgement.NOT_CONFIGURED, "稳定性基线必须大于0");
+        BigDecimal difference=actual.subtract(baseline).abs();
+        return evaluation(difference.compareTo(allowed) <= 0 ? RadiologyJudgement.QUALIFIED : RadiologyJudgement.UNQUALIFIED,
+                "WS 519—2019：基线=" + baseline.toPlainString() + "；绝对变化=" + difference.toPlainString() + "；允许变化≤" + allowed.toPlainString());
     }
 
     private Evaluation expectedNo(String value, String requirement, String standard) {

@@ -17,8 +17,9 @@ class RadiologyCalculationEngineTest {
         var result = engine.calculate("HVL", numbers("HVL1", "2.22", "HVL2", "2.23", "HVL3", "2.245"), Map.of(), Map.of());
 
         assertThat(result.complete()).isTrue();
-        assertThat(result.resultValue()).isEqualByComparingTo("2.231667");
-        assertThat(result.fields().get(0).valueNum()).isEqualByComparingTo("2.23");
+        assertThat(result.resultValue()).isCloseTo(new BigDecimal("2.231666666666667"),org.assertj.core.data.Offset.offset(new BigDecimal("0.000000000001")));
+        assertThat(result.fields().get(0).displayValue()).isEqualTo("2.23");
+        assertThat(new RadiologyCalculationEngine.CalculatedField("X","",new BigDecimal("2.225"),null,"",2).displayValue()).isEqualTo("2.22");
     }
 
     @Test
@@ -55,7 +56,7 @@ class RadiologyCalculationEngineTest {
         var result = engine.calculate("CTDI", values, Map.of(), Map.of());
 
         assertThat(result.complete()).isTrue();
-        assertThat(result.resultValue()).isEqualByComparingTo("33.333333");
+        assertThat(result.resultValue()).isCloseTo(new BigDecimal("33.33333333333333"),org.assertj.core.data.Offset.offset(new BigDecimal("0.000000000001")));
     }
 
     @Test
@@ -71,7 +72,7 @@ class RadiologyCalculationEngineTest {
         assertThat(result.complete()).isTrue();
         assertThat(result.resultUnit()).isEqualTo("μSv/h");
         assertThat(point).hasSize(2);
-        assertThat(point.get(1)).isEqualByComparingTo("0.116");
+        assertThat(point.get(1)).isCloseTo(new BigDecimal("0.116332"),org.assertj.core.data.Offset.offset(new BigDecimal("0.000000000001")));
     }
 
     @Test
@@ -119,7 +120,7 @@ class RadiologyCalculationEngineTest {
         assertThat(result.resultValue()).isEqualByComparingTo("2.000000");
         assertThat(result.fields()).filteredOn(field -> field.code().equals("DETAIL_DELTA"))
                 .extracting(RadiologyCalculationEngine.CalculatedField::valueNum)
-                .containsExactly(new BigDecimal("-2.00"));
+                .allSatisfy(value -> assertThat(value).isEqualByComparingTo("-2.00"));
     }
 
     private Map<String, BigDecimal> numbers(String... values) {

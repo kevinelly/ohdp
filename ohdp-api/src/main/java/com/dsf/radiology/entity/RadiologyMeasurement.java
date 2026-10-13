@@ -35,7 +35,7 @@ public class RadiologyMeasurement extends BaseAuditEntity {
     @Column(name = "field_role", nullable = false, length = 20)
     private RadiologyFieldRole fieldRole;
 
-    @Column(name = "value_num", precision = 20, scale = 8)
+    @Column(name = "value_num", precision = 38, scale = 16)
     private BigDecimal valueNum;
 
     @Column(name = "value_text", length = 1000)
@@ -47,6 +47,8 @@ public class RadiologyMeasurement extends BaseAuditEntity {
     @Column(name = "sort_no", nullable = false)
     private Integer sortNo = 0;
 
+    @Column(name = "display_scale")
+    private Integer displayScale;
     @Column(name = "value_source", nullable = false, length = 20)
     private String valueSource = "MANUAL";
 }

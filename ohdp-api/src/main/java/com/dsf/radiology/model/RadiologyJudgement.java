@@ -6,5 +6,6 @@ public enum RadiologyJudgement {
     NOT_CONFIGURED,
     INCOMPLETE,
     NOT_APPLICABLE,
+    BASELINE_ESTABLISHED,
     NEEDS_ASSESSMENT
 }

@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RadiologyCatalogService {
 
-    public static final String CALCULATION_VERSION = "2026.4-WS";
+    public static final String CALCULATION_VERSION = "2026.10.13";
 
     public record FieldDefinition(
             String code, String label, RadiologyFieldRole role, String unit, boolean required, int sortNo) {
@@ -92,7 +92,7 @@ public class RadiologyCatalogService {
         items.add(item(RadiologyModality.DR, "LCR", "低对比度分辨力", "WS 76—2020", 180,
                 "LCR1（可观察细节数）", "LCR2（可观察对比度）", "厂家规定值/基线值"));
         items.add(item(RadiologyModality.DR, "RPD", "场所卫生防护", "GBZ 130—2020", 190,
-                "k", "a", "RPD-mA", "RPD0-1", "RPD0-2", "RPD0-3", "RPD0-4", "RPD0-5", "RPD0-6", "RPD0-7", "RPD0-8", "RPD0-9", "RPD0-10"));
+                "k", "a", "RPD-k2", "RPD-mA", "RPD0-1", "RPD0-2", "RPD0-3", "RPD0-4", "RPD0-5", "RPD0-6", "RPD0-7", "RPD0-8", "RPD0-9", "RPD0-10"));
         return items;
     }
 
@@ -110,7 +110,7 @@ public class RadiologyCatalogService {
                 "CTDI-HEAD-MANUFACTURER", "CTDI-BODY-MANUFACTURER", "CTDI-HEAD-BASELINE", "CTDI-BODY-BASELINE"));
         items.add(item(RadiologyModality.CT, "LBA", "定位光精度", "WS 519—2019", 40, "LBA", "LBA-FACTOR"));
         items.add(item(RadiologyModality.CT, "RST", "重建层厚偏差", "WS 519—2019", 50,
-                "CTbackground", "CTmax", "WWmin", "CThm", "R0", "R1", "R2", "R3", "R4", "RST-FACTOR"));
+                "CTbackground", "CTmax", "WWmin", "CThm", "R0", "R1", "R2", "R3", "R4", "RST-FACTOR", "RST-BASELINE"));
         items.add(item(RadiologyModality.CT, "MTF", "高对比分辨力", "WS 519—2019", 60, "MTF", "MTF-FACTOR"));
         items.add(item(RadiologyModality.CT, "LCD", "低对比可探测能力", "WS 519—2019", 70,
                 "NUM1", "mm1", "NUM0.5", "mm0.5", "NUM0.3", "mm0.3"));
@@ -118,13 +118,13 @@ public class RadiologyCatalogService {
                 "Air-HU1", "Air-HU2", "Air-HU3", "LDPE-HU1", "LDPE-HU2", "LDPE-HU3",
                 "Acylic-HU1", "Acylic-HU2", "Acylic-HU3", "Teflon-HU1", "Teflon-HU2", "Teflon-HU3",
                 "Air-REF", "LDPE-REF", "Acylic-REF", "Teflon-REF"));
-        items.add(item(RadiologyModality.CT, "HUA", "CT值（水）", "WS 519—2019", 90, "HUA1", "HUA2", "HUA3"));
+        items.add(item(RadiologyModality.CT, "HUA", "CT值（水）", "WS 519—2019", 90, "HUA1", "HUA2", "HUA3", "HUA-BASELINE"));
         items.add(item(RadiologyModality.CT, "HUU", "CT值均匀性", "WS 519—2019", 100,
                 "HUU-U1", "HUU-U2", "HUU-U3", "HUU-D1", "HUU-D2", "HUU-D3",
-                "HUU-L1", "HUU-L2", "HUU-L3", "HUU-R1", "HUU-R2", "HUU-R3"));
-        items.add(item(RadiologyModality.CT, "NPS", "噪声", "WS 519—2019", 110, "NPS1", "NPS2", "NPS3", "NPS-n"));
+                "HUU-L1", "HUU-L2", "HUU-L3", "HUU-R1", "HUU-R2", "HUU-R3", "HUU-BASELINE"));
+        items.add(item(RadiologyModality.CT, "NPS", "噪声", "WS 519—2019", 110, "NPS1", "NPS2", "NPS3", "NPS-n", "NPS-BASELINE"));
         items.add(item(RadiologyModality.CT, "RPD", "场所卫生防护", "GBZ 130—2020", 120,
-                "k", "a", "RPD0-1", "RPD0-2", "RPD0-3", "RPD0-4", "RPD0-5", "RPD0-6", "RPD0-7", "RPD0-8", "RPD0-9", "RPD0-10"));
+                "k", "a", "RPD-k2", "RPD0-1", "RPD0-2", "RPD0-3", "RPD0-4", "RPD0-5", "RPD0-6", "RPD0-7", "RPD0-8", "RPD0-9", "RPD0-10"));
         return items;
     }
 
@@ -133,11 +133,11 @@ public class RadiologyCatalogService {
         List<FieldDefinition> fields = new ArrayList<>();
         for (int i = 0; i < fieldCodes.length; i++) {
             String fieldCode = fieldCodes[i];
-            boolean optional = fieldCode.contains("-K") || fieldCode.equals("DDI-BASELINE")
+            boolean optional = fieldCode.contains("-K") || fieldCode.equals("UNUSED-OPTIONAL")
                     || fieldCode.equals("k") || fieldCode.equals("a") || fieldCode.equals("NPS-n")
                     || fieldCode.equals("CThm") || fieldCode.equals("HUU-L3")
                     || fieldCode.endsWith("-FACTOR") || fieldCode.endsWith("-REF") || fieldCode.equals("RPD-mA")
-                    || fieldCode.equals("STP-MODEL") || fieldCode.startsWith("CTDI-");
+                    || fieldCode.equals("STP-MODEL") || fieldCode.startsWith("CTDI-") || (fieldCode.endsWith("-BASELINE") && !fieldCode.equals("DDI-BASELINE")) || fieldCode.equals("RPD-k2");
             fields.add(new FieldDefinition(fieldCode, label(fieldCode), RadiologyFieldRole.RAW, unit(fieldCode), !optional, i + 1));
         }
         return new ItemDefinition(modality, code, name, standard, sortNo, Collections.unmodifiableList(fields));
@@ -163,7 +163,12 @@ public class RadiologyCatalogService {
 
     private String label(String code) {
         return switch (code) {
-            case "k" -> "仪器修正系数 k";
+            case "k" -> "仪器校准因子 k1";
+            case "RPD-k2" -> "响应时间修正系数 k2（按GBZ 130附录B填写）";
+            case "HUA-BASELINE" -> "水CT值稳定性基线（HU）";
+            case "HUU-BASELINE" -> "均匀性稳定性基线（HU）";
+            case "NPS-BASELINE" -> "噪声稳定性基线（%）";
+            case "RST-BASELINE" -> "实测层厚稳定性基线（mm）";
             case "a" -> "单位转换常数 a";
             case "NPS-n" -> "扫描层厚 n";
             case "DDI-BASELINE" -> "厂家规定值/基线值";
@@ -174,7 +179,7 @@ public class RadiologyCatalogService {
             case "CTDI-HEAD-BASELINE" -> "头模 CTDIw 稳定性基线";
             case "CTDI-BODY-BASELINE" -> "体模 CTDIw 稳定性基线";
             case "LBA-FACTOR" -> "定位光换算系数（直接录入 mm 时填 1）";
-            case "RST-FACTOR" -> "模体层厚换算系数（暂按 Excel 默认 0.42）";
+            case "RST-FACTOR" -> "模体层厚换算系数（必须按模体说明书填写）";
             case "MTF-FACTOR" -> "分辨力换算系数（直接录入 lp/cm 时填 1）";
             case "Air-REF", "LDPE-REF", "Acylic-REF", "Teflon-REF" -> code + " 模体标称 CT 值";
             case "TVD-K1", "TVD-K2", "TVD-K3", "ETD-K1", "ETD-K2", "ETD-K3", "ROA-K" -> "校准因子 " + code;

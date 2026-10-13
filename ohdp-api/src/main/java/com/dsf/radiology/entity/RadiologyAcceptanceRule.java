@@ -50,6 +50,13 @@ public class RadiologyAcceptanceRule extends BaseAuditEntity {
     @Column(name = "standard_name", nullable = false, length = 500)
     private String standardName;
 
+    @Column(name = "detection_category", length = 64)
+    private String detectionCategory;
+    @Column(name = "lower_inclusive")
+    private Boolean lowerInclusive = true;
+    @Column(name = "upper_inclusive")
+    private Boolean upperInclusive = true;
+
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = true;
 }
