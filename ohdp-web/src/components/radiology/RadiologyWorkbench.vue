@@ -751,9 +751,18 @@ function rawFieldUnit(itemCode: string, field: FieldDefinition) {
   return field.unit
 }
 function itemResultDisplay(item: CalculationItem) {
-  if(item.resultText) return item.resultText
+  if(item.resultText) return isProtectionRecord(item) && item.resultUnit ? `${item.resultText} ${item.resultUnit}` : item.resultText
   const result=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode && m.fieldCode==='RESULT' && m.fieldRole==='FINAL')
   return result ? resultDisplay(result) : `${item.resultValue ?? '-'} ${item.resultUnit || ''}`.trim()
+}
+function isProtectionRecord(item: CalculationItem) {
+  return item.itemCode==='RPD' && item.complete && item.ruleDescription==='场所防护按点位逐项判定'
+}
+function calculationStatus(item: CalculationItem) {
+  return isProtectionRecord(item) ? '本底已记录' : item.judgement==='NOT_APPLICABLE' ? '不检测' : item.complete ? '完成' : '不完整'
+}
+function calculationStatusType(item: CalculationItem) {
+  return isProtectionRecord(item) || item.judgement==='NOT_APPLICABLE' ? 'info' : item.complete ? 'success' : 'danger'
 }
 
 async function saveMeasurements() {
@@ -1207,7 +1216,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <template #title>
                     <div class="item-title">
                       <span class="item-code">{{ item.code }}</span>
-                      <strong>{{ item.name }}</strong>
+                    <strong>{{ item.code==='RPD' ? '场所防护本底与校准' : item.name }}</strong>
                       <small>{{ item.standardCode }}</small>
                       <el-tag v-if="computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
                     </div>
@@ -1264,15 +1273,15 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
                 <el-table :data="calculationItems" border>
                   <el-table-column prop="itemCode" label="代码" width="84" />
-                  <el-table-column prop="itemName" label="检测项目" min-width="170" />
+                  <el-table-column label="检测项目" min-width="170"><template #default="scope">{{ scope.row.itemCode==='RPD' ? '场所防护本底与校准' : scope.row.itemName }}</template></el-table-column>
                   <el-table-column label="结果" min-width="120">
                     <template #default="scope">{{ itemResultDisplay(scope.row) }}</template>
                   </el-table-column>
                   <el-table-column label="状态" width="120">
-                    <template #default="scope"><el-tag :type="scope.row.judgement==='NOT_APPLICABLE' ? 'info' : scope.row.complete ? 'success' : 'danger'">{{ scope.row.judgement==='NOT_APPLICABLE' ? '不检测' : scope.row.complete ? '完成' : '不完整' }}</el-tag></template>
+                    <template #default="scope"><el-tag :type="calculationStatusType(scope.row)">{{ calculationStatus(scope.row) }}</el-tag></template>
                   </el-table-column>
                   <el-table-column label="判定" width="130" fixed="right">
-                    <template #default="scope">{{ judgementText(scope.row.judgement) }}</template>
+                    <template #default="scope"><el-button v-if="isProtectionRecord(scope.row)" link @click="workTab='protection'">见防护点位</el-button><span v-else>{{ judgementText(scope.row.judgement) }}</span></template>
                   </el-table-column>
                   <el-table-column prop="ruleDescription" label="标准判定依据" min-width="320" />
                   <el-table-column prop="message" label="提示" min-width="220" />
