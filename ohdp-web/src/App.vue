@@ -3,14 +3,17 @@ import axios from 'axios'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { codeLabel, formatFileSize, regionLevelLabel } from './codeLabels'
 import { findHelpAnchor, findHelpTopic, helpTopicByMenuKey, type HelpTopicId } from './helpContent'
+import ModuleLoadError from './components/ModuleLoadError.vue'
+import HelpMark from './components/help/HelpMark.vue'
+import type { AsyncComponentLoader, Component } from 'vue'
 
-const RadiologyWorkbench = defineAsyncComponent(() => import('./components/radiology/RadiologyWorkbench.vue'))
-const FeedbackCenter = defineAsyncComponent(() => import('./components/feedback/FeedbackCenter.vue'))
-const HelpCenter = defineAsyncComponent(() => import('./components/help/HelpCenter.vue'))
-const ManualDownloads = defineAsyncComponent(() => import('./components/help/ManualDownloads.vue'))
-const HelpMark = defineAsyncComponent(() => import('./components/help/HelpMark.vue'))
-const ContextHelpDrawer = defineAsyncComponent(() => import('./components/help/ContextHelpDrawer.vue'))
-const ReportSupplementEditor = defineAsyncComponent(() => import('./components/ohdp/ReportSupplementEditor.vue'))
+function loadView<T extends Component>(loader: AsyncComponentLoader<T>) { return defineAsyncComponent({ loader, errorComponent: ModuleLoadError }) }
+const RadiologyWorkbench = loadView(() => import('./components/radiology/RadiologyWorkbench.vue'))
+const FeedbackCenter = loadView(() => import('./components/feedback/FeedbackCenter.vue'))
+const HelpCenter = loadView(() => import('./components/help/HelpCenter.vue'))
+const ManualDownloads = loadView(() => import('./components/help/ManualDownloads.vue'))
+const ContextHelpDrawer = loadView(() => import('./components/help/ContextHelpDrawer.vue'))
+const ReportSupplementEditor = loadView(() => import('./components/ohdp/ReportSupplementEditor.vue'))
 
 type ProjectStatus = 'DRAFT' | 'DATA_FILLED' | 'JUDGED' | 'REPORT_READY'
 

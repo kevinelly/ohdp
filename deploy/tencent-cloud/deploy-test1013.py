@@ -3,7 +3,7 @@
 Usage on the server: python3 deploy-test1013.py release-20261013-test1013-HHMMSS
 The release directory must already contain app.jar, dist/ and manifest.json.
 """
-import hashlib, json, os, pathlib, re, subprocess, sys, urllib.request
+import hashlib, json, os, pathlib, re, shutil, subprocess, sys, urllib.request
 
 ROOT=pathlib.Path('/opt/bhfyzx')
 if len(sys.argv)!=2 or not re.fullmatch(r'release-20261013-test1013-\d{6}',sys.argv[1]):
@@ -11,7 +11,7 @@ if len(sys.argv)!=2 or not re.fullmatch(r'release-20261013-test1013-\d{6}',sys.a
 NAME=sys.argv[1]
 RELEASE=ROOT/'releases'/NAME
 BACKUP=ROOT/'backups'/('before-'+NAME)
-EXPECTED_PREVIOUS=ROOT/'releases/release-20261013-test1013-123111'
+EXPECTED_PREVIOUS=ROOT/'releases/release-20261013-test1013-125146'
 TAG=NAME.removeprefix('release-')
 
 def run(args,**kwargs): return subprocess.run(args,check=True,**kwargs)
@@ -65,6 +65,19 @@ compose_text=re.sub(r'image: bhfyzx-web:[^\s]+','image: bhfyzx-web:'+TAG,compose
 manifest=json.loads((RELEASE/'manifest.json').read_text())
 for path,digest in manifest['files'].items():
     assert hashlib.sha256((RELEASE/path).read_bytes()).hexdigest()==digest,path
+# Open tabs may still request the preceding build's hashed lazy-loaded modules.
+# Keep two published builds, selecting only original manifest assets to bound retention.
+retained={}
+for old in (previous,(ROOT/'previous').resolve()):
+    if old.parent!=ROOT/'releases' or not (old/'manifest.json').is_file(): continue
+    old_manifest=json.loads((old/'manifest.json').read_text())
+    for relative,digest in old_manifest['files'].items():
+        if not relative.startswith('dist/assets/') or pathlib.PurePosixPath(relative).name!=relative.removeprefix('dist/assets/'): continue
+        source=old/relative;target=RELEASE/relative
+        if target.exists() or not source.is_file(): continue
+        assert hashlib.sha256(source.read_bytes()).hexdigest()==digest,relative
+        shutil.copy2(source,target);retained[relative]=digest
+(RELEASE/'retained-assets.json').write_text(json.dumps(retained,indent=2))
 compose(RELEASE,'config','--quiet');compose(RELEASE,'build','api','web')
 BACKUP.mkdir();(BACKUP/'previous-release.txt').write_text(str(previous)+'\n')
 try:
@@ -84,7 +97,10 @@ try:
     for url,file in [('/', 'dist/index.html'),('/test1013-changes.html','dist/test1013-changes.html'),('/manuals/detailed-guide.docx','dist/manuals/detailed-guide.docx'),('/manuals/quick-guide.docx','dist/manuals/quick-guide.docx')]:
         with urllib.request.urlopen(base+url,timeout=30) as response: assert response.read()==(RELEASE/file).read_bytes(),file
     with urllib.request.urlopen(base+'/healthz',timeout=15) as response: assert response.status==200
-    checks.update({'businessRows':'unchanged','adminPassword':'unchanged','frontend':'exact-build-match','manualDownloads':'unchanged','backup':str(BACKUP),'release':str(RELEASE),'gitCommit':manifest['gitCommit']})
+    with urllib.request.urlopen(base+'/',timeout=15) as response: assert 'no-cache' in response.headers.get('Cache-Control','')
+    for relative,digest in retained.items():
+        with urllib.request.urlopen(base+'/'+relative.removeprefix('dist/'),timeout=15) as response: assert hashlib.sha256(response.read()).hexdigest()==digest,relative
+    checks.update({'businessRows':'unchanged','adminPassword':'unchanged','frontend':'exact-build-match','entryCache':'revalidate','retainedAssets':len(retained),'manualDownloads':'unchanged','backup':str(BACKUP),'release':str(RELEASE),'gitCommit':manifest['gitCommit']})
     (RELEASE/'verification.json').write_text(json.dumps(checks,indent=2))
     for link,target in [('previous',previous),('current',RELEASE)]:
         temporary=ROOT/(link+'.deploy-new')

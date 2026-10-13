@@ -215,6 +215,10 @@ interface ReportProfile {
 const blankProfile = (modality: Modality): ReportProfile => ({ sampleName: '', submittingUnit: '', commissionedUnit: '', equipmentParameters: '',
   detectorName: '', backgroundLocation: '', backgroundOperation: '未曝光', calibrationMode: 'INSTRUMENT', protectionConditions: '', overallConclusion: '',
   selectedGroups: modality === 'DR' ? ['GENERAL','SPECIAL','PROTECTION'] : ['QC','PROTECTION'], instruments: [] })
+function detectionGroupLabel(group: string) {
+  const labels: Record<string,string> = {GENERAL:'通用质控',SPECIAL:'DR专用质控',QC:'CT质量控制',PROTECTION:'场所防护'}
+  return labels[group] || group
+}
 
 interface CaseForm {
   caseCode: string
@@ -288,7 +292,7 @@ const rules = ref<Rule[]>([])
 const calculation = ref<CalculationResponse | null>(null)
 const workTab = ref('base')
 const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20, year: undefined as number | undefined,
-  from: '', to: '', city: '', county: '', receipt: '', company: '', modalities: [] as Modality[], crossModality: false })
+  from: '', to: '', city: '', county: '', receipt: '', company: '', modalities: [props.modality] as Modality[] })
 const queryVisible = ref(false)
 const previewVisible = ref(false)
 const previewPdfUrl=ref('')
@@ -316,7 +320,7 @@ function addInstrument() {
   if(caseForm.profile.instruments.some(i=>i.deviceId===d.id)) return
   caseForm.profile.instruments.push({deviceId:d.id,name:d.deviceName,model:d.deviceModel || '',deviceNo:d.deviceNo || '',certificateNo:d.certificateNo || '',validFrom:d.calibrationDate,validTo:d.calibrationExpiry})
 }
-function resetQuery() { Object.assign(query,{keyword:'',status:'',year:undefined,from:'',to:'',city:'',county:'',receipt:'',company:'',modalities:[],crossModality:false,page:0});void loadCases() }
+function resetQuery() { Object.assign(query,{keyword:'',status:'',year:undefined,from:'',to:'',city:'',county:'',receipt:'',company:'',modalities:[props.modality],page:0});void loadCases() }
 async function previewReport() {
   if(!selectedCase.value)return
   await run(async()=>{
@@ -438,6 +442,7 @@ const editabilityReason = computed(() => {
 watch(() => props.modality, async (value) => {
   selectedCase.value = null
   calculation.value = null
+  query.modalities = [value]
   Object.assign(caseForm, blankCaseForm(value))
   await Promise.all([loadCatalog(), loadCases(), loadRules(), loadLibraries()])
   if(pendingQueryId.value){const id=pendingQueryId.value;pendingQueryId.value=undefined;await selectCase(id);if(pendingQueryEdit.value && editable.value) openEditCase();pendingQueryEdit.value=false}
@@ -479,8 +484,9 @@ async function loadCatalog() {
 }
 
 async function loadCases() {
+  if (query.from && query.to && query.to < query.from) { ElMessage.warning('查询结束日期不能早于开始日期'); return }
   const response = await api.get<{ content: CaseSummary[]; totalElements: number }>('/api/radiology/cases', {
-    params: { modality: query.crossModality ? undefined : props.modality, status: query.status || undefined, keyword: query.keyword || undefined,
+    params: { status: query.status || undefined, keyword: query.keyword || undefined,
       modalities: query.modalities.length ? query.modalities.join(',') : undefined, year:query.year,from:query.from || undefined,to:query.to || undefined,
       city:query.city || undefined,county:query.county || undefined,receipt:query.receipt || undefined,company:query.company || undefined,page:query.page,size:query.size },
   })
@@ -1074,9 +1080,9 @@ function showMeasurementHelp(field: FieldDefinition) {
           tabindex="0"
           :aria-label="`打开案例 ${item.caseCode}，状态 ${statusText(item.status)}`"
           :aria-pressed="selectedCase?.id === item.id"
-          @click="selectCase(item.id)"
-          @keydown.enter.prevent="selectCase(item.id)"
-          @keydown.space.prevent="selectCase(item.id)"
+          @click="selectQueryCase(item)"
+          @keydown.enter.prevent="selectQueryCase(item)"
+          @keydown.space.prevent="selectQueryCase(item)"
         >
           <div class="case-line">
             <strong>{{ item.caseCode }}</strong>
@@ -1394,21 +1400,12 @@ function showMeasurementHelp(field: FieldDefinition) {
       <el-alert v-if="caseValidationMessage" class="case-validation-alert" type="warning" :closable="false" :title="caseValidationMessage" show-icon />
 
       <el-form label-position="top" class="case-step-form">
-        <el-row :gutter="14" v-if="caseDialogStep === 2">
-          <el-col :span="12"><el-form-item label="检测机构名称"><el-input v-model="caseForm.agencyName" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="地区"><el-input v-model="caseForm.region" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="检测结束日期 *"><el-date-picker v-model="caseForm.inspectionEndDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="防护原始读数单位"><el-select v-model="caseForm.rpdUnit"><el-option v-for="unit in ['nSv/h','μSv/h','mSv/h']" :key="unit" :value="unit" :label="unit" /></el-select></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="校准因子使用"><el-select v-model="caseForm.profile.calibrationMode" style="width:100%"><el-option label="结果无需修正" value="NONE" /><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT" /><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH" /><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME" /></el-select></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /></el-select></el-form-item></el-col>
-          <el-col :span="24" v-if="modality === 'DR'"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
-        </el-row>
         <section v-if="caseDialogStep === 0" class="case-form-section">
           <div class="case-section-title"><div><span>第 1 步</span><h3>受检单位与案例信息</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="案例编号 *"><el-input v-model="caseForm.caseCode" placeholder="例如 CT-20260828-01" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="受理编号 *"><el-input v-model="caseForm.sampleAcceptanceNo" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测类别"><el-select v-model="caseForm.detectionCategory" style="width:100%"><el-option label="验收检测" value="验收检测" /><el-option label="状态检测" value="状态检测" /><el-option label="稳定性检测" value="稳定性检测" /></el-select></el-form-item></el-col>
+            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测类别 *"><el-select v-model="caseForm.detectionCategory" style="width:100%"><el-option label="验收检测" value="验收检测" /><el-option label="状态检测" value="状态检测" /><el-option label="稳定性检测" value="稳定性检测" /></el-select></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="受检单位 *"><el-input v-model="caseForm.inspectedUnitName" placeholder="填写单位完整名称" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="单位地址"><el-input v-model="caseForm.inspectedUnitAddress" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="样品名称"><el-input v-model="caseForm.profile.sampleName" /></el-form-item></el-col>
@@ -1446,7 +1443,14 @@ function showMeasurementHelp(field: FieldDefinition) {
           <div class="case-section-title"><div><span>第 3 步</span><h3>检测与人员信息</h3></div><HelpMark anchor-id="radiology.instrument" /></div>
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12"><el-form-item label="检测开始日期 *"><el-date-picker v-model="caseForm.inspectionDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="检测结束日期 *"><el-date-picker v-model="caseForm.inspectionEndDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="报告日期"><el-date-picker v-model="caseForm.reportDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="检测机构名称"><el-input v-model="caseForm.agencyName" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="地区"><el-input v-model="caseForm.region" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="防护原始读数单位"><el-select v-model="caseForm.rpdUnit" style="width:100%"><el-option v-for="unit in ['nSv/h','μSv/h','mSv/h']" :key="unit" :value="unit" :label="unit" /></el-select></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="校准因子使用"><el-select v-model="caseForm.profile.calibrationMode" style="width:100%"><el-option label="结果无需修正" value="NONE" /><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT" /><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH" /><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME" /></el-select></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /></el-select></el-form-item></el-col>
+            <el-col :span="24" v-if="modality === 'DR'"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="从标准库导入"><el-select v-model="selectedStandardIds" multiple filterable style="width:80%"><el-option v-for="s in standardsLibrary" :key="s.id" :value="s.id" :label="s.standardCode+' '+s.standardName" /></el-select><el-button @click="importStandards">导入依据</el-button></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="从检测设备库选择"><el-select v-model="selectedInstrumentId" filterable style="width:80%"><el-option v-for="d in instrumentsLibrary" :key="d.id" :value="d.id" :label="d.deviceName+' '+(d.deviceNo || '')" /></el-select><el-button @click="addInstrument">添加仪器</el-button></el-form-item></el-col>
             <el-col :span="24"><el-table :data="caseForm.profile.instruments" border><el-table-column label="仪器" min-width="150"><template #default="s">{{s.row.name}} {{s.row.model}} / {{s.row.deviceNo}}</template></el-table-column><el-table-column label="证书编号" min-width="130"><template #default="s"><el-input v-model="s.row.certificateNo" /></template></el-table-column><el-table-column label="有效期起" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validFrom" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column label="有效期止" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validTo" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column width="70"><template #default="s"><el-button link @click="caseForm.profile.instruments?.splice(s.$index,1)">移除</el-button></template></el-table-column></el-table></el-col>
@@ -1465,12 +1469,15 @@ function showMeasurementHelp(field: FieldDefinition) {
           <el-alert type="info" :closable="false" title="请核对关键字段。创建后仍可在草稿、已录入或已计算状态下修改案例信息。" show-icon />
           <dl class="case-review-grid">
             <div><dt>案例编号</dt><dd>{{ caseForm.caseCode || '未填写' }}</dd></div>
+            <div><dt>受理编号</dt><dd>{{ caseForm.sampleAcceptanceNo || '未填写' }}</dd></div>
             <div><dt>检测类别</dt><dd>{{ caseForm.detectionCategory || '未填写' }}</dd></div>
             <div><dt>受检单位</dt><dd>{{ caseForm.inspectedUnitName || '未填写' }}</dd></div>
             <div><dt>检测地点</dt><dd>{{ caseForm.detectionLocation || '未填写' }}</dd></div>
             <div><dt>设备</dt><dd>{{ [caseForm.manufacturer, caseForm.equipmentName, caseForm.equipmentModel].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
             <div v-if="modality === 'CT'"><dt>检测模体</dt><dd>{{ [caseForm.phantomManufacturer, caseForm.phantomName, caseForm.phantomModel].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
-            <div><dt>检测日期</dt><dd>{{ caseForm.inspectionDate || '未填写' }}</dd></div>
+            <div><dt>检测起止日期</dt><dd>{{ caseForm.inspectionDate || '未填写' }} 至 {{ caseForm.inspectionEndDate || '未填写' }}</dd></div>
+            <div><dt>所在地</dt><dd>{{ [caseForm.city,caseForm.county].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
+            <div><dt>本次检测范围</dt><dd>{{ (caseForm.profile.selectedGroups || []).map(detectionGroupLabel).join('、') }}</dd></div>
             <div><dt>编写 / 审核 / 批准</dt><dd>{{ [caseForm.writerName, caseForm.reviewerName, caseForm.approverName].map(value => value || '待指定').join(' / ') }}</dd></div>
             <div class="wide"><dt>检测依据</dt><dd>{{ caseForm.standardBasis || '未填写' }}</dd></div>
           </dl>
@@ -1490,15 +1497,15 @@ function showMeasurementHelp(field: FieldDefinition) {
     </el-dialog>
 
     <el-dialog v-model="previewVisible" title="检测报告逐页预览" width="94%" top="3vh" destroy-on-close><iframe v-if="previewPdfUrl" :src="previewPdfUrl" title="检测报告分页预览" style="width:100%;height:80vh;border:0" /><div v-else ref="previewContainer" class="report-preview-pages"></div></el-dialog>
-    <el-dialog v-model="queryVisible" title="综合查询" width="92%">
+    <el-dialog v-model="queryVisible" class="case-query-dialog" title="综合查询" width="92%">
       <el-form label-position="top"><el-row :gutter="12">
-        <el-col :span="6"><el-form-item label="检测年份"><el-input-number v-model="query.year" :min="1900" :max="2200" /></el-form-item></el-col>
-        <el-col :span="6"><el-form-item label="检测时间起"><el-date-picker v-model="query.from" value-format="YYYY-MM-DD" /></el-form-item></el-col>
-        <el-col :span="6"><el-form-item label="检测时间止"><el-date-picker v-model="query.to" value-format="YYYY-MM-DD" /></el-form-item></el-col>
-        <el-col :span="6"><el-form-item label="报告状态"><el-select v-model="query.status" clearable><el-option v-for="s in ['DRAFT','DATA_ENTERED','CALCULATED','PENDING_REVIEW','REVIEWED','APPROVED','REPORTED']" :key="s" :value="s" :label="statusText(s as CaseStatus)" /></el-select></el-form-item></el-col>
-        <el-col :span="6"><el-form-item label="所在地市"><el-select v-model="query.city" filterable allow-create clearable><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col><el-col :span="6"><el-form-item label="所在县区"><el-select v-model="query.county" filterable allow-create clearable><el-option v-for="r in regionsLibrary.filter(r=>r.level>=3)" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
-        <el-col :span="6"><el-form-item label="受理编号"><el-input v-model="query.receipt" clearable /></el-form-item></el-col><el-col :span="6"><el-form-item label="受检单位"><el-input v-model="query.company" clearable /></el-form-item></el-col>
-        <el-col :span="12"><el-form-item label="设备类别"><el-checkbox v-model="query.crossModality">跨类别查询</el-checkbox><el-select v-model="query.modalities" multiple clearable><el-option label="DR" value="DR" /><el-option label="CT" value="CT" /></el-select></el-form-item></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测年份"><el-input-number v-model="query.year" :min="1900" :max="2200" style="width:100%" /></el-form-item></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测时间起"><el-date-picker v-model="query.from" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测时间止"><el-date-picker v-model="query.to" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="报告状态"><el-select v-model="query.status" clearable style="width:100%"><el-option v-for="s in ['DRAFT','DATA_ENTERED','CALCULATED','PENDING_REVIEW','REVIEWED','APPROVED','REPORTED']" :key="s" :value="s" :label="statusText(s as CaseStatus)" /></el-select></el-form-item></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="所在地市"><el-select v-model="query.city" filterable allow-create clearable style="width:100%"><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="12" :lg="6"><el-form-item label="所在县区"><el-select v-model="query.county" filterable allow-create clearable style="width:100%"><el-option v-for="r in regionsLibrary.filter(r=>r.level>=3)" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="受理编号"><el-input v-model="query.receipt" clearable /></el-form-item></el-col><el-col :xs="24" :sm="12" :lg="6"><el-form-item label="受检单位"><el-input v-model="query.company" clearable /></el-form-item></el-col>
+        <el-col :xs="24" :sm="12"><el-form-item label="设备类别"><el-select v-model="query.modalities" multiple clearable placeholder="不限（DR/CT）" style="width:100%"><el-option label="DR" value="DR" /><el-option label="CT" value="CT" /></el-select></el-form-item></el-col>
       </el-row></el-form><el-button type="primary" @click="query.page=0;loadCases()">查询</el-button><el-button @click="resetQuery">重置</el-button>
       <el-table :data="cases" border style="margin-top:16px"><el-table-column prop="sampleAcceptanceNo" label="受理编号" min-width="150" /><el-table-column prop="inspectedUnitName" label="受检单位" min-width="160" /><el-table-column prop="modality" label="设备类别" width="90" /><el-table-column prop="equipmentName" label="设备名称" min-width="150" /><el-table-column prop="equipmentNo" label="设备编号" min-width="120" /><el-table-column prop="inspectionDate" label="检测时间" width="120" /><el-table-column label="出具报告时间" min-width="170"><template #default="s">{{s.row.generatedAt?.replace("T"," ").slice(0,19) || "—"}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="s"><el-button link @click="selectQueryCase(s.row)">查看</el-button><el-button v-if="['DRAFT','DATA_ENTERED','CALCULATED'].includes(s.row.status)" link @click="selectQueryCase(s.row,true)">修改</el-button></template></el-table-column></el-table>
       <el-pagination v-model:current-page="queryPage" :page-size="query.size" :total="totalCases" layout="prev,pager,next,total" @current-change="loadCases" />
