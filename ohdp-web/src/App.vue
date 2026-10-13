@@ -375,7 +375,7 @@ interface ReferenceDocument { id: number; referenceType: 'LAW' | 'STANDARD'; ref
 interface OhdpLaw { id: number; title: string; docNo?: string; level?: string; levelLabel?: string; publishDate?: string; effectiveDate?: string; publisher?: string; isValid?: boolean; isOpen?: boolean; fileId?: number; currentDocument?: ReferenceDocument; notes?: string }
 interface OhdpStandard { id: number; standardName: string; standardCode?: string; level?: string; levelLabel?: string; useScope?: string; publishDate?: string; isValid?: boolean; isOpen?: boolean; fileId?: number; currentDocument?: ReferenceDocument; notes?: string }
 interface OhdpRegion { id: number; parentId?: number; regionCode: string; regionName: string; level: number; levelLabel?: string; sortNo?: number }
-interface OhdpDevice { id: number; deviceName: string; deviceType: string; deviceTypeLabel?: string; deviceModel?: string; deviceNo?: string; status?: string; statusLabel?: string; calibrationExpiry?: string; notes?: string }
+interface OhdpDevice { id: number; deviceName: string; deviceType: string; deviceTypeLabel?: string; deviceModel?: string; deviceNo?: string; status?: string; statusLabel?: string; calibrationExpiry?: string; calibrationDate?: string; certificateNo?: string; notes?: string }
 interface OhdpHazardFactor { id: number; factorName: string; factorCategory: string; factorCategoryLabel?: string; factorCode?: string; casNo?: string; enabled?: boolean }
 interface OhdpHazardFactorLimit { id: number; factorId: number; limitType: string; limitTypeLabel?: string; limitValue?: number; limitUnit?: string; standardCode?: string; notes?: string }
 interface OhdpSds { id: number; substanceName: string; casNo?: string; factorId?: number; version?: string; notes?: string }
@@ -2671,7 +2671,7 @@ const referenceVersionLabel = ref('')
 const referenceSourceUrl = ref('')
 const referenceDocumentInputKey = ref(0)
 const regionForm = reactive({ id: null as number|null, parentId: null as number|null, regionCode: '', regionName: '', level: 1, sortNo: 0 })
-const deviceForm = reactive({ id: null as number|null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '' })
+const deviceForm = reactive({ id: null as number|null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '', certificateNo:'',calibrationDate:'',calibrationExpiry:'' })
 const hazardFactorForm = reactive({ id: null as number|null, factorName: '', factorCategory: 'CHEMICAL', factorCode: '', casNo: '', enabled: true })
 const sdsForm = reactive({ id: null as number|null, substanceName: '', casNo: '', factorId: null as number|null, version: '', notes: '' })
 const detectionMethodForm = reactive({ id: null as number|null, methodName: '', methodCode: '', methodAbbr: '', formula: '', standardCode: '', enabled: true })
@@ -2789,7 +2789,7 @@ async function deleteRegion(id: number) { if (!confirm('确认删除？')) retur
 function editRegion(item: OhdpRegion) { Object.assign(regionForm, item) }
 
 async function fetchDevices() { const r = await api.get('/api/ohdp/devices', { params: { page: 0, size: 100 } }); devices.value = r.data.content || [] }
-async function saveDevice() { if (deviceForm.id) { await api.put(`/api/ohdp/devices/${deviceForm.id}`, { ...deviceForm }) } else { await api.post('/api/ohdp/devices', { ...deviceForm }) }; Object.assign(deviceForm, { id: null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '' }); fetchDevices() }
+async function saveDevice() { if (deviceForm.id) { await api.put(`/api/ohdp/devices/${deviceForm.id}`, { ...deviceForm,calibrationDate:deviceForm.calibrationDate || null,calibrationExpiry:deviceForm.calibrationExpiry || null }) } else { await api.post('/api/ohdp/devices', { ...deviceForm,calibrationDate:deviceForm.calibrationDate || null,calibrationExpiry:deviceForm.calibrationExpiry || null }) }; Object.assign(deviceForm, { id: null, deviceName: '', deviceType: 'LAB_INSTRUMENT', deviceModel: '', deviceNo: '', status: 'NORMAL', notes: '', certificateNo:'',calibrationDate:'',calibrationExpiry:'' }); fetchDevices() }
 async function deleteDevice(id: number) { if (!confirm('确认删除？')) return; await api.delete(`/api/ohdp/devices/${id}`); fetchDevices() }
 function editDevice(item: OhdpDevice) { Object.assign(deviceForm, item) }
 
@@ -4633,6 +4633,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>型号<input v-model="deviceForm.deviceModel" /></label>
             <label>设备编号<input v-model="deviceForm.deviceNo" /></label>
             <label>状态<select v-model="deviceForm.status"><option value="NORMAL">正常</option><option value="MAINTENANCE">维修中</option><option value="SCRAPPED">报废</option></select></label>
+            <label>证书编号<input v-model="deviceForm.certificateNo" /></label><label>有效期起<input v-model="deviceForm.calibrationDate" type="date" /></label><label>有效期止<input v-model="deviceForm.calibrationExpiry" type="date" /></label>
             <label class="full">备注<input v-model="deviceForm.notes" /></label>
           </div>
           <div class="actions"><button @click="saveDevice">{{ deviceForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDevices">刷新</button></div>
@@ -4766,6 +4767,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
         <RadiologyWorkbench
           :token="token"
           :modality="radiologyChildMenu"
+          @select-modality="(m) => { radiologyChildMenu=m;selectedMenuKey= m==='CT' ? 'radiology.ct':'radiology.dr' }"
           :can-review="canReviewRadiology"
           :can-approve="canApproveRadiology"
           :can-generate-report="canGenerateRadiologyReport"

@@ -11,7 +11,7 @@ if len(sys.argv)!=2 or not re.fullmatch(r'release-20261013-test1013-\d{6}',sys.a
 NAME=sys.argv[1]
 RELEASE=ROOT/'releases'/NAME
 BACKUP=ROOT/'backups'/('before-'+NAME)
-EXPECTED_PREVIOUS=ROOT/'releases/release-20260917-manuals-1851'
+EXPECTED_PREVIOUS=ROOT/'releases/release-20261013-test1013-103430'
 TAG=NAME.removeprefix('release-')
 
 def run(args,**kwargs): return subprocess.run(args,check=True,**kwargs)
@@ -20,7 +20,7 @@ def sql(query):
     return subprocess.check_output(['docker','exec','-i','bhfyzx-db-1','sh','-c',
         'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER" "$MYSQL_DATABASE" -N -B --raw'],input=query.encode()).decode().strip()
 def state():
-    tables=sql("SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() AND (table_name LIKE 'ohdp_%' OR table_name LIKE 'qc_%') ORDER BY table_name").splitlines()
+    tables=sql("SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() AND (table_name LIKE 'ohdp_%' OR table_name LIKE 'qc_%' OR table_name LIKE 'radiology_%') ORDER BY table_name").splitlines()
     counts={t:int(sql('SELECT COUNT(*) FROM `'+t+'`')) for t in tables}
     admin=sql("SELECT id,username,password_hash,must_change_password,deleted FROM sys_user WHERE username='admin'")
     return {'rows':counts,'adminDigest':hashlib.sha256(admin.encode()).hexdigest()}
@@ -55,7 +55,7 @@ os.umask(0o077)
 login=request('/api/auth/login',{'username':env.get('ADMIN_USERNAME','admin'),'password':env['ADMIN_INITIAL_PASSWORD']})
 request('/api/auth/logout',{},login['token']);del login
 for name in ('compose.yaml','Dockerfile.api','Dockerfile.web','nginx.conf'):
-    (RELEASE/name).write_bytes((previous/name).read_bytes())
+    if not (RELEASE/name).exists(): (RELEASE/name).write_bytes((previous/name).read_bytes())
 (RELEASE/'.dockerignore').write_text('.env\n*.log\n')
 (RELEASE/'.env').write_bytes((ROOT/'shared/.env').read_bytes())
 compose_text=(RELEASE/'compose.yaml').read_text()

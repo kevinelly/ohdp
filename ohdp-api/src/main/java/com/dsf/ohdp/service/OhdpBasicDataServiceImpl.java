@@ -313,6 +313,7 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
         entity.setManufacturer(request.getManufacturer());
         entity.setCalibrationDate(request.getCalibrationDate());
         entity.setCalibrationExpiry(request.getCalibrationExpiry());
+        entity.setCertificateNo(request.getCertificateNo());
         if (StringUtils.hasText(request.getStatus())) entity.setStatus(request.getStatus());
         entity.setNotes(request.getNotes());
     }
@@ -327,7 +328,7 @@ public class OhdpBasicDataServiceImpl implements OhdpBasicDataService {
                 .deviceNo(entity.getDeviceNo())
                 .manufacturer(entity.getManufacturer())
                 .calibrationDate(entity.getCalibrationDate())
-                .calibrationExpiry(entity.getCalibrationExpiry())
+                .calibrationExpiry(entity.getCalibrationExpiry()).certificateNo(entity.getCertificateNo())
                 .status(entity.getStatus())
                 .statusLabel(OhdpCodeLabels.label(entity.getStatus()))
                 .notes(entity.getNotes())

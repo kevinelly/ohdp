@@ -35,6 +35,13 @@ public class RadiologyReport extends BaseAuditEntity {
     @Column(name = "generated_by", length = 100)
     private String generatedBy;
 
+    @Column(name="deletion_reason",length=1000)
+    private String deletionReason;
+    @Column(name="deleted_by",length=100)
+    private String deletedBy;
+    @Column(name="deleted_at")
+    private LocalDateTime deletedAt;
+
     @Column(name = "generated_at", nullable = false)
     private LocalDateTime generatedAt;
 }

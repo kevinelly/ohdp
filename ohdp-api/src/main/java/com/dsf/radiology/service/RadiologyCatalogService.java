@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RadiologyCatalogService {
 
-    public static final String CALCULATION_VERSION = "2026.10.13";
+    public static final String CALCULATION_VERSION = "2026.10.13.2";
 
     public record FieldDefinition(
             String code, String label, RadiologyFieldRole role, String unit, boolean required, int sortNo) {
@@ -66,7 +66,7 @@ public class RadiologyCatalogService {
         items.add(item(RadiologyModality.DR, "ROA", "辐射输出量重复性", "WS 76—2020", 20,
                 "ROA1", "ROA2", "ROA3", "ROA4", "ROA5", "ROA-K"));
         items.add(item(RadiologyModality.DR, "ROQ", "输出量线性", "WS 76—2020", 30,
-                "I1", "T1", "ROQ1-1", "ROQ1-2", "ROQ1-3", "I2", "T2", "ROQ2-1", "ROQ2-2", "ROQ2-3"));
+                "I1", "T1", "ROQ1-1", "ROQ1-2", "ROQ1-3", "ROQ1-4", "ROQ1-5", "I2", "T2", "ROQ2-1", "ROQ2-2", "ROQ2-3", "ROQ2-4", "ROQ2-5", "ROQ-K"));
         items.add(item(RadiologyModality.DR, "HVL", "有用线束半值层", "WS 76—2020", 40, "HVL1", "HVL2", "HVL3"));
         items.add(item(RadiologyModality.DR, "ETD", "曝光时间指示的偏离", "WS 76—2020", 50,
                 "ETD1-0", "ETD1-1", "ETD1-2", "ETD1-3", "ETD2-0", "ETD2-1", "ETD2-2", "ETD2-3",
@@ -76,21 +76,21 @@ public class RadiologyCatalogService {
                 "ARS1-1", "ARS1-2", "ARS1-3", "ARS1-4", "ARS1-5", "ARS2-1", "ARS2-2", "ARS2-3", "ARS2-4", "ARS2-5"));
         items.add(item(RadiologyModality.DR, "AIC", "AEC电离室一致性", "WS 76—2020", 80,
                 "AIC-C1", "AIC-C2", "AIC-C3", "AIC-L1", "AIC-L2", "AIC-L3", "AIC-R1", "AIC-R2", "AIC-R3"));
-        items.add(item(RadiologyModality.DR, "UBD", "有用线束垂直度偏离", "WS 76—2020", 90, "UBD"));
+        items.add(item(RadiologyModality.DR, "UBD", "有用线束垂直度偏离", "WS 76—2020", 90, "UBD", "UBD-QUALIFIER"));
         items.add(item(RadiologyModality.DR, "LRD", "光野与照射野四边的偏离", "WS 76—2020", 100,
                 "LRD-a1-0", "LRD-a1-1", "LRD-a2-0", "LRD-a2-1", "LRD-b1-0", "LRD-b1-1", "LRD-b2-0", "LRD-b2-1"));
         items.add(item(RadiologyModality.DR, "DDI", "探测器剂量指示", "WS 76—2020", 110,
-                "DDI1", "DDI2", "DDI3", "DDI-BASELINE"));
+                "DDI1", "DDI2", "DDI3", "DDI-CALCULATED", "DDI-BASELINE"));
         items.add(item(RadiologyModality.DR, "STP", "信号传递特性", "WS 76—2020", 120,
                 "STP-K1", "STP-K2", "STP-K3", "STP-K4", "STP-K5", "STP-R1", "STP-R2", "STP-R3", "STP-R4", "STP-R5", "STP-MODEL"));
         items.add(item(RadiologyModality.DR, "RUE", "响应均匀性", "WS 76—2020", 130, "RUE1", "RUE2", "RUE3", "RUE4", "RUE5"));
         items.add(item(RadiologyModality.DR, "REA", "测距误差", "WS 76—2020", 140, "REA-at", "REA-am", "REA-bt", "REA-bm"));
         items.add(item(RadiologyModality.DR, "ILA", "残影", "WS 76—2020", 150,
                 "是否有残影（如“否”无需填后两项）", "残影区D1", "非残影区D0"));
-        items.add(item(RadiologyModality.DR, "ART", "伪影", "WS 76—2020", 160, "填“是”或“否”"));
-        items.add(item(RadiologyModality.DR, "HCR", "高对比度分辨力", "WS 76—2020", 170, "HCR1", "厂家规定值/基线值"));
+        items.add(item(RadiologyModality.DR, "ART", "伪影", "WS 76—2020", 160, "填“是”或“否”", "ART-SOURCE"));
+        items.add(item(RadiologyModality.DR, "HCR", "高对比度分辨力", "WS 76—2020", 170, "HCR1", "HCR-MANUFACTURER", "HCR-NYQUIST", "HCR-BASELINE", "厂家规定值/基线值"));
         items.add(item(RadiologyModality.DR, "LCR", "低对比度分辨力", "WS 76—2020", 180,
-                "LCR1（可观察细节数）", "LCR2（可观察对比度）", "厂家规定值/基线值"));
+                "LCR1（可观察细节数）", "LCR2（可观察对比度）", "厂家规定值/基线值", "LCR-BASELINE-UNIT"));
         items.add(item(RadiologyModality.DR, "RPD", "场所卫生防护", "GBZ 130—2020", 190,
                 "k", "a", "RPD-k2", "RPD-mA", "RPD0-1", "RPD0-2", "RPD0-3", "RPD0-4", "RPD0-5", "RPD0-6", "RPD0-7", "RPD0-8", "RPD0-9", "RPD0-10"));
         return items;
@@ -113,7 +113,7 @@ public class RadiologyCatalogService {
                 "CTbackground", "CTmax", "WWmin", "CThm", "R0", "R1", "R2", "R3", "R4", "RST-FACTOR", "RST-BASELINE"));
         items.add(item(RadiologyModality.CT, "MTF", "高对比分辨力", "WS 519—2019", 60, "MTF", "MTF-FACTOR"));
         items.add(item(RadiologyModality.CT, "LCD", "低对比可探测能力", "WS 519—2019", 70,
-                "NUM1", "mm1", "NUM0.5", "mm0.5", "NUM0.3", "mm0.3"));
+                "LCD-COUNT-1", "LCD-COUNT-05", "LCD-COUNT-03", "NUM1", "mm1", "NUM0.5", "mm0.5", "NUM0.3", "mm0.3"));
         items.add(item(RadiologyModality.CT, "HUL", "CT值线性", "WS 519—2019", 80,
                 "Air-HU1", "Air-HU2", "Air-HU3", "LDPE-HU1", "LDPE-HU2", "LDPE-HU3",
                 "Acylic-HU1", "Acylic-HU2", "Acylic-HU3", "Teflon-HU1", "Teflon-HU2", "Teflon-HU3",
@@ -133,11 +133,14 @@ public class RadiologyCatalogService {
         List<FieldDefinition> fields = new ArrayList<>();
         for (int i = 0; i < fieldCodes.length; i++) {
             String fieldCode = fieldCodes[i];
-            boolean optional = fieldCode.contains("-K") || fieldCode.equals("UNUSED-OPTIONAL")
+            boolean optional = fieldCode.startsWith("HCR-") || fieldCode.equals("DDI-CALCULATED")
+                    || fieldCode.equals("UBD-QUALIFIER") || fieldCode.equals("ART-SOURCE") || fieldCode.equals("LCR-BASELINE-UNIT")
+                    || fieldCode.startsWith("LCD-COUNT-") || fieldCode.startsWith("NUM") || fieldCode.startsWith("mm") || fieldCode.equals("WWmin")
+                    || fieldCode.equals("厂家规定值/基线值") || fieldCode.contains("-K") || fieldCode.equals("UNUSED-OPTIONAL")
                     || fieldCode.equals("k") || fieldCode.equals("a") || fieldCode.equals("NPS-n")
                     || fieldCode.equals("CThm") || fieldCode.equals("HUU-L3")
                     || fieldCode.endsWith("-FACTOR") || fieldCode.endsWith("-REF") || fieldCode.equals("RPD-mA")
-                    || fieldCode.equals("STP-MODEL") || fieldCode.startsWith("CTDI-") || (fieldCode.endsWith("-BASELINE") && !fieldCode.equals("DDI-BASELINE")) || fieldCode.equals("RPD-k2");
+                    || fieldCode.equals("STP-MODEL") || fieldCode.startsWith("CTDI-") || fieldCode.endsWith("-BASELINE") || fieldCode.equals("RPD-k2");
             fields.add(new FieldDefinition(fieldCode, label(fieldCode), RadiologyFieldRole.RAW, unit(fieldCode), !optional, i + 1));
         }
         return new ItemDefinition(modality, code, name, standard, sortNo, Collections.unmodifiableList(fields));
@@ -171,7 +174,20 @@ public class RadiologyCatalogService {
             case "RST-BASELINE" -> "实测层厚稳定性基线（mm）";
             case "a" -> "单位转换常数 a";
             case "NPS-n" -> "扫描层厚 n";
-            case "DDI-BASELINE" -> "厂家规定值/基线值";
+            case "DDI-BASELINE" -> "DDI基线值（留空可建立基线）";
+            case "DDI-CALCULATED" -> "厂家公式DDI计算值";
+            case "HCR1" -> "实测分辨力（lp/mm）";
+            case "HCR-MANUFACTURER" -> "厂家规定值（lp/mm）";
+            case "HCR-NYQUIST" -> "fNyquist（lp/mm）";
+            case "HCR-BASELINE" -> "分辨力基线（lp/mm）";
+            case "UBD-QUALIFIER" -> "结果限定符";
+            case "ART-SOURCE" -> "伪影来源";
+            case "LCR-BASELINE-UNIT" -> "基线单位";
+            case "LCD-COUNT-1" -> "1% 可见孔径数（1至9）";
+            case "LCD-COUNT-05" -> "0.5% 可见孔径数（1至9）";
+            case "LCD-COUNT-03" -> "0.3% 可见孔径数（1至9）";
+            case "NUM1", "NUM0.5", "NUM0.3" -> "旧记录对比度参数 " + code;
+            case "mm1", "mm0.5", "mm0.3" -> "旧记录最小直径 " + code;
             case "RPD-mA" -> "DR 防护检测管电流（默认 100 mA）";
             case "STP-MODEL" -> "信号传递模型（LINEAR/LOG/POWER/BEST_FIT）";
             case "CTDI-HEAD-MANUFACTURER" -> "厂家头模 CTDIw 规定值";
@@ -188,6 +204,7 @@ public class RadiologyCatalogService {
     }
 
     private String unit(String code) {
+        if(code.matches("[HS][CDULR]D[123]")) return "mGy·cm";
         if (code.startsWith("RPD0-")) return "nSv/h";
         if (code.equals("a") || code.equals("k") || code.endsWith("-FACTOR")) return "";
         if (code.equals("RPD-mA")) return "mA";

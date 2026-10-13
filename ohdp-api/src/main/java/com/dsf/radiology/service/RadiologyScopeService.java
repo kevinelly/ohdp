@@ -35,7 +35,7 @@ public class RadiologyScopeService {
                 return "WS 76—2020附录C：稳定性检测不检测此项";
             if (Boolean.FALSE.equals(inspection.getHasAec()) && List.of("ARP","ARS","AIC").contains(code))
                 return "设备不具备AEC功能："+inspection.getFeatureReason();
-            if (Boolean.FALSE.equals(inspection.getHasRawImages()) && List.of("STP","RUE").contains(code))
+            if (Boolean.FALSE.equals(inspection.getHasRawImages()) && List.of("DDI","STP","RUE","ART").contains(code))
                 return "设备不能提供未处理图像："+inspection.getFeatureReason();
         }
         return "";

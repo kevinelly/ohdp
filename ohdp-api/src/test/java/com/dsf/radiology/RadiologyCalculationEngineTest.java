@@ -18,7 +18,7 @@ class RadiologyCalculationEngineTest {
 
         assertThat(result.complete()).isTrue();
         assertThat(result.resultValue()).isCloseTo(new BigDecimal("2.231666666666667"),org.assertj.core.data.Offset.offset(new BigDecimal("0.000000000001")));
-        assertThat(result.fields().get(0).displayValue()).isEqualTo("2.23");
+        assertThat(result.fields().get(0).displayValue()).isEqualTo("2.2");
         assertThat(new RadiologyCalculationEngine.CalculatedField("X","",new BigDecimal("2.225"),null,"",2).displayValue()).isEqualTo("2.22");
     }
 
@@ -86,7 +86,7 @@ class RadiologyCalculationEngineTest {
 
         assertThat(result.complete()).isTrue();
         assertThat(result.resultValue()).isNull();
-        assertThat(result.resultText()).contains("1.00 kV", "-1.00 kV", "2.00 kV", "2.00%");
+        assertThat(result.resultText()).contains("1.0 kV", "-1.0 kV", "2.0%");
         assertThat(result.fields()).filteredOn(field -> field.code().equals("RESULT_TEXT"))
                 .extracting(RadiologyCalculationEngine.CalculatedField::valueText)
                 .containsExactly(result.resultText());

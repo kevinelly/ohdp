@@ -147,6 +147,13 @@ public class RadiologyCase extends BaseAuditEntity {
     @Column(name = "rpd_unit", length = 16)
     private String rpdUnit = "nSv/h";
 
+    @Column(name="city",length=100)
+    private String city;
+    @Column(name="county",length=100)
+    private String county;
+    @Column(name="profile_json",columnDefinition="longtext")
+    private String profileJson;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "case_status", nullable = false, length = 32)
     private RadiologyCaseStatus status = RadiologyCaseStatus.DRAFT;

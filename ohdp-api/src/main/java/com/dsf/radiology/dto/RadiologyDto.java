@@ -54,6 +54,9 @@ public final class RadiologyDto {
         private String featureReason;
         private String agencyName;
         private String region;
+        private String city;
+        private String county;
+        private com.dsf.radiology.model.RadiologyProfile profile;
         private LocalDate inspectionEndDate;
         private String protectionMode = "UNSUBTRACTED";
         private String rpdUnit = "nSv/h";
@@ -72,7 +75,8 @@ public final class RadiologyDto {
             LocalDate inspectionDate,
             RadiologyCaseStatus status,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt) {
+            LocalDateTime updatedAt,
+            String sampleAcceptanceNo, String equipmentNo, LocalDate reportDate, String city, String county) {
     }
 
     public record CaseDetail(
@@ -128,7 +132,8 @@ public final class RadiologyDto {
             String rpdUnit,
             List<ItemCalculationResponse> itemResults,
             List<WorkflowEvent> workflowHistory,
-            List<String> submissionIssues, java.util.Map<String,String> itemConditions) {
+            List<String> submissionIssues, java.util.Map<String,String> itemConditions, String city, String county,
+            com.dsf.radiology.model.RadiologyProfile profile) {
     }
     public record WorkflowEvent(String action, String operator, String comment, Long dataVersion, LocalDateTime at) {}
 

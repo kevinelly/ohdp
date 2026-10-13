@@ -149,6 +149,7 @@ public final class BasicDataDto {
         private String manufacturer;
         private LocalDate calibrationDate;
         private LocalDate calibrationExpiry;
+        private String certificateNo;
         private String status;
         private String notes;
     }
@@ -167,6 +168,7 @@ public final class BasicDataDto {
         private String manufacturer;
         private LocalDate calibrationDate;
         private LocalDate calibrationExpiry;
+        private String certificateNo;
         private String status;
         private String statusLabel;
         private String notes;

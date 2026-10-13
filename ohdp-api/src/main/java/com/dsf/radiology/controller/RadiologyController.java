@@ -43,6 +43,7 @@ public class RadiologyController {
     private final RadiologyImportService importService;
     private final RadiologyAttachmentService attachmentService;
     private final RadiologyReportService reportService;
+    private final com.dsf.radiology.service.RadiologyPdfPreviewService pdfPreviewService;
 
     @GetMapping("/catalog/{modality}")
     public List<RadiologyCatalogService.ItemDefinition> catalog(@PathVariable RadiologyModality modality) {
@@ -69,9 +70,17 @@ public class RadiologyController {
             @RequestParam(required = false) RadiologyModality modality,
             @RequestParam(required = false) RadiologyCaseStatus status,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required=false) List<RadiologyModality> modalities,
+            @RequestParam(required=false) Integer year,
+            @RequestParam(required=false) @org.springframework.format.annotation.DateTimeFormat(iso=org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required=false) @org.springframework.format.annotation.DateTimeFormat(iso=org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to,
+            @RequestParam(required=false) String city,
+            @RequestParam(required=false) String county,
+            @RequestParam(required=false) String receipt,
+            @RequestParam(required=false) String company,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return caseService.listCases(modality, status, keyword, page, size);
+        return caseService.searchCases(modality,modalities,status,keyword,year,from,to,city,county,receipt,company,page,size);
     }
 
     @DeleteMapping("/cases/{id}")
@@ -130,6 +139,11 @@ public class RadiologyController {
         return attachmentService.upload(id, category, file);
     }
 
+    @PutMapping(value="/attachments/{id}",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
+    public RadiologyDto.AttachmentResponse replaceAttachment(@PathVariable Long id,@RequestPart("file") MultipartFile file) {
+        return attachmentService.replace(id,file);
+    }
+
     @GetMapping("/cases/{id}/attachments")
     public List<RadiologyDto.AttachmentResponse> listAttachments(@PathVariable Long id) {
         return attachmentService.list(id);
@@ -175,6 +189,11 @@ public class RadiologyController {
         return caseService.reopenAsRevision(id);
     }
 
+    @GetMapping("/cases/{id}/suggested-conclusion")
+    public java.util.Map<String,String> suggestedConclusion(@PathVariable Long id) {
+        return java.util.Map.of("text",caseService.suggestedConclusion(caseService.requireCase(id)));
+    }
+
     @GetMapping("/rules")
     public List<RadiologyDto.RuleResponse> listRules(@RequestParam RadiologyModality modality) {
         return caseService.listRules(modality);
@@ -194,6 +213,18 @@ public class RadiologyController {
     public void deleteRule(@PathVariable Long id) {
         caseService.deleteRule(id);
     }
+
+    @GetMapping("/cases/{id}/report-preview")
+    public ResponseEntity<Resource> previewReport(@PathVariable Long id,@RequestParam(defaultValue="docx") String format) {
+        byte[] bytes=reportService.preview(id);
+        boolean pdf="pdf".equalsIgnoreCase(format);if(pdf)bytes=pdfPreviewService.convert(bytes);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(pdf?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+            .header(HttpHeaders.CACHE_CONTROL,"no-store").contentLength(bytes.length).body(new ByteArrayResource(bytes));
+    }
+    @GetMapping("/preview-capabilities")
+    public java.util.Map<String,Boolean> previewCapabilities(){return java.util.Map.of("pdf",pdfPreviewService.available());}
+    @DeleteMapping("/reports/{id}")
+    public void deleteReport(@PathVariable Long id,@RequestParam String reason) {reportService.deleteReport(id,reason);}
 
     @PostMapping("/cases/{id}/reports")
     public RadiologyDto.ReportResponse generateReport(@PathVariable Long id) {

@@ -36,6 +36,9 @@ public class OhdpDevice extends BaseAuditEntity {
     @Column(name = "calibration_expiry")
     private LocalDate calibrationExpiry;
 
+    @Column(name="certificate_no",length=200)
+    private String certificateNo;
+
     /** NORMAL / MAINTENANCE / SCRAPPED */
     @Column(name = "status", length = 32)
     private String status = "NORMAL";

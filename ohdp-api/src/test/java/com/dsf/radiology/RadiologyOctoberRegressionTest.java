@@ -38,7 +38,7 @@ class RadiologyOctoberRegressionTest {
         var w=RadiologyTestFixture.workflow();cases.submitForReview(id,w);cases.review(id,w);cases.approve(id,w);
         var report=reports.generate(id);var record=reportRepository.findById(report.id()).orElseThrow();
         try(var doc=new XWPFDocument(Files.newInputStream(Path.of(record.getStoragePath())))) {
-            assertThat(doc.getTables()).anyMatch(t->t.getText().contains("虚构测试设备无AEC且不能导出原始图像") && t.getText().contains("不适用"));
+            assertThat(doc.getTables()).anyMatch(t->t.getText().contains("虚构测试设备无AEC且不能导出原始图像") && t.getText().contains("—"));
         }
     }
     @Test void revisionsCopyAttachmentsWithoutChangingApprovedOriginalAndHaveUniqueNumbers() throws Exception {
@@ -63,9 +63,9 @@ class RadiologyOctoberRegressionTest {
         assertThat(record.getSnapshotJson()).contains("templateSha256","HEAD_CTDIW","不检测此项");
         try(var doc=new XWPFDocument(Files.newInputStream(Path.of(record.getStoragePath())))) {
             assertThat(doc.getTables()).anyMatch(t->t.getRow(0).getTableCells().size()==5 && t.getText().contains("检测条件"));
-            assertThat(doc.getTables()).anyMatch(t->t.getText().contains("扫描架倾角精度") && t.getText().contains("不适用"));
+            assertThat(doc.getTables()).anyMatch(t->t.getText().contains("扫描架倾角精度") && t.getText().contains("—"));
             String text=doc.getParagraphs().stream().map(p->p.getText()).collect(java.util.stream.Collectors.joining());
-            assertThat(text).contains("放射性职业病危害因素检测报告","综合评价");
+            assertThat(text).contains("检测项目及结果","检测结果评价");
         }
         // Changing master rules after approval must not alter archived conclusions.
         var rule=new RadiologyDto.RuleRequest();rule.setModality(RadiologyModality.CT);rule.setItemCode("NPS");

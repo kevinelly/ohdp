@@ -55,10 +55,16 @@ public class RadiologyAttachmentService {
         if (original.contains("..")) throw new BusinessException("附件名称不合法");
         String mediaType = file.getContentType() == null ? "application/octet-stream" : file.getContentType().toLowerCase(Locale.ROOT);
         if (!ALLOWED_MEDIA.contains(mediaType)) throw new BusinessException("不支持的附件类型：" + mediaType);
-        if (normalizedCategory.equals("POINT_MAP") && !Set.of("image/png", "image/jpeg").contains(mediaType)) {
-            throw new BusinessException("点位图必须是 PNG 或 JPEG 图片");
+        if (normalizedCategory.equals("POINT_MAP") && !Set.of("image/png", "image/jpeg", "image/webp").contains(mediaType)) {
+            throw new BusinessException("点位图必须是 PNG、JPEG 或 WebP 图片");
         }
 
+        if(normalizedCategory.equals("POINT_MAP")) {
+            try(var input=file.getInputStream()) {
+                var image=javax.imageio.ImageIO.read(input);
+                if(image==null || (long)image.getWidth()*image.getHeight()>50000000L) throw new BusinessException("点位图无法读取或像素数过大");
+            }catch(IOException ex){throw new BusinessException("点位图读取失败");}
+        }
         String extension = extension(original);
         String storedName = UUID.randomUUID() + extension;
         Path root = Path.of(properties.getBaseDir()).toAbsolutePath().normalize();
@@ -88,6 +94,13 @@ public class RadiologyAttachmentService {
         var saved=repository.save(attachment);
         caseService.invalidate(entity);
         return toResponse(saved);
+    }
+
+    @Transactional
+    public RadiologyDto.AttachmentResponse replace(Long id,MultipartFile file) {
+        var old=requireAttachment(id);caseService.assertEditable(caseService.requireCase(old.getCaseId()));
+        var replacement=upload(old.getCaseId(),old.getCategory(),file);
+        old.setDeleted(true);repository.save(old);return replacement;
     }
 
     @Transactional(readOnly = true)

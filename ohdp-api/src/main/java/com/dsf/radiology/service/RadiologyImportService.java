@@ -191,7 +191,7 @@ public class RadiologyImportService {
             for (RadiologyCatalogService.ItemDefinition item : catalogService.getCatalog(modality)) {
                 if (protection != item.code().equals("RPD")) continue;
                 for (RadiologyCatalogService.FieldDefinition field : item.fields()) {
-                    if (!templateField(modality, protection, field.code())) continue;
+                    if (!templateField(modality, protection, field.code()) || (item.code().equals("HCR") && field.code().equals("厂家规定值/基线值"))) continue;
                     Cell name = names.createCell(column);
                     String unit = StringUtils.hasText(field.unit()) ? " [" + field.unit() + "]" : "";
                     name.setCellValue(item.name() + " / " + field.label() + unit + (field.required() ? " *" : "（可选）"));
@@ -290,6 +290,11 @@ public class RadiologyImportService {
             boolean noResidualImage = item.code().equals("ILA") && isNo(textValues.get("是否有残影（如“否”无需填后两项）"));
             for (RadiologyCatalogService.FieldDefinition field : item.fields()) {
                 if (!field.required()) continue;
+                if(item.code().equals("GTA") && textValues.get("测量值α2")==null) {
+                    boolean hasAngle=values.stream().anyMatch(v->v.getItemCode().equals("GTA") && v.getFieldCode().equals("测量值α2") && v.getValueNum()!=null);
+                    if(hasAngle && field.code().contains("边沿间距"))continue;
+                    if(!hasAngle && field.code().equals("测量值α2"))continue;
+                }
                 if (item.code().equals("CTDI") && !RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")
                         && (field.code().matches("S[CDULR]D[123]") || List.of("层数n2", "层厚T2", "刻度系数k2").contains(field.code()))) continue;
                 if (item.code().equals("LCR") && RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")
@@ -365,14 +370,14 @@ public class RadiologyImportService {
             RadiologyCatalogService.ItemDefinition item,
             RadiologyCatalogService.FieldDefinition field) {
         if (field.code().equals("厂家规定值/基线值")) {
-            if (item.code().equals("HCR")) return "HCR-BASELINE";
+            if (item.code().equals("HCR")) return "HCR-LEGACY-REFERENCE";
             if (item.code().equals("LCR")) return "LCR-BASELINE";
         }
         return field.code();
     }
 
     private String canonicalFieldCode(String itemCode, String importCode) {
-        if ((itemCode.equals("HCR") && importCode.equalsIgnoreCase("HCR-BASELINE"))
+        if ((itemCode.equals("HCR") && importCode.equalsIgnoreCase("HCR-LEGACY-REFERENCE"))
                 || (itemCode.equals("LCR") && importCode.equalsIgnoreCase("LCR-BASELINE"))) {
             return "厂家规定值/基线值";
         }

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import axios from 'axios'
+import { renderAsync } from 'docx-preview'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import HelpMark from '../help/HelpMark.vue'
+import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 
 type Modality = 'DR' | 'CT'
 type CaseStatus = 'DRAFT' | 'DATA_ENTERED' | 'CALCULATED' | 'PENDING_REVIEW' | 'REVIEWED' | 'APPROVED' | 'REPORTED'
@@ -78,6 +80,9 @@ interface ReportFile {
 }
 
 interface InspectionCase {
+  city?: string
+  county?: string
+  profile?: ReportProfile
   id: number
   caseCode: string
   modality: Modality
@@ -134,6 +139,11 @@ interface InspectionCase {
 }
 
 interface CaseSummary {
+  sampleAcceptanceNo?: string
+  equipmentNo?: string
+  reportDate?: string
+  city?: string
+  county?: string
   id: number
   caseCode: string
   modality: Modality
@@ -193,6 +203,16 @@ interface ImportPreview {
   errors: Array<{ column: number; header: string; value: string; message: string }>
 }
 
+interface InstrumentRecord { deviceId?: number; name: string; model: string; deviceNo: string; certificateNo: string; validFrom?: string; validTo?: string }
+interface ReportProfile {
+  sampleName?: string; submittingUnit?: string; commissionedUnit?: string; equipmentParameters?: string; manufacturedDate?: string;
+  detectorName?: string; backgroundLocation?: string; backgroundOperation?: string; calibrationMode?: string;
+  protectionConditions?: string; overallConclusion?: string; selectedGroups?: string[]; instruments?: InstrumentRecord[];
+}
+const blankProfile = (modality: Modality): ReportProfile => ({ sampleName: '', submittingUnit: '', commissionedUnit: '', equipmentParameters: '',
+  detectorName: '', backgroundLocation: '', backgroundOperation: '未曝光', calibrationMode: 'INSTRUMENT', protectionConditions: '', overallConclusion: '',
+  selectedGroups: modality === 'DR' ? ['GENERAL','SPECIAL','PROTECTION'] : ['QC','PROTECTION'], instruments: [] })
+
 interface CaseForm {
   caseCode: string
   modality: Modality
@@ -228,8 +248,13 @@ interface CaseForm {
   protectionMode: string
   rpdUnit: string
   notes: string
+  city: string
+  county: string
+  profile: ReportProfile
 }
 
+const emit=defineEmits<{ 'select-modality':[Modality] }>()
+const pendingQueryId=ref<number>()
 const props = withDefaults(defineProps<{
   token: string
   modality: Modality
@@ -258,7 +283,68 @@ const catalog = ref<ItemDefinition[]>([])
 const rules = ref<Rule[]>([])
 const calculation = ref<CalculationResponse | null>(null)
 const workTab = ref('base')
-const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20 })
+const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20, year: undefined as number | undefined,
+  from: '', to: '', city: '', county: '', receipt: '', company: '', modalities: [] as Modality[], crossModality: false })
+const queryVisible = ref(false)
+const previewVisible = ref(false)
+const previewPdfUrl=ref('')
+watch(previewVisible,value=>{if(!value && previewPdfUrl.value){URL.revokeObjectURL(previewPdfUrl.value);previewPdfUrl.value=''}})
+const previewContainer = ref<HTMLElement>()
+const profileDraft = reactive<ReportProfile>(blankProfile(props.modality))
+const regionsLibrary=ref<Array<{id:number;parentId?:number;regionName:string;level:number}>>([])
+const cityOptions=computed(()=>regionsLibrary.value.filter(r=>r.level===2))
+const standardsLibrary = ref<Array<{id: number; standardCode: string; standardName: string}>>([])
+const instrumentsLibrary = ref<Array<{id: number; deviceName: string; deviceModel?: string; deviceNo?: string; certificateNo?: string; calibrationDate?: string; calibrationExpiry?: string}>>([])
+const staffLibrary = ref<Array<{id: number; staffName?: string; name?: string}>>([])
+const selectedStandardIds = ref<number[]>([])
+const selectedInstrumentId = ref<number>()
+async function loadLibraries() {
+  const results = await Promise.allSettled([api.get('/api/ohdp/basic/standards',{params:{size:100}}),api.get('/api/ohdp/devices',{params:{size:100,status:'NORMAL'}}),api.get('/api/ohdp/maintenance/staff-profiles',{params:{size:100}}),api.get('/api/ohdp/basic/regions')])
+  if(results[0].status === 'fulfilled') standardsLibrary.value = results[0].value.data.content || []
+  if(results[1].status === 'fulfilled') instrumentsLibrary.value = results[1].value.data.content || []
+  if(results[2].status === 'fulfilled') staffLibrary.value = results[2].value.data.content || []
+  if(results[3].status === 'fulfilled') regionsLibrary.value=results[3].value.data || []
+}
+function importStandards() { caseForm.standardBasis = standardsLibrary.value.filter(s=>selectedStandardIds.value.includes(s.id)).map((s,i)=>`${i+1}.${s.standardCode}《${s.standardName}》`).join('；') }
+function addInstrument() {
+  const d=instrumentsLibrary.value.find(d=>d.id===selectedInstrumentId.value);if(!d)return
+  if(!caseForm.profile.instruments) caseForm.profile.instruments=[]
+  if(caseForm.profile.instruments.some(i=>i.deviceId===d.id)) return
+  caseForm.profile.instruments.push({deviceId:d.id,name:d.deviceName,model:d.deviceModel || '',deviceNo:d.deviceNo || '',certificateNo:d.certificateNo || '',validFrom:d.calibrationDate,validTo:d.calibrationExpiry})
+}
+function resetQuery() { Object.assign(query,{keyword:'',status:'',year:undefined,from:'',to:'',city:'',county:'',receipt:'',company:'',modalities:[],crossModality:false,page:0});void loadCases() }
+async function previewReport() {
+  if(!selectedCase.value)return
+  await run(async()=>{
+    const caps=await api.get('/api/radiology/preview-capabilities')
+    const pdf=!!caps.data.pdf
+    const {data}=await api.get(`/api/radiology/cases/${selectedCase.value!.id}/report-preview`,{responseType:'blob',params:{format:pdf?'pdf':'docx'}})
+    if(previewPdfUrl.value)URL.revokeObjectURL(previewPdfUrl.value)
+    previewPdfUrl.value=pdf?URL.createObjectURL(new Blob([data],{type:'application/pdf'})):''
+    previewVisible.value=true;await nextTick()
+    if(!pdf && previewContainer.value) { previewContainer.value.innerHTML='';await renderAsync(data,previewContainer.value,undefined,{breakPages:true,renderHeaders:true,renderFooters:true,inWrapper:true,ignoreLastRenderedPageBreak:false}) }
+  })
+}
+async function deleteReport(id: number) {
+  const {value}=await ElMessageBox.prompt('填写删除原因。系统保留原文件及删除记录。','删除报告',{inputValidator:v=>!!v.trim() || '请填写原因'})
+  await run(async()=>{await api.delete(`/api/radiology/reports/${id}`,{params:{reason:value}});await selectCase(selectedCase.value!.id)},'报告已从列表移除')
+}
+async function replaceAttachment(id: number,event: Event) {
+  const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return
+  await run(async()=>{const form=new FormData();form.append('file',file);await api.put(`/api/radiology/attachments/${id}`,form);await selectCase(selectedCase.value!.id)},'附件已更换');input.value=''
+}
+async function saveReportProfile() {
+  if(!selectedCase.value)return
+  await run(async()=>{
+    const c=selectedCase.value!;const payload={...blankCaseForm(c.modality),...c,profile:JSON.parse(JSON.stringify(profileDraft)),expectedDataVersion:c.dataVersion}
+    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;syncCaseState()
+  },'总体评价和防护条件已保存，请重新计算后提交')
+}
+async function generateNonconformities() {
+  if(!selectedCase.value)return
+  const {data}=await api.get(`/api/radiology/cases/${selectedCase.value.id}/suggested-conclusion`);profileDraft.overallConclusion=data.text
+}
+
 const conditionValues = reactive<Record<string,string>>({})
 const measurementValues = reactive<Record<string, string | number>>({})
 const pointDrafts = ref<Array<ProtectionPoint & { readingsText: string }>>([])
@@ -275,6 +361,11 @@ const importFile = ref<File | null>(null)
 const importType = ref<'PERFORMANCE' | 'PROTECTION'>('PERFORMANCE')
 const importPreview = ref<ImportPreview | null>(null)
 const attachmentCategory = ref<'POINT_MAP' | 'CERTIFICATE' | 'PHANTOM_MANUAL' | 'OTHER'>('POINT_MAP')
+const queryPage=computed({get:()=>query.page+1,set:(v:number)=>{query.page=v-1}})
+async function selectQueryCase(item: CaseSummary) {
+  if(item.modality!==props.modality){queryVisible.value=false;pendingQueryId.value=item.id;emit('select-modality',item.modality);return}
+  queryVisible.value=false;await selectCase(item.id)
+}
 const ruleDialogVisible = ref(false)
 const editingRuleId = ref<number | null>(null)
 const calculationItems = computed(() => calculation.value?.items || selectedCase.value?.itemResults || [])
@@ -289,7 +380,7 @@ const blankCaseForm = (modality: Modality): CaseForm => ({
     ? 'WS 76-2020《医用常规X射线诊断设备质量控制检测规范》；GBZ 130-2020《放射诊断放射防护要求》'
     : 'WS 519-2019《X射线计算机体层摄影装置质量控制检测规范》；GBZ 130-2020《放射诊断放射防护要求》',
   instrumentDescription: '', writerName: '', reviewerName: '', approverName: '', notes: '',
-  hasAec: true, hasRawImages: true, featureReason: '', agencyName: '', region: '', inspectionEndDate: '', protectionMode: 'UNSUBTRACTED', rpdUnit: 'nSv/h',
+  hasAec: true, hasRawImages: true, featureReason: '', agencyName: '', region: '', inspectionEndDate: '', protectionMode: 'UNSUBTRACTED', rpdUnit: 'nSv/h', city:'',county:'',profile:blankProfile(modality),
 })
 
 const caseForm = reactive<CaseForm>(blankCaseForm(props.modality))
@@ -343,7 +434,8 @@ watch(() => props.modality, async (value) => {
   selectedCase.value = null
   calculation.value = null
   Object.assign(caseForm, blankCaseForm(value))
-  await Promise.all([loadCatalog(), loadCases(), loadRules()])
+  await Promise.all([loadCatalog(), loadCases(), loadRules(), loadLibraries()])
+  if(pendingQueryId.value){const id=pendingQueryId.value;pendingQueryId.value=undefined;await selectCase(id)}
 }, { immediate: true })
 
 watch(caseForm, () => {
@@ -383,7 +475,9 @@ async function loadCatalog() {
 
 async function loadCases() {
   const response = await api.get<{ content: CaseSummary[]; totalElements: number }>('/api/radiology/cases', {
-    params: { modality: props.modality, status: query.status || undefined, keyword: query.keyword || undefined, page: query.page, size: query.size },
+    params: { modality: query.crossModality ? undefined : props.modality, status: query.status || undefined, keyword: query.keyword || undefined,
+      modalities: query.modalities.length ? query.modalities.join(',') : undefined, year:query.year,from:query.from || undefined,to:query.to || undefined,
+      city:query.city || undefined,county:query.county || undefined,receipt:query.receipt || undefined,company:query.company || undefined,page:query.page,size:query.size },
   })
   cases.value = response.data.content
   totalCases.value = response.data.totalElements
@@ -409,8 +503,9 @@ function syncCaseState() {
   for (const name of Object.keys(conditionValues)) delete conditionValues[name]
   Object.assign(conditionValues,current?.itemConditions || {})
   if (!current) return
+  Object.assign(profileDraft,blankProfile(current.modality),JSON.parse(JSON.stringify(current.profile || {})))
   for (const value of current.measurements.filter(item => item.fieldRole === 'RAW')) {
-    measurementValues[`${value.itemCode}::${value.fieldCode}`] = value.valueNum ?? value.valueText ?? ''
+    measurementValues[`${value.itemCode}::${value.fieldCode}`] = value.fieldRole === 'RAW' ? (value.valueText ?? value.valueNum ?? '') : (value.valueNum ?? value.valueText ?? '')
   }
   pointDrafts.value = current.protectionPoints.map(point => ({ ...point, readingsText: point.readings.join(', ') }))
 }
@@ -484,6 +579,9 @@ function openEditCase() {
     const value = current[key as keyof InspectionCase]
     if (typeof value === 'string' || typeof value === 'boolean') (form as unknown as Record<string, unknown>)[key] = value
   }
+  form.profile = { ...blankProfile(current.modality), ...JSON.parse(JSON.stringify(current.profile || {})) }
+  if(!form.profile.selectedGroups)form.profile.selectedGroups=blankProfile(current.modality).selectedGroups
+  if(form.protectionMode==='RESPONSE_CORRECTED'){form.protectionMode='SUBTRACTED';form.profile.calibrationMode='BOTH'}
   form.modality = current.modality
   form.caseCode = current.caseCode
   form.inspectedUnitName = current.inspectedUnitName
@@ -498,8 +596,14 @@ function validateCaseStep(step = caseDialogStep.value) {
   if (step === 0) {
     if (!caseForm.caseCode.trim()) message = '需要填写案例编号'
     else if (!caseForm.inspectedUnitName.trim()) message = '需要填写受检单位'
+    else if (!caseForm.sampleAcceptanceNo.trim()) message = '需要填写受理编号'
+    else if (!caseForm.detectionCategory) message = '需要选择检测类别'
   } else if (step === 1 && !caseForm.equipmentName.trim()) {
     message = '需要填写设备名称'
+  }
+  if(step===2) {
+    if(!caseForm.inspectionDate || !caseForm.inspectionEndDate) message='需要填写检测起止日期'
+    else if(caseForm.inspectionEndDate < caseForm.inspectionDate) message='结束日期不能早于开始日期'
   }
   caseValidationMessage.value = message
   if (message) ElMessage.warning(message)
@@ -556,7 +660,8 @@ async function saveCase() {
   }
   const wasEditing = Boolean(editingCaseId.value)
   await run(async () => {
-    const payload = { ...caseForm, inspectionDate: caseForm.inspectionDate || null, reportDate: caseForm.reportDate || null,
+    if(!validateCaseStep(2)) {caseDialogStep.value=2;return}
+    const payload = { ...caseForm, profile:{...caseForm.profile, manufacturedDate:caseForm.profile.manufacturedDate || null}, inspectionDate: caseForm.inspectionDate || null, reportDate: caseForm.reportDate || null,
       inspectionEndDate: caseForm.inspectionEndDate || null, expectedDataVersion: selectedCase.value?.dataVersion }
     const response = editingCaseId.value
       ? await api.put<InspectionCase>(`/api/radiology/cases/${editingCaseId.value}`, payload)
@@ -580,8 +685,26 @@ async function removeCase(item: CaseSummary) {
   }, '案例已删除')
 }
 
-function isTextField(itemCode: string, fieldCode: string) {
-  return itemCode === 'ART' || itemCode === 'ILA' || fieldCode === 'STP-MODEL'
+function visibleFields(item: ItemDefinition) {
+  return item.fields.filter(f=>{
+    if(item.code==='LCD' && (f.code.startsWith('NUM') || f.code.startsWith('mm')))return selectedCase.value?.measurements.some(m=>m.itemCode==='LCD' && m.fieldCode===f.code && m.fieldRole==='RAW' && m.valueNum!=null)
+    if(item.code==='HCR' && f.code==='厂家规定值/基线值')return selectedCase.value?.measurements.some(m=>m.itemCode==='HCR' && m.fieldCode===f.code && m.fieldRole==='RAW' && m.valueNum!=null)
+    if(item.code==='RST' && ['WWmin','CThm'].includes(f.code))return false
+    if(item.code==='GTA' && conditionValues['__method.GTA']==='PHANTOM' && f.code==='测量值α2')return false
+    if(item.code==='GTA' && conditionValues['__method.GTA']==='INCLINOMETER' && f.code.includes('边沿间距'))return false
+    return true
+  })
+}
+function conditionRows(code: string): string[] {return ({TVD:['第1组','第2组','第3组'],LRD:['左a1','右a2','前b1','后b2'],REA:['水平方向','垂直方向'],TPA:['前进（负载70kg）','后退（负载70kg）'],CTDI:['头部模体','体部模体']} as Record<string,string[]>)[code] || []}
+function textOptions(code: string): string[] {
+  if(code==='UBD-QUALIFIER')return ['>','<']
+  if(code==='ART-SOURCE')return ['探测器','监视器']
+  if(code==='LCR-BASELINE-UNIT')return ['个','%']
+  if(code==='填“是”或“否”' || code.startsWith('是否有残影'))return ['是','否']
+  return []
+}
+function isTextField(_itemCode: string, fieldCode: string) {
+  return fieldCode === '填“是”或“否”' || fieldCode.startsWith('是否有残影') || ['STP-MODEL','UBD-QUALIFIER','ART-SOURCE','LCR-BASELINE-UNIT'].includes(fieldCode)
 }
 
 function key(itemCode: string, fieldCode: string) {
@@ -594,7 +717,7 @@ function computedFields(itemCode: string) {
 
 async function saveMeasurements() {
   if (!selectedCase.value) return
-  const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number | null; valueText?: string | null }> = []
+  const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number | string | null; valueText?: string | null }> = []
   for (const item of catalog.value) {
     for (const field of item.fields) {
       const raw = measurementValues[key(item.code, field.code)]
@@ -606,11 +729,11 @@ async function saveMeasurements() {
       if (isTextField(item.code, field.code)) values.push({ itemCode: item.code, fieldCode: field.code, valueText: String(raw) })
       else {
         const number = Number(raw)
-        if (Number.isNaN(number)) {
+        if (!Number.isFinite(number)) {
           ElMessage.warning(`${item.code} / ${field.label} 不是有效数值`)
           return
         }
-        values.push({ itemCode: item.code, fieldCode: field.code, valueNum: number })
+        values.push({ itemCode: item.code, fieldCode: field.code, valueNum: String(raw).trim() })
       }
     }
   }
@@ -632,13 +755,13 @@ async function calculateCase() {
   const pending = conditionsPending || catalog.value.some(item => item.fields.some(field => {
     const current = measurementValues[key(item.code, field.code)] ?? ''
     const stored = selectedCase.value!.measurements.find(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW')
-    return String(current) !== String(stored?.valueNum ?? stored?.valueText ?? '')
+    return String(current) !== String(stored?.valueText ?? stored?.valueNum ?? '')
   }))
   if (pending) {
     await saveMeasurements()
     const stillPending = catalog.value.some(item => item.fields.some(field => {
       const stored = selectedCase.value!.measurements.find(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW')
-      return String(measurementValues[key(item.code,field.code)] ?? '') !== String(stored?.valueNum ?? stored?.valueText ?? '')
+      return String(measurementValues[key(item.code,field.code)] ?? '') !== String(stored?.valueText ?? stored?.valueNum ?? '')
     }))
     if (stillPending) return
   }
@@ -902,11 +1025,11 @@ function showMeasurementHelp(field: FieldDefinition) {
     <div class="qc-layout">
       <aside class="case-rail">
         <div class="rail-filter">
-          <el-input v-model="query.keyword" clearable placeholder="案例编号" @keyup.enter="loadCases" />
+          <el-input v-model="query.keyword" clearable placeholder="编号、单位、设备编号" @keyup.enter="loadCases" />
           <el-select v-model="query.status" clearable placeholder="全部状态" @change="loadCases">
             <el-option v-for="status in ['DRAFT','DATA_ENTERED','CALCULATED','PENDING_REVIEW','REVIEWED','APPROVED','REPORTED']" :key="status" :label="statusText(status as CaseStatus)" :value="status" />
           </el-select>
-          <el-button @click="loadCases">查询</el-button>
+          <el-button @click="loadCases">查询</el-button><el-button @click="queryVisible=true">综合查询</el-button>
         </div>
         <div class="case-count">共 {{ totalCases }} 个案例</div>
         <div v-if="!cases.length" class="rail-empty">暂无 {{ modality }} 案例</div>
@@ -1033,12 +1156,17 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
-                  <el-input v-if="item.code !== 'RPD'" v-model="conditionValues[item.code]" :disabled="!editable" type="textarea" :rows="2" placeholder="检测条件：曝光参数、扫描模式、模体/滤过、SID及其他方法条件" style="margin:8px 0 14px" />
+                  <RadiologyConditionEditor v-if="item.code!=='RPD'" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable" />
+                  <div v-if="conditionRows(item.code).length" class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div>
+                  <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体法" value="PHANTOM" /><el-option label="倾角仪法" value="INCLINOMETER" /></el-select>
                   <div class="field-grid">
-                    <label v-for="field in item.fields" :key="field.code" class="field-card">
+                    <label v-for="field in visibleFields(item)" :key="field.code" class="field-card">
                       <span>{{ field.label }} <em v-if="field.required">*</em> <HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" /></span>
+                      <el-select v-if="textOptions(field.code).length" v-model="measurementValues[key(item.code,field.code)]" :disabled="!editable" clearable>
+                        <el-option v-for="o in textOptions(field.code)" :key="o" :value="o" :label="o" />
+                      </el-select>
                       <el-select
-                        v-if="field.code === 'STP-MODEL'"
+                        v-else-if="field.code === 'STP-MODEL'"
                         v-model="measurementValues[key(item.code, field.code)]"
                         :disabled="!editable"
                         placeholder="选择设备信号响应模型"
@@ -1095,6 +1223,12 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-button :disabled="!editable" @click="addProtectionPoint">增加点位</el-button>
                 <el-button type="primary" :disabled="!editable || !pointDrafts.length" @click="saveProtectionPoints">保存并计算</el-button>
               </div>
+              <div class="protection-context">
+                <el-input v-model="profileDraft.protectionConditions" :disabled="!editable" placeholder="防护检测条件：kV、mA、s/mAs、模体、扫描方式等" />
+                <el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" placeholder="本底测量地点" />
+                <el-input v-model="profileDraft.backgroundOperation" :disabled="!editable" placeholder="本底运行情况（未曝光）" />
+                <el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button>
+              </div>
               <el-table :data="pointDrafts" border>
                 <el-table-column label="点位代码" width="120"><template #default="scope"><el-input v-model="scope.row.pointCode" :disabled="!editable" /></template></el-table-column>
                 <el-table-column label="点位名称" width="150"><template #default="scope"><el-input v-model="scope.row.pointName" :disabled="!editable" /></template></el-table-column>
@@ -1128,11 +1262,14 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-table-column label="大小" width="100"><template #default="scope">{{ Math.ceil(scope.row.fileSize / 1024) }} KB</template></el-table-column>
                 <el-table-column prop="sha256" label="SHA-256" min-width="220" show-overflow-tooltip />
                 <el-table-column prop="uploadedAt" label="上传时间" width="180" />
-                <el-table-column label="操作" width="150"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/attachments/${scope.row.id}/download`, scope.row.originalName)">下载</el-button><el-button link type="danger" :disabled="!editable" @click="removeAttachment(scope.row)">删除</el-button></template></el-table-column>
+                <el-table-column label="操作" width="150"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/attachments/${scope.row.id}/download`, scope.row.originalName)">下载</el-button><label v-if="editable" class="replace-attachment">更换<input type="file" accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx" @change="replaceAttachment(scope.row.id,$event)" /></label><el-button link type="danger" :disabled="!editable" @click="removeAttachment(scope.row)">删除</el-button></template></el-table-column>
               </el-table>
             </el-tab-pane>
 
             <el-tab-pane label="审核与报告" name="report">
+              <div class="section-toolbar"><el-button type="primary" @click="previewReport">逐页预览报告</el-button><el-button :disabled="!editable" @click="generateNonconformities">生成不符合项</el-button></div>
+              <el-input v-model="profileDraft.overallConclusion" :disabled="!editable" type="textarea" :rows="4" placeholder="根据检测范围撰写总体评价；留空时按质控与防护分别生成评价" />
+              <el-button :disabled="!editable" @click="saveReportProfile">保存总体评价</el-button>
               <div class="approval-grid">
                 <div><span>编写人</span><strong>{{ selectedCase.writerName || '-' }}</strong></div>
                 <div><span>审核人 <HelpMark anchor-id="radiology.review" /></span><strong>{{ selectedCase.reviewerName || '-' }}</strong><p>{{ selectedCase.reviewComment || '' }}</p></div>
@@ -1153,7 +1290,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-table-column prop="generatedBy" label="生成人" width="110" />
                 <el-table-column prop="generatedAt" label="生成时间" width="180" />
                 <el-table-column prop="sha256" label="SHA-256" min-width="180" show-overflow-tooltip />
-                <el-table-column label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button></template></el-table-column>
+                <el-table-column label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
               </el-table>
             </el-tab-pane>
 
@@ -1223,19 +1360,26 @@ function showMeasurementHelp(field: FieldDefinition) {
         <el-row :gutter="14" v-if="caseDialogStep === 2">
           <el-col :span="12"><el-form-item label="检测机构名称"><el-input v-model="caseForm.agencyName" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="地区"><el-input v-model="caseForm.region" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="检测结束日期"><el-date-picker v-model="caseForm.inspectionEndDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="检测结束日期 *"><el-date-picker v-model="caseForm.inspectionEndDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="防护原始读数单位"><el-select v-model="caseForm.rpdUnit"><el-option v-for="unit in ['nSv/h','μSv/h','mSv/h']" :key="unit" :value="unit" :label="unit" /></el-select></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /><el-option label="扣本底并作响应时间修正（须填写k2）" value="RESPONSE_CORRECTED" /></el-select></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="校准因子使用"><el-select v-model="caseForm.profile.calibrationMode" style="width:100%"><el-option label="结果无需修正" value="NONE" /><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT" /><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH" /><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME" /></el-select></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /></el-select></el-form-item></el-col>
           <el-col :span="24" v-if="modality === 'DR'"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
         </el-row>
         <section v-if="caseDialogStep === 0" class="case-form-section">
           <div class="case-section-title"><div><span>第 1 步</span><h3>受检单位与案例信息</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="案例编号 *"><el-input v-model="caseForm.caseCode" placeholder="例如 CT-20260828-01" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="受理编号"><el-input v-model="caseForm.sampleAcceptanceNo" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="受理编号 *"><el-input v-model="caseForm.sampleAcceptanceNo" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测类别"><el-select v-model="caseForm.detectionCategory" style="width:100%"><el-option label="验收检测" value="验收检测" /><el-option label="状态检测" value="状态检测" /><el-option label="稳定性检测" value="稳定性检测" /></el-select></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="受检单位 *"><el-input v-model="caseForm.inspectedUnitName" placeholder="填写单位完整名称" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="单位地址"><el-input v-model="caseForm.inspectedUnitAddress" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="样品名称"><el-input v-model="caseForm.profile.sampleName" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="委托单位"><el-input v-model="caseForm.profile.commissionedUnit" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="送检单位"><el-input v-model="caseForm.profile.submittingUnit" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="6"><el-form-item label="所在地市"><el-select v-model="caseForm.city" filterable allow-create><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
+            <el-col :xs="24" :sm="6"><el-form-item label="所在县区"><el-select v-model="caseForm.county" filterable allow-create><el-option v-for="r in regionsLibrary.filter(r=>r.level>=3)" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="本次检测范围"><el-checkbox-group v-model="caseForm.profile.selectedGroups"><template v-if="modality==='DR'"><el-checkbox value="GENERAL">通用质控</el-checkbox><el-checkbox value="SPECIAL">DR专用质控</el-checkbox></template><el-checkbox v-else value="QC">CT质量控制</el-checkbox><el-checkbox value="PROTECTION">场所防护</el-checkbox></el-checkbox-group></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="联系人"><el-input v-model="caseForm.contactName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="联系电话"><el-input v-model="caseForm.contactPhone" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测地点"><el-input v-model="caseForm.detectionLocation" /></el-form-item></el-col>
@@ -1249,6 +1393,8 @@ function showMeasurementHelp(field: FieldDefinition) {
             <el-col :xs="24" :sm="12"><el-form-item label="生产厂家"><el-input v-model="caseForm.manufacturer" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="设备型号"><el-input v-model="caseForm.equipmentModel" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="设备编号"><el-input v-model="caseForm.equipmentNo" /></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="设备参数"><el-input v-model="caseForm.profile.equipmentParameters" type="textarea" /></el-form-item></el-col>
+            <el-col v-if="modality==='CT'" :span="12"><el-form-item label="出厂日期"><el-date-picker v-model="caseForm.profile.manufacturedDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
             <template v-if="modality === 'CT'">
               <el-col :xs="24" :sm="12"><el-form-item><template #label>模体名称 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomName" /></el-form-item></el-col>
               <el-col :xs="24" :sm="12"><el-form-item><template #label>模体厂家 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomManufacturer" /></el-form-item></el-col>
@@ -1262,8 +1408,12 @@ function showMeasurementHelp(field: FieldDefinition) {
         <section v-else-if="caseDialogStep === 2" class="case-form-section">
           <div class="case-section-title"><div><span>第 3 步</span><h3>检测与人员信息</h3></div><HelpMark anchor-id="radiology.instrument" /></div>
           <el-row :gutter="16">
-            <el-col :xs="24" :sm="12"><el-form-item label="检测日期"><el-date-picker v-model="caseForm.inspectionDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="检测开始日期 *"><el-date-picker v-model="caseForm.inspectionDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="报告日期"><el-date-picker v-model="caseForm.reportDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="从标准库导入"><el-select v-model="selectedStandardIds" multiple filterable style="width:80%"><el-option v-for="s in standardsLibrary" :key="s.id" :value="s.id" :label="s.standardCode+' '+s.standardName" /></el-select><el-button @click="importStandards">导入依据</el-button></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="从检测设备库选择"><el-select v-model="selectedInstrumentId" filterable style="width:80%"><el-option v-for="d in instrumentsLibrary" :key="d.id" :value="d.id" :label="d.deviceName+' '+(d.deviceNo || '')" /></el-select><el-button @click="addInstrument">添加仪器</el-button></el-form-item></el-col>
+            <el-col :span="24"><el-table :data="caseForm.profile.instruments" border><el-table-column label="仪器" min-width="150"><template #default="s">{{s.row.name}} {{s.row.model}} / {{s.row.deviceNo}}</template></el-table-column><el-table-column label="证书编号" min-width="130"><template #default="s"><el-input v-model="s.row.certificateNo" /></template></el-table-column><el-table-column label="有效期起" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validFrom" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column label="有效期止" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validTo" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column width="70"><template #default="s"><el-button link @click="caseForm.profile.instruments?.splice(s.$index,1)">移除</el-button></template></el-table-column></el-table></el-col>
+            <el-col :span="12"><el-form-item label="检测人"><el-select v-model="caseForm.profile.detectorName" filterable allow-create default-first-option><el-option v-for="s in staffLibrary" :key="s.id" :value="s.staffName || s.name || String(s.id)" :label="s.staffName || s.name || String(s.id)" /></el-select></el-form-item></el-col>
             <el-col :span="24"><el-form-item><template #label>检测依据 <HelpMark anchor-id="basic.reference" /></template><el-input v-model="caseForm.standardBasis" type="textarea" :rows="2" /></el-form-item></el-col>
             <el-col :span="24"><el-form-item><template #label>检测仪器及证书 <HelpMark anchor-id="radiology.instrument" /></template><el-input v-model="caseForm.instrumentDescription" type="textarea" :rows="2" placeholder="填写仪器名称、型号、编号和证书有效期" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item label="编写人"><el-input v-model="caseForm.writerName" /></el-form-item></el-col>
@@ -1302,6 +1452,20 @@ function showMeasurementHelp(field: FieldDefinition) {
       </template>
     </el-dialog>
 
+    <el-dialog v-model="previewVisible" title="检测报告逐页预览" width="94%" top="3vh" destroy-on-close><iframe v-if="previewPdfUrl" :src="previewPdfUrl" title="检测报告分页预览" style="width:100%;height:80vh;border:0" /><div v-else ref="previewContainer" class="report-preview-pages"></div></el-dialog>
+    <el-dialog v-model="queryVisible" title="综合查询" width="92%">
+      <el-form label-position="top"><el-row :gutter="12">
+        <el-col :span="6"><el-form-item label="检测年份"><el-input-number v-model="query.year" :min="1900" :max="2200" /></el-form-item></el-col>
+        <el-col :span="6"><el-form-item label="检测时间起"><el-date-picker v-model="query.from" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+        <el-col :span="6"><el-form-item label="检测时间止"><el-date-picker v-model="query.to" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+        <el-col :span="6"><el-form-item label="报告状态"><el-select v-model="query.status" clearable><el-option v-for="s in ['DRAFT','DATA_ENTERED','CALCULATED','PENDING_REVIEW','REVIEWED','APPROVED','REPORTED']" :key="s" :value="s" :label="statusText(s as CaseStatus)" /></el-select></el-form-item></el-col>
+        <el-col :span="6"><el-form-item label="所在地市"><el-select v-model="query.city" filterable allow-create clearable><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col><el-col :span="6"><el-form-item label="所在县区"><el-select v-model="query.county" filterable allow-create clearable><el-option v-for="r in regionsLibrary.filter(r=>r.level>=3)" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
+        <el-col :span="6"><el-form-item label="受理编号"><el-input v-model="query.receipt" clearable /></el-form-item></el-col><el-col :span="6"><el-form-item label="受检单位"><el-input v-model="query.company" clearable /></el-form-item></el-col>
+        <el-col :span="12"><el-form-item label="设备类别"><el-checkbox v-model="query.crossModality">跨类别查询</el-checkbox><el-select v-model="query.modalities" multiple clearable><el-option label="DR" value="DR" /><el-option label="CT" value="CT" /></el-select></el-form-item></el-col>
+      </el-row></el-form><el-button type="primary" @click="query.page=0;loadCases()">查询</el-button><el-button @click="resetQuery">重置</el-button>
+      <el-table :data="cases" border style="margin-top:16px"><el-table-column prop="sampleAcceptanceNo" label="受理编号" min-width="150" /><el-table-column prop="inspectedUnitName" label="受检单位" min-width="160" /><el-table-column prop="modality" label="设备类别" width="90" /><el-table-column prop="equipmentName" label="设备名称" min-width="150" /><el-table-column prop="equipmentNo" label="设备编号" min-width="120" /><el-table-column prop="inspectionDate" label="检测时间" width="120" /><el-table-column prop="reportDate" label="出具报告时间" width="130" /><el-table-column label="操作" width="100"><template #default="s"><el-button link @click="selectQueryCase(s.row)">查看</el-button></template></el-table-column></el-table>
+      <el-pagination v-model:current-page="queryPage" :page-size="query.size" :total="totalCases" layout="prev,pager,next,total" @current-change="loadCases" />
+    </el-dialog>
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">
       <el-form label-position="top">
         <el-row :gutter="14">
@@ -1325,6 +1489,13 @@ function showMeasurementHelp(field: FieldDefinition) {
 </template>
 
 <style scoped>
+.report-preview-pages { max-height:80vh;overflow:auto;background:#eceff3; }
+.report-preview-pages :deep(.docx-wrapper) { padding:20px; }
+.condition-subrows {display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0;}
+.protection-context {display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin:12px 0;}
+.replace-attachment {position:relative;color:#409eff;cursor:pointer;margin:0 8px;}
+.replace-attachment input {position:absolute;inset:0;opacity:0;width:100%;cursor:pointer;}
+
 .radiology-workbench { color: #172033; min-width: 0; }
 .qc-hero { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:24px 28px; color:#fff; border-radius:16px; background:linear-gradient(115deg,#143a57 0%,#0b6b73 62%,#10928c 100%); box-shadow:0 16px 42px rgba(19,59,79,.2); }
 .qc-hero h2 { margin:3px 0 7px; font-size:25px; letter-spacing:.04em; }

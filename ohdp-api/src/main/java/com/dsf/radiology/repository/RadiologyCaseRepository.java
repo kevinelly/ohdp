@@ -8,7 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface RadiologyCaseRepository extends JpaRepository<RadiologyCase, Long> {
+public interface RadiologyCaseRepository extends JpaRepository<RadiologyCase, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<RadiologyCase> {
     @org.springframework.data.jpa.repository.Query("""
             select c from RadiologyCase c where c.deleted=false
             and (:modality is null or c.modality=:modality) and (:status is null or c.status=:status)

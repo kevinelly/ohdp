@@ -74,7 +74,7 @@ public class RadiologyCalculationEngine {
                 case "ETD" -> etd(numbers);
                 case "ARS" -> ars(numbers);
                 case "AIC" -> aic(numbers);
-                case "UBD" -> direct(itemCode, numbers, "UBD", "°");
+                case "UBD" -> ubd(numbers,texts);
                 case "LRD" -> lrd(numbers);
                 case "DDI" -> ddi(numbers);
                 case "STP" -> stp(numbers, texts);
@@ -83,7 +83,7 @@ public class RadiologyCalculationEngine {
                 case "ILA" -> ila(numbers, texts);
                 case "ART" -> art(texts);
                 case "HCR" -> hcr(numbers);
-                case "LCR" -> lcr(numbers);
+                case "LCR" -> lcr(numbers,texts);
                 case "TPA" -> tpa(numbers);
                 case "GTA" -> gta(numbers);
                 case "CTDI" -> ctdi(numbers);
@@ -115,10 +115,10 @@ public class RadiologyCalculationEngine {
             double deviation = corrected - nominal;
             double relative = 100 * deviation / nominal;
             out.add(CalculatedField.number("MEAN_" + group, "第" + group + "组校正均值", corrected, 2, "kV"));
-            out.add(CalculatedField.number("DEVIATION_KV_" + group, "第" + group + "组绝对偏离", deviation, 2, "kV"));
-            out.add(CalculatedField.number("DEVIATION_PERCENT_" + group, "第" + group + "组相对偏离", relative, 2, "%"));
-            summaries.add("第" + group + "组 " + round(deviation, 2).toPlainString() + " kV（"
-                    + round(relative, 2).toPlainString() + "%）");
+            out.add(CalculatedField.number("DEVIATION_KV_" + group, "第" + group + "组绝对偏离", deviation, 1, "kV"));
+            out.add(CalculatedField.number("DEVIATION_PERCENT_" + group, "第" + group + "组相对偏离", relative, 1, "%"));
+            out.add(CalculatedField.number("DISPLAY_"+group,"第"+group+"组检测结果",nominal<100 ? deviation : relative,1,nominal<100 ? "kV" : "%"));
+            summaries.add("第"+group+"组 "+round(nominal<100 ? deviation:relative,1).toPlainString()+(nominal<100 ? " kV":"%"));
         }
         return completeGrouped("TVD", summaries, out);
     }
@@ -130,29 +130,36 @@ public class RadiologyCalculationEngine {
         double average = mean(values) * factor;
         double cv = sampleStdDev(values) / mean(values) * 100;
         return complete(code, cv, null, "%", List.of(
-                CalculatedField.number("MEAN", "校正平均值", average, code.equals("ROA") ? 4 : 1, ""),
-                CalculatedField.number("RESULT", "变异系数", cv, 2, "%")));
+                CalculatedField.number("MEAN", "校正平均值", average, code.equals("ROA") ? 4 : rawScale(n,code), code.equals("ROA") ? (value(n,"__MICROGY",0)==1?"μGy":"mGy"):""),
+                CalculatedField.number("RESULT", "变异系数", cv, 1, "%")));
+    }
+
+    private int rawScale(Map<String,BigDecimal> n,String prefix) {
+        return n.entrySet().stream().filter(e->e.getKey().startsWith(prefix) && e.getValue()!=null && !e.getKey().contains("-K"))
+            .mapToInt(e->Math.max(0,e.getValue().scale())).max().orElse(1);
     }
 
     private CalculationResult roq(Map<String, BigDecimal> n) {
-        double m1 = mean(req(n, "ROQ1-1"), req(n, "ROQ1-2"), req(n, "ROQ1-3"));
-        double m2 = mean(req(n, "ROQ2-1"), req(n, "ROQ2-2"), req(n, "ROQ2-3"));
-        double q1 = m1 / (req(n, "I1") * req(n, "T1"));
-        double q2 = m2 / (req(n, "I2") * req(n, "T2"));
-        double result = 100 * Math.abs(q1 - q2) / (q1 + q2);
-        return complete("ROQ", result, null, "%", List.of(
-                CalculatedField.number("MEAN_1", "第一组平均值", m1, 2, ""),
-                CalculatedField.number("MEAN_2", "第二组平均值", m2, 2, ""),
-                CalculatedField.number("Q_1", "第一组归一化输出量", q1, 4, ""),
-                CalculatedField.number("Q_2", "第二组归一化输出量", q2, 4, ""),
-                CalculatedField.number("RESULT", "输出量线性", result, 1, "%")));
+        List<Double> first=new ArrayList<>(), second=new ArrayList<>();
+        for(int i=1;i<=5;i++) { first.add(req(n,"ROQ1-"+i));second.add(req(n,"ROQ2-"+i)); }
+        double k=value(n,"ROQ-K",1);
+        if(k<=0) throw new IncompleteException("校准因子必须大于0");
+        double m1=mean(first)*k, m2=mean(second)*k;
+        double q1=m1/(req(n,"I1")*req(n,"T1")), q2=m2/(req(n,"I2")*req(n,"T2"));
+        double signed=100*(q1-q2)/(q1+q2);
+        return complete("ROQ",Math.abs(signed),round(signed,1).toPlainString()+"%","%",List.of(
+            CalculatedField.number("MEAN_1","第一组校正平均值",m1,4,""),
+            CalculatedField.number("MEAN_2","第二组校正平均值",m2,4,""),
+            CalculatedField.number("Q_1","第一组归一化输出量",q1,4,""),
+            CalculatedField.number("Q_2","第二组归一化输出量",q2,4,""),
+            CalculatedField.number("RESULT","输出量线性",Math.abs(signed),1,"%")));
     }
 
     private CalculationResult simpleAverage(String item, Map<String, BigDecimal> n, String prefix, int count, String unit) {
         List<Double> values = new ArrayList<>();
         for (int i = 1; i <= count; i++) values.add(req(n, prefix + i));
         double average = mean(values);
-        return complete(item, average, null, unit, List.of(CalculatedField.number("RESULT", "检测结果", average, 2, unit)));
+        return complete(item, average, null, unit, List.of(CalculatedField.number("RESULT", "检测结果", average, item.equals("HVL") ? 1 : 1, unit)));
     }
 
     private CalculationResult etd(Map<String, BigDecimal> n) {
@@ -164,11 +171,11 @@ public class RadiologyCalculationEngine {
             double corrected = average * value(n, "ETD-K" + group, 1);
             double deviation = corrected - nominal;
             double relative = 100 * deviation / nominal;
-            out.add(CalculatedField.number("MEAN_" + group, "第" + group + "组校正均值", corrected, 2, "ms"));
-            out.add(CalculatedField.number("DEVIATION_MS_" + group, "第" + group + "组绝对偏离", deviation, 2, "ms"));
-            out.add(CalculatedField.number("DEVIATION_PERCENT_" + group, "第" + group + "组相对偏离", relative, 2, "%"));
-            summaries.add("第" + group + "组 " + round(deviation, 2).toPlainString() + " ms（"
-                    + round(relative, 2).toPlainString() + "%）");
+            out.add(CalculatedField.number("MEAN_" + group, "第" + group + "组校正均值", corrected, rawScale(n,"ETD"+group+"-"), "ms"));
+            out.add(CalculatedField.number("DEVIATION_MS_" + group, "第" + group + "组绝对偏离", deviation, 1, "ms"));
+            out.add(CalculatedField.number("DEVIATION_PERCENT_" + group, "第" + group + "组相对偏离", relative, 1, "%"));
+            summaries.add("第" + group + "组 " + round(deviation, 1).toPlainString() + " ms（"
+                    + round(relative, 1).toPlainString() + "%）");
         }
         return completeGrouped("ETD", summaries, out);
     }
@@ -181,9 +188,9 @@ public class RadiologyCalculationEngine {
         double e2 = 100 * (m2 - overall) / overall;
         double result = Math.max(Math.abs(e1), Math.abs(e2));
         return complete("ARS", result, null, "%", List.of(
-                CalculatedField.number("MEAN_1", "第一组平均值", m1, 3, ""),
-                CalculatedField.number("MEAN_2", "第二组平均值", m2, 3, ""),
-                CalculatedField.number("OVERALL_MEAN", "总平均值", overall, 3, ""),
+                CalculatedField.number("MEAN_1", "第一组平均值", m1, rawScale(n,"ARS"), ""),
+                CalculatedField.number("MEAN_2", "第二组平均值", m2, rawScale(n,"ARS"), ""),
+                CalculatedField.number("OVERALL_MEAN", "总平均值", overall, rawScale(n,"ARS"), ""),
                 CalculatedField.number("DEVIATION_1", "第一组相对偏差", e1, 1, "%"),
                 CalculatedField.number("DEVIATION_2", "第二组相对偏差", e2, 1, "%"),
                 CalculatedField.number("RESULT", "最大相对偏差", result, 1, "%")));
@@ -199,16 +206,22 @@ public class RadiologyCalculationEngine {
         double er = 100 * (right - overall) / overall;
         double result = Math.max(Math.abs(ec), Math.max(Math.abs(el), Math.abs(er)));
         return complete("AIC", result, null, "%", List.of(
-                CalculatedField.number("CENTER_MEAN", "中央电离室平均值", center, 2, ""),
-                CalculatedField.number("LEFT_MEAN", "左电离室平均值", left, 2, ""),
-                CalculatedField.number("RIGHT_MEAN", "右电离室平均值", right, 2, ""),
-                CalculatedField.number("OVERALL_MEAN", "总平均值", overall, 2, ""),
-                CalculatedField.number("RESULT", "最大偏差", result, 2, "%")));
+                CalculatedField.number("CENTER_MEAN", "中央电离室平均值", center, 1, ""),
+                CalculatedField.number("LEFT_MEAN", "左电离室平均值", left, 1, ""),
+                CalculatedField.number("RIGHT_MEAN", "右电离室平均值", right, 1, ""),
+                CalculatedField.number("OVERALL_MEAN", "总平均值", overall, 1, ""),
+                CalculatedField.number("RESULT", "最大偏差", result, 1, "%")));
+    }
+
+    private CalculationResult ubd(Map<String,BigDecimal> n,Map<String,String> texts) {
+        double value=req(n,"UBD");String qualifier=texts.getOrDefault("UBD-QUALIFIER", "");
+        if(!List.of("",">","<","＞","＜").contains(qualifier)) throw new IncompleteException("限定符须为大于、小于或空");
+        return complete("UBD",value,qualifier+round(value,1).toPlainString()+"°","°",List.of(CalculatedField.number("RESULT","垂直度偏离",value,1,"°")));
     }
 
     private CalculationResult direct(String item, Map<String, BigDecimal> n, String key, String unit) {
         double result = req(n, key);
-        return complete(item, result, null, unit, List.of(CalculatedField.number("RESULT", "检测结果", result, 2, unit)));
+        return complete(item, result, null, unit, List.of(CalculatedField.number("RESULT", "检测结果", result, 1, unit)));
     }
 
     private CalculationResult scaledDirect(
@@ -219,7 +232,7 @@ public class RadiologyCalculationEngine {
         return complete(item, result, null, unit, List.of(
                 CalculatedField.number("RAW", "原始读数", raw, 4, ""),
                 CalculatedField.number("FACTOR", "换算系数", factor, 6, ""),
-                CalculatedField.number("RESULT", "检测结果", result, 2, unit)));
+                CalculatedField.number("RESULT", "检测结果", result, 1, unit)));
     }
 
     private CalculationResult lrd(Map<String, BigDecimal> n) {
@@ -235,13 +248,16 @@ public class RadiologyCalculationEngine {
     }
 
     private CalculationResult ddi(Map<String, BigDecimal> n) {
-        double average = mean(req(n, "DDI1"), req(n, "DDI2"), req(n, "DDI3"));
-        double baseline = req(n, "DDI-BASELINE");
-        double result = 100 * (average - baseline) / baseline;
-        return complete("DDI", Math.abs(result), null, "%", List.of(
-                CalculatedField.number("MEAN", "剂量指示平均值", average, 1, ""),
-                CalculatedField.number("DEVIATION", "相对偏差", result, 1, "%"),
-                CalculatedField.number("RESULT", "绝对相对偏差", Math.abs(result), 1, "%")));
+        double average=mean(req(n,"DDI1"),req(n,"DDI2"),req(n,"DDI3"));
+        BigDecimal reference=n.get("DDI-CALCULATED");
+        if(reference==null) reference=n.get("DDI-BASELINE");
+        if(reference==null) return complete("DDI",average,"建立基线值："+round(average,3).toPlainString(),"",List.of(
+            CalculatedField.number("MEAN","DDI测量平均值",average,3,""),CalculatedField.number("RESULT","DDI基线值",average,3,"")));
+        if(reference.signum()<=0) throw new IncompleteException("DDI计算值或基线值必须大于0");
+        double result=100*(average-reference.doubleValue())/reference.doubleValue();
+        return complete("DDI",Math.abs(result),round(result,1).toPlainString()+"%","%",List.of(
+            CalculatedField.number("MEAN","DDI测量平均值",average,3,""),
+            CalculatedField.number("DEVIATION","相对偏差",result,1,"%"),CalculatedField.number("RESULT","绝对相对偏差",Math.abs(result),1,"%")));
     }
 
     private CalculationResult stp(Map<String, BigDecimal> n, Map<String, String> texts) {
@@ -263,8 +279,8 @@ public class RadiologyCalculationEngine {
         }
         out.add(CalculatedField.text("BEST_MODEL", "拟合优度最高的信号传递模型", best.model));
         out.add(CalculatedField.text("SELECTED_MODEL", "采用的信号传递模型", selected.model));
-        out.add(CalculatedField.number("RESULT", "所选模型决定系数 R²", selected.r2, 6, ""));
-        return complete("STP", selected.r2, selected.model, "", out);
+        out.add(CalculatedField.number("RESULT", "所选模型决定系数 R²", selected.r2, 4, ""));
+        return complete("STP", selected.r2, round(selected.r2,4).toPlainString(), "", out);
     }
 
     private CalculationResult rue(
@@ -315,14 +331,14 @@ public class RadiologyCalculationEngine {
     private CalculationResult ila(Map<String, BigDecimal> n, Map<String, String> texts) {
         String answer = text(texts, "是否有残影（如“否”无需填后两项）");
         if (isNo(answer)) {
-            return complete("ILA", 0, "否", "%", List.of(CalculatedField.text("RESULT_TEXT", "是否存在残影", "否")));
+            return complete("ILA", 0, "不存在残影", "%", List.of(CalculatedField.text("RESULT_TEXT", "是否存在残影", "否")));
         }
         if (!isYes(answer)) throw new IncompleteException("请填写是否有残影（是/否）");
         double d1 = req(n, "残影区D1");
         double d0 = req(n, "非残影区D0");
         if (d0 == 0) throw new IncompleteException("非残影区 D0 不能为 0");
         double result = Math.abs(100 * (d1 - d0) / d0);
-        return complete("ILA", result, "是", "%", List.of(
+        return complete("ILA", result, "存在残影，且像素值误差为"+round(result,1).toPlainString()+"%", "%", List.of(
                 CalculatedField.text("RESULT_TEXT", "是否存在残影", "是"),
                 CalculatedField.number("RESULT", "相对误差", result, 1, "%")));
     }
@@ -330,25 +346,39 @@ public class RadiologyCalculationEngine {
     private CalculationResult art(Map<String, String> texts) {
         String answer = text(texts, "填“是”或“否”");
         if (!isYes(answer) && !isNo(answer)) throw new IncompleteException("请填写是否有伪影（是/否）");
-        return complete("ART", isYes(answer) ? 1 : 0, answer, "", List.of(CalculatedField.text("RESULT_TEXT", "是否存在伪影", answer)));
+        String source=texts.getOrDefault("ART-SOURCE", "");
+        if(isYes(answer) && !List.of("探测器","监视器").contains(source)) throw new IncompleteException("存在伪影时须选择来源：探测器或监视器");
+        String result=isYes(answer) ? "存在影响临床诊断的伪影，来源"+source : "无影响临床诊断的伪影";
+        return complete("ART",isYes(answer)?1:0,result,"",List.of(CalculatedField.text("RESULT_TEXT","伪影结果",result)));
     }
 
     private CalculationResult hcr(Map<String, BigDecimal> n) {
-        double result = 100 * req(n, "HCR1") / req(n, "厂家规定值/基线值");
-        return complete("HCR", result, null, "%", List.of(CalculatedField.number("RESULT", "基线保持率", result, 1, "%")));
+        double measured=req(n,"HCR1");
+        BigDecimal reference=n.get("HCR-MANUFACTURER");
+        if(reference==null) reference=n.get("厂家规定值/基线值"); // imported legacy records
+        double factor=1;
+        if(reference==null && n.get("HCR-NYQUIST")!=null) {reference=n.get("HCR-NYQUIST");factor=1.4;}
+        if(reference==null) reference=n.get("HCR-BASELINE");
+        if(reference==null) return complete("HCR",measured,"建立基线值："+round(measured,1).toPlainString()+" lp/mm","lp/mm",List.of(
+            CalculatedField.number("RESULT","分辨力基线",measured,1,"lp/mm")));
+        if(reference.signum()<=0) throw new IncompleteException("分辨力参考值必须大于0");
+        double result=100*measured/(reference.doubleValue()*factor);
+        return complete("HCR",result,null,"%",List.of(CalculatedField.number("RESULT","参考值保持率",result,1,"%")));
     }
 
-    private CalculationResult lcr(Map<String, BigDecimal> n) {
+    private CalculationResult lcr(Map<String, BigDecimal> n,Map<String,String> texts) {
+        if("%".equals(texts.get("LCR-BASELINE-UNIT")) && n.get("厂家规定值/基线值")!=null && value(n,"__ESTABLISH_BASELINE",0)!=1)
+            throw new IncompleteException("百分比基线与细节数的换算尚无明确业务公式，请核定后使用；可选择个数基线");
         double details = req(n, "LCR1（可观察细节数）");
         double contrast = req(n, "LCR2（可观察对比度）");
         if (value(n,"__ESTABLISH_BASELINE",0)==1)
-            return complete("LCR",details,"建立基线", "个细节",List.of(
+            return complete("LCR",details,"建立基线值可观察影像细节数"+round(details,0).toPlainString()+"个（对比度"+round(contrast,3).stripTrailingZeros().toPlainString()+"%）", "个细节",List.of(
                     CalculatedField.number("CONTRAST","可观察对比度",contrast,3,"%"),
                     CalculatedField.number("RESULT","可观察细节数基线",details,2,"个细节")));
         double baseline = req(n, "厂家规定值/基线值");
         double signedDelta = details - baseline;
         double result = Math.abs(signedDelta);
-        return complete("LCR", result, null, "", List.of(
+        return complete("LCR", result, "与基线值比较相差"+round(signedDelta,0).toPlainString()+"个细节变化（对比度"+round(contrast,3).stripTrailingZeros().toPlainString()+"%）", "", List.of(
                 CalculatedField.number("DETAIL_DELTA", "可观察细节数减基线值", signedDelta, 2, ""),
                 CalculatedField.number("CONTRAST", "可观察对比度", contrast, 3, "%"),
                 CalculatedField.number("RESULT", "与基线的绝对差", result, 2, "")));
@@ -407,38 +437,46 @@ public class RadiologyCalculationEngine {
         double peripheral100 = mean(peripheral) * scale;
         double weighted = center100 / 3 + peripheral100 * 2 / 3;
         String name = prefix.equals("H") ? "HEAD" : "BODY";
-        out.add(CalculatedField.number(name + "_CENTER", name + " 中心 CTDI100", center100, 1, "mGy"));
-        out.add(CalculatedField.number(name + "_PERIPHERAL", name + " 周边 CTDI100", peripheral100, 1, "mGy"));
+        out.add(CalculatedField.number(name + "_CENTER", name + " 中心 CTDI100", center100, 2, "mGy"));
+        out.add(CalculatedField.number(name + "_PERIPHERAL", name + " 周边 CTDI100", peripheral100, 2, "mGy"));
         out.add(CalculatedField.number(name + "_CTDIW", name + " CTDIw", weighted, 1, "mGy"));
         return weighted;
     }
 
     private CalculationResult rst(Map<String, BigDecimal> n) {
-        double half = n.get("CThm") == null ? (req(n, "CTbackground") + req(n, "CTmax")) / 2 : req(n, "CThm");
-        double average = mean(req(n, "R1"), req(n, "R2"), req(n, "R3"), req(n, "R4"));
-        double factor = req(n, "RST-FACTOR");
-        if (factor <= 0) throw new IncompleteException("层厚换算系数必须大于0，并有模体说明书依据");
-        double measured = average * factor;
-        double result = measured - req(n, "R0");
-        return complete("RST", Math.abs(result), null, "mm", List.of(
-                CalculatedField.number("CTHM", "半高 CT 值", half, 2, "HU"),
-                CalculatedField.number("MEAN", "实测宽度平均值", average, 2, "pixel"),
-                CalculatedField.number("FACTOR", "模体层厚换算系数", factor, 6, "mm/pixel"),
-                CalculatedField.number("MEASURED", "实测层厚", measured, 2, "mm"),
-                CalculatedField.number("DEVIATION", "层厚偏差", result, 2, "mm"),
-                CalculatedField.number("RESULT", "绝对层厚偏差", Math.abs(result), 2, "mm")));
+        double background=req(n,"CTbackground"), maximum=req(n,"CTmax");
+        double half=(background+maximum)/2, width=maximum-background;
+        double average=mean(req(n,"R1"),req(n,"R2"),req(n,"R3"),req(n,"R4"));
+        double factor=req(n,"RST-FACTOR");
+        if(factor<=0) throw new IncompleteException("层厚换算系数必须大于0，并有模体说明书依据");
+        double measured=average*factor, result=measured-req(n,"R0");
+        return complete("RST",Math.abs(result),null,"mm",List.of(
+            CalculatedField.number("WWMIN","最小窗宽",width,0,"HU"),CalculatedField.number("CTHM","半高CT值",half,0,"HU"),
+            CalculatedField.number("MEAN","实测宽度平均值",average,2,"pixel"),CalculatedField.number("FACTOR","模体层厚换算系数",factor,2,"mm/pixel"),
+            CalculatedField.number("MEASURED","实测层厚",measured,2,"mm"),CalculatedField.number("DEVIATION","层厚偏差",result,1,"mm"),
+            CalculatedField.number("RESULT","绝对层厚偏差",Math.abs(result),1,"mm")));
     }
 
     private CalculationResult lcd(Map<String, BigDecimal> n) {
-        double one = req(n, "NUM1") * req(n, "mm1");
-        double half = req(n, "NUM0.5") * req(n, "mm0.5");
-        double third = req(n, "NUM0.3") * req(n, "mm0.3");
-        double result = mean(one, half, third);
-        return complete("LCD", result, null, "mm", List.of(
-                CalculatedField.number("CAL_1", "1% 对比度计算值", one, 1, "mm"),
-                CalculatedField.number("CAL_05", "0.5% 对比度计算值", half, 1, "mm"),
-                CalculatedField.number("CAL_03", "0.3% 对比度计算值", third, 1, "mm"),
-                CalculatedField.number("RESULT", "低对比可探测能力", result, 1, "mm")));
+        int[] diameters={15,9,8,7,6,5,4,3,2};
+        String[] suffix={"1","05","03"}, legacy={"1","0.5","0.3"};
+        double[] contrast={1,0.5,0.3}, values=new double[3];
+        List<CalculatedField> fields=new ArrayList<>();
+        for(int i=0;i<3;i++) {
+            BigDecimal count=n.get("LCD-COUNT-"+suffix[i]);double diameter;
+            if(count!=null) {
+                int index;
+                try {index=count.intValueExact();}catch(ArithmeticException e){throw new IncompleteException("可见孔径数必须为1至9的整数");}
+                if(index<1 || index>9) throw new IncompleteException("可见孔径数必须为1至9的整数");
+                diameter=diameters[index-1]; values[i]=diameter*contrast[i];
+            } else {diameter=req(n,"mm"+legacy[i]);values[i]=req(n,"NUM"+legacy[i])*diameter;}
+            values[i]=round(values[i],1).doubleValue();
+            fields.add(CalculatedField.number("DIAMETER_"+suffix[i],"最小直径 "+legacy[i]+"%",diameter,1,"mm"));
+            fields.add(CalculatedField.number("CAL_"+suffix[i],legacy[i]+"% 对比度计算值",values[i],1,"mm"));
+        }
+        double result=mean(values[0],values[1],values[2]);
+        fields.add(CalculatedField.number("RESULT","低对比可探测能力",result,1,"mm"));
+        return complete("LCD",result,null,"mm",fields);
     }
 
     private CalculationResult hul(Map<String, BigDecimal> n) {
@@ -493,7 +531,7 @@ public class RadiologyCalculationEngine {
         double result = Math.sqrt(layer / 10) * average / 10;
         return complete("NPS", result, null, "%", List.of(
                 CalculatedField.number("MEAN", "噪声读数平均值", average, 1, ""),
-                CalculatedField.number("RESULT", "噪声", result, 4, "%")));
+                CalculatedField.number("RESULT", "噪声", result, 2, "%")));
     }
 
     private CalculationResult rpd(Map<String, BigDecimal> n) {
@@ -506,7 +544,7 @@ public class RadiologyCalculationEngine {
         double std = k * a * sampleStdDev(readings);
         String text = round(result, 3).toPlainString() + "±" + round(std, 3).toPlainString();
         return complete("RPD", result, text, "μSv/h", List.of(
-                CalculatedField.number("MEAN", "本底读数平均值", average, 1, "nSv/h"),
+                CalculatedField.number("MEAN", "本底读数平均值", average, 3, ""),
                 CalculatedField.number("STD_DEV", "本底标准偏差", std, 3, "μSv/h"),
                 CalculatedField.number("RESULT", "本底剂量率", result, 3, "μSv/h"),
                 CalculatedField.text("RESULT_TEXT", "本底检测结果", text)));

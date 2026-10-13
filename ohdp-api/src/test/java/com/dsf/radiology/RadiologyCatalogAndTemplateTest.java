@@ -26,9 +26,9 @@ class RadiologyCatalogAndTemplateTest {
 
     @Test
     void generatedTemplatesIncludeCorrectionFieldsAndInstructions() throws Exception {
-        assertColumns(RadiologyModality.DR, "PERFORMANCE", 115);
+        assertColumns(RadiologyModality.DR, "PERFORMANCE", 126);
         assertColumns(RadiologyModality.DR, "PROTECTION", 43);
-        assertColumns(RadiologyModality.CT, "PERFORMANCE", 107);
+        assertColumns(RadiologyModality.CT, "PERFORMANCE", 110);
         assertColumns(RadiologyModality.CT, "PROTECTION", 42);
 
         var template = importer.createTemplate(RadiologyModality.DR, "PERFORMANCE");

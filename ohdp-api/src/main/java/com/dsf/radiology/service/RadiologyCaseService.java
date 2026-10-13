@@ -105,10 +105,37 @@ public class RadiologyCaseService {
             String keyword,
             int page,
             int size) {
-        String value = keyword == null ? "" : keyword.trim();
-        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), Sort.by(Sort.Direction.DESC, "updatedAt"));
-        Page<RadiologyCase> result=caseRepository.search(modality,status,value,pageable);
-        return result.map(this::summary);
+        return searchCases(modality,null,status,keyword,null,null,null,null,null,null,null,page,size);
+    }
+
+    @Transactional(readOnly=true)
+    public Page<RadiologyDto.CaseSummary> searchCases(RadiologyModality modality,List<RadiologyModality> modalities,
+            RadiologyCaseStatus status,String keyword,Integer year,LocalDate from,LocalDate to,String city,String county,
+            String receipt,String company,int page,int size) {
+        if(from!=null && to!=null && to.isBefore(from)) throw new BusinessException("查询结束日期不能早于开始日期");
+        if(year!=null && (year<1900 || year>2200)) throw new BusinessException("年份超出支持范围");
+        return caseRepository.findAll((root,q,cb)->{
+            var predicates=new ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.isFalse(root.get("deleted")));
+            if(modality!=null) predicates.add(cb.equal(root.get("modality"),modality));
+            if(modalities!=null && !modalities.isEmpty()) predicates.add(root.get("modality").in(modalities));
+            if(status!=null) predicates.add(cb.equal(root.get("status"),status));
+            if(StringUtils.hasText(keyword)) {
+                String like="%"+keyword.trim().toLowerCase(java.util.Locale.ROOT)+"%";
+                predicates.add(cb.or(cb.like(cb.lower(root.get("caseCode")),like),cb.like(cb.lower(root.get("sampleAcceptanceNo")),like),
+                    cb.like(cb.lower(root.get("inspectedUnitName")),like),cb.like(cb.lower(root.get("equipmentNo")),like),cb.like(cb.lower(root.get("region")),like)));
+            }
+            for(String field:List.of("city","county","sampleAcceptanceNo","inspectedUnitName")) {
+                String value=switch(field){case "city"->city;case "county"->county;case "sampleAcceptanceNo"->receipt;default->company;};
+                if(StringUtils.hasText(value)) predicates.add(cb.like(root.get(field),"%"+value.trim()+"%"));
+            }
+            LocalDate lower=from,upper=to;
+            if(year!=null) {LocalDate ys=LocalDate.of(year,1,1),ye=LocalDate.of(year,12,31);
+                lower=lower==null || lower.isBefore(ys) ? ys:lower;upper=upper==null || upper.isAfter(ye) ? ye:upper;}
+            if(lower!=null) predicates.add(cb.greaterThanOrEqualTo(cb.<LocalDate>coalesce(root.get("inspectionEndDate"),root.get("inspectionDate")),lower));
+            if(upper!=null) predicates.add(cb.lessThanOrEqualTo(root.get("inspectionDate"),upper));
+            return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        },PageRequest.of(Math.max(page,0),Math.min(Math.max(size,1),100),Sort.by(Sort.Direction.DESC,"updatedAt"))).map(this::summary);
     }
 
     @Transactional
@@ -161,6 +188,7 @@ public class RadiologyCaseService {
             Map<String, String> itemTexts = textsByItem.getOrDefault(item.code(), Map.of());
             boolean hasRpdBackground = itemNumbers.keySet().stream().anyMatch(code -> code.startsWith("RPD0-"));
             String exclusion=scopeService.exclusion(entity, item.code(), itemNumbers);
+            if(!groupSelected(entity,item.code())) exclusion="本次委托检测范围未包含此项目组";
             if (!exclusion.isEmpty()) {
                 markOldCalculatedFieldsDeleted(caseId,item.code());
                 responses.add(new RadiologyDto.ItemCalculationResponse(item.code(),item.name(),true,exclusion,null,"不检测","",
@@ -172,9 +200,12 @@ public class RadiologyCaseService {
                 itemNumbers.put("__HEAD_ONLY",BigDecimal.ONE);
             if (item.code().equals("LCR") && RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE"))
                 itemNumbers.put("__ESTABLISH_BASELINE",BigDecimal.ONE);
+            if(item.code().equals("RPD") && StringUtils.hasText(entity.getProfileJson()) && profile(entity).getCalibrationMode()!=null && List.of("NONE","TIME").contains(profile(entity).getCalibrationMode())) itemNumbers.put("k",BigDecimal.ONE);
             if (item.code().equals("RPD")) itemNumbers.put("a",switch(entity.getRpdUnit()==null ? "nSv/h":entity.getRpdUnit()) {
                 case "μSv/h" -> BigDecimal.ONE; case "mSv/h" -> new BigDecimal("1000"); default -> new BigDecimal("0.001");
             });
+            String unitCondition=itemConditions(entity).get("__params."+item.code());
+            if(unitCondition!=null) try {String unit=objectMapper.readTree(unitCondition).path("doseUnit").asText();if(unit.equals("μGy"))itemNumbers.put("__MICROGY",BigDecimal.ONE);} catch(JsonProcessingException ex){throw new BusinessException("检测条件结构损坏");}
             RadiologyCalculationEngine.CalculationResult result = calculationEngine.calculate(
                     item.code(), itemNumbers, itemTexts, numbersByItem, textsByItem);
             markOldCalculatedFieldsDeleted(caseId, item.code());
@@ -512,6 +543,27 @@ public class RadiologyCaseService {
                 .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8))); }
         catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
     }
+    public com.dsf.radiology.model.RadiologyProfile profile(RadiologyCase entity) {
+        if(!StringUtils.hasText(entity.getProfileJson())) {
+            var profile=new com.dsf.radiology.model.RadiologyProfile();
+            if("RESPONSE_CORRECTED".equals(entity.getProtectionMode()))profile.setCalibrationMode("BOTH");return profile;
+        }
+        try {return objectMapper.readValue(entity.getProfileJson(),com.dsf.radiology.model.RadiologyProfile.class);}
+        catch(JsonProcessingException ex){throw new BusinessException("报告资料格式损坏");}
+    }
+    public boolean groupSelected(RadiologyCase entity,String code) {
+        var groups=profile(entity).getSelectedGroups();if(groups==null) return true;
+        String group=code.equals("RPD") ? "PROTECTION" : entity.getModality()==RadiologyModality.CT ? "QC" :
+                List.of("DDI","STP","RUE","REA","ILA","ART","HCR","LCR").contains(code) ? "SPECIAL":"GENERAL";
+        return groups.contains(group);
+    }
+    public String suggestedConclusion(RadiologyCase entity) {
+        var failures=itemResults(entity).stream().filter(r->r.judgement()==RadiologyJudgement.UNQUALIFIED)
+            .map(r->r.itemName()+"（"+r.ruleDescription()+"）").collect(Collectors.toList());
+        protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(entity.getId()).stream()
+            .filter(p->p.getJudgement()==RadiologyJudgement.UNQUALIFIED).forEach(p->failures.add("防护点位："+p.getPointName()));
+        return failures.isEmpty() ? "本次未发现不符合项，请结合检测范围确认总体评价。" : "本次不符合项：\n"+String.join("；\n",failures);
+    }
     public Map<String,String> itemConditions(RadiologyCase entity) {
         if (!StringUtils.hasText(entity.getItemConditionsJson())) return Map.of();
         try { return objectMapper.readValue(entity.getItemConditionsJson(),new TypeReference<Map<String,String>>(){}); }
@@ -522,6 +574,8 @@ public class RadiologyCaseService {
         List<String> issues=new ArrayList<>();
         if (!calculationFresh(entity)) issues.add("原始数据或判定规则已变更，需要重新计算");
         if (!StringUtils.hasText(entity.getSampleAcceptanceNo())) issues.add("受理编号未填写");
+        if(entity.getInspectionDate()==null) issues.add("检测开始日期未填写");
+        if(!StringUtils.hasText(entity.getDetectionCategory())) issues.add("检测类别未填写");
         var results=itemResults(entity);
         for (var item:catalogService.getCatalog(entity.getModality())) {
             var result=results.stream().filter(r->r.itemCode().equals(item.code())).findFirst().orElse(null);
@@ -533,7 +587,7 @@ public class RadiologyCaseService {
                     || result.judgement()==RadiologyJudgement.INCOMPLETE) issues.add(item.name()+"："+result.ruleDescription());
         }
         var points=protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(entity.getId());
-        if (points.isEmpty()) issues.add("尚未录入场所防护点位");
+        if (groupSelected(entity,"RPD") && points.isEmpty()) issues.add("尚未录入场所防护点位");
         for (var point:points) if (point.getResultValue()==null || point.getJudgement()==RadiologyJudgement.INCOMPLETE
                 || point.getJudgement()==RadiologyJudgement.NEEDS_ASSESSMENT) issues.add(point.getPointName()+"需完成检测或年有效剂量评价");
         return issues;
@@ -606,6 +660,7 @@ public class RadiologyCaseService {
     }
 
     private void calculateProtectionPoints(RadiologyCase entity) {
+        if(!groupSelected(entity,"RPD"))return;
         Map<String, RadiologyMeasurement> rpd = measurementRepository
                 .findByCaseIdAndItemCodeAndDeletedFalseOrderBySortNoAsc(entity.getId(), "RPD").stream()
                 .filter(value -> value.getFieldRole() == RadiologyFieldRole.RAW)
@@ -618,6 +673,9 @@ public class RadiologyCaseService {
         };
         if (k.signum()<=0) throw new BusinessException("仪器校准因子必须大于0");
         String mode=entity.getProtectionMode()==null ? "UNSUBTRACTED" : entity.getProtectionMode();
+        String calibration=profile(entity).getCalibrationMode();
+        if(calibration==null || !StringUtils.hasText(entity.getProfileJson())) calibration=mode.equals("RESPONSE_CORRECTED") ? "BOTH":"INSTRUMENT";
+        if(List.of("NONE","TIME").contains(calibration)) k=BigDecimal.ONE;
         BigDecimal background=BigDecimal.ZERO;
         if (!mode.equals("UNSUBTRACTED")) {
             List<BigDecimal> rawBackground=new ArrayList<>();
@@ -629,7 +687,7 @@ public class RadiologyCaseService {
             background=rawBackground.stream().reduce(BigDecimal.ZERO,BigDecimal::add).divide(BigDecimal.TEN);
         }
         BigDecimal responseFactor=BigDecimal.ONE;
-        if (mode.equals("RESPONSE_CORRECTED")) {
+        if (List.of("BOTH","TIME").contains(calibration)) {
             responseFactor=Optional.ofNullable(rpd.get("RPD-k2")).map(RadiologyMeasurement::getValueNum).orElse(null);
             if (responseFactor==null || responseFactor.signum()<=0) throw new BusinessException("响应时间修正必须提供有效k2，按GBZ 130附录B核定");
         }
@@ -649,6 +707,8 @@ public class RadiologyCaseService {
                 if (net.signum()<0) calculated=List.of();
                 else calculated=List.of(calculated.get(0),net.multiply(k).multiply(a).multiply(normalizationFactor).multiply(responseFactor));
             }
+            if (!calculated.isEmpty() && mode.equals("UNSUBTRACTED"))
+                calculated=List.of(calculated.get(0),calculated.get(1).multiply(responseFactor));
             if (calculated.isEmpty()) {
                 point.setAverageValue(null);
                 point.setResultValue(null);
@@ -735,6 +795,17 @@ public class RadiologyCaseService {
         entity.setFeatureReason(request.getFeatureReason());
         entity.setAgencyName(request.getAgencyName());
         entity.setRegion(request.getRegion());
+        entity.setCity(request.getCity());entity.setCounty(request.getCounty());
+        if(request.getProfile()!=null) {
+            var profile=request.getProfile();
+            if(!StringUtils.hasText(request.getSampleAcceptanceNo()) || !StringUtils.hasText(request.getDetectionCategory()))throw new BusinessException("受理编号与检测类别为必填项");
+            if(request.getInspectionDate()==null || request.getInspectionEndDate()==null)throw new BusinessException("检测起止日期为必填项");
+            if(profile.getSelectedGroups()!=null && (profile.getSelectedGroups().isEmpty() || !(request.getModality()==RadiologyModality.DR ? List.of("GENERAL","SPECIAL","PROTECTION"):List.of("QC","PROTECTION")).containsAll(profile.getSelectedGroups())))
+                throw new BusinessException("至少选择一组检测项目，并使用受支持的检测分组");
+            if(profile.getCalibrationMode()!=null && !List.of("NONE","INSTRUMENT","BOTH","TIME").contains(profile.getCalibrationMode()))
+                throw new BusinessException("不支持的校准组合");
+            entity.setProfileJson(writeJson(profile));
+        }
         entity.setInspectionEndDate(request.getInspectionEndDate());
         entity.setProtectionMode(request.getProtectionMode()==null ? "UNSUBTRACTED":request.getProtectionMode());
         entity.setRpdUnit(request.getRpdUnit()==null ? "nSv/h":request.getRpdUnit());
@@ -769,6 +840,7 @@ public class RadiologyCaseService {
         target.setItemConditionsJson(source.getItemConditionsJson());
         target.setHasAec(source.getHasAec());target.setHasRawImages(source.getHasRawImages());
         target.setFeatureReason(source.getFeatureReason());target.setAgencyName(source.getAgencyName());
+        target.setCity(source.getCity());target.setCounty(source.getCounty());target.setProfileJson(source.getProfileJson());
         target.setRegion(source.getRegion());target.setInspectionEndDate(source.getInspectionEndDate());
         target.setProtectionMode(source.getProtectionMode());target.setRpdUnit(source.getRpdUnit());
         target.setModality(source.getModality());
@@ -803,7 +875,8 @@ public class RadiologyCaseService {
         return new RadiologyDto.CaseSummary(
                 entity.getId(), entity.getCaseCode(), entity.getModality(), entity.getRevisionNo(), entity.getInspectedUnitName(),
                 entity.getEquipmentName(), entity.getEquipmentModel(), entity.getInspectionDate(), entity.getStatus(),
-                entity.getCreatedAt(), entity.getUpdatedAt());
+                entity.getCreatedAt(), entity.getUpdatedAt(),entity.getSampleAcceptanceNo(),entity.getEquipmentNo(),
+                entity.getReportDate(),entity.getCity(),entity.getCounty());
     }
 
     private RadiologyDto.CaseDetail detail(RadiologyCase entity) {
@@ -825,7 +898,7 @@ public class RadiologyCaseService {
                 entity.getCreatedAt(), entity.getUpdatedAt(), dataVersion(entity), entity.getCalculatedDataVersion(),
                 calculationFresh(entity),entity.getHasAec(),entity.getHasRawImages(),entity.getFeatureReason(),
                 entity.getAgencyName(),entity.getRegion(),entity.getInspectionEndDate(),entity.getProtectionMode(),entity.getRpdUnit(),
-                itemResults(entity),workflowHistory(entity),submissionIssues(entity),itemConditions(entity));
+                itemResults(entity),workflowHistory(entity),submissionIssues(entity),itemConditions(entity),entity.getCity(),entity.getCounty(),profile(entity));
     }
 
     private RadiologyDto.MeasurementResponse measurementResponse(RadiologyMeasurement value) {

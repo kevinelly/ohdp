@@ -52,6 +52,8 @@ public class RadiologyStandardEvaluator {
             Map<String, BigDecimal> raw,
             Map<String, BigDecimal> calculated) {
         String standard = "WS 76—2020";
+        if(List.of("DDI","HCR").contains(item) && resultText!=null && resultText.startsWith("建立基线"))
+            return evaluation(RadiologyJudgement.BASELINE_ESTABLISHED, standard+"：首次建立基线");
         return switch (item) {
             case "TVD" -> evaluateTvd(raw, calculated);
             case "ETD" -> evaluateEtd(raw, calculated);
@@ -59,7 +61,11 @@ public class RadiologyStandardEvaluator {
             case "HVL" -> lower(result, 2.3, "mmAl（80 kV）", standard);
             case "ARS" -> upper(result, type == DetectionType.STABILITY ? 25 : 20, "%", standard);
             case "AIC" -> upper(result, type == DetectionType.ACCEPTANCE ? 10 : 15, "%", standard);
-            case "UBD" -> upper(result, 3, "°", standard);
+            case "UBD" -> resultText!=null && (resultText.startsWith(">") || resultText.startsWith("＞"))
+                ? evaluation(result.compareTo(new BigDecimal("3"))>=0?RadiologyJudgement.UNQUALIFIED:RadiologyJudgement.NOT_CONFIGURED,standard+"：大于限定读数需能确定是否超过3°")
+                : resultText!=null && (resultText.startsWith("<") || resultText.startsWith("＜"))
+                ? evaluation(result.compareTo(new BigDecimal("3"))<=0?RadiologyJudgement.QUALIFIED:RadiologyJudgement.NOT_CONFIGURED,standard+"：小于限定读数需能确定是否不超过3°")
+                : upper(result,3,"°",standard);
             case "LRD" -> upper(result, 10, "mm（SID=1 m）", standard);
             case "DDI" -> upper(result, 20, "%（厂家公式或基线）", standard);
             case "STP" -> lower(result, type == DetectionType.ACCEPTANCE ? 0.98 : 0.95,
@@ -67,8 +73,8 @@ public class RadiologyStandardEvaluator {
             case "RUE" -> upper(result, 5, "%", standard);
             case "REA" -> upper(result, 2, "%", standard);
             case "ILA" -> evaluateResidualImage(result, resultText);
-            case "ART" -> expectedNo(resultText, "不得有影响临床诊断的伪影", standard);
-            case "HCR" -> lower(result, 90, "%（相对厂家规定值或基线）", standard);
+            case "ART" -> expectedNo("无影响临床诊断的伪影".equals(resultText)?"否":resultText, "不得有影响临床诊断的伪影", standard);
+            case "HCR" -> lower(result, raw.get("HCR-MANUFACTURER")==null && raw.get("厂家规定值/基线值")==null && raw.get("HCR-NYQUIST")!=null ? 80:90, "%（相对厂家规定值或基线）", standard);
             case "LCR" -> type == DetectionType.ACCEPTANCE
                     ? evaluation(RadiologyJudgement.BASELINE_ESTABLISHED, standard + "：验收检测建立基线，不作数值合格判定")
                     : upper(result, 2, "个可观察细节（相对基线的绝对变化）", standard);
@@ -143,7 +149,7 @@ public class RadiologyStandardEvaluator {
 
     private Evaluation evaluateResidualImage(BigDecimal result, String resultText) {
         String standard = "WS 76—2020";
-        if (isNo(resultText)) return evaluation(RadiologyJudgement.QUALIFIED, standard + "：未见残影");
+        if (isNo(resultText) || "不存在残影".equals(resultText)) return evaluation(RadiologyJudgement.QUALIFIED, standard + "：未见残影");
         if (result == null) return evaluation(RadiologyJudgement.INCOMPLETE, standard + "：存在残影时需计算像素值误差");
         return upper(result, 5, "%（存在残影时的像素值误差）", standard);
     }
