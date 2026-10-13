@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import ManualDownloads from './ManualDownloads.vue'
 import { findHelpAnchor, findHelpTopic, helpAnchors, helpTopics, type HelpAnchor, type HelpTopicId } from '../../helpContent'
 
 const props = defineProps<{
@@ -107,6 +108,7 @@ watch(() => props.activeTopicId, async () => {
     </aside>
 
     <article ref="articleElement" class="help-article card">
+      <ManualDownloads />
       <header class="help-article-header">
         <div>
           <p>{{ activeTopic.category }}</p>

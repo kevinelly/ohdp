@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -55,6 +56,99 @@ public class OhdpResultItem extends BaseAuditEntity {
     @Column(name = "limit_unit", length = 32)
     private String limitUnit;
 
+    @Column(name = "measurement_date")
+    private LocalDate measurementDate;
+
+    @Column(name = "measurement_body_part", length = 80)
+    private String measurementBodyPart;
+
+    @Column(name = "measurement_band", length = 120)
+    private String measurementBand;
+
+    @Column(name = "daily_exposure_hours", precision = 8, scale = 2)
+    private BigDecimal dailyExposureHours;
+
+    @Column(name = "weekly_exposure_hours", precision = 8, scale = 2)
+    private BigDecimal weeklyExposureHours;
+
+    @Column(name = "reduction_factor", precision = 12, scale = 6)
+    private BigDecimal reductionFactor;
+
+    @Column(name = "adjusted_limit_value", precision = 16, scale = 6)
+    private BigDecimal adjustedLimitValue;
+
     @Column(name = "judgement", length = 20)
     private String judgement;
+    @Column(name = "factor_category", columnDefinition = "TEXT")
+    private String factorCategory;
+
+    @Column(name = "point_code", columnDefinition = "TEXT")
+    private String pointCode;
+
+    @Column(name = "sample_code", columnDefinition = "TEXT")
+    private String sampleCode;
+
+    @Column(name = "detection_mode", columnDefinition = "TEXT")
+    private String detectionMode;
+
+    @Column(name = "noise_type", columnDefinition = "TEXT")
+    private String noiseType;
+
+    @Column(name = "laboratory_date")
+    private LocalDate laboratoryDate;
+
+    @Column(name = "detection_basis", columnDefinition = "TEXT")
+    private String detectionBasis;
+
+    @Column(name = "detection_method", columnDefinition = "TEXT")
+    private String detectionMethod;
+
+    @Column(name = "instrument", columnDefinition = "TEXT")
+    private String instrument;
+
+    @Column(name = "testing_organization", columnDefinition = "TEXT")
+    private String testingOrganization;
+
+    @Column(name = "source_record_no", columnDefinition = "TEXT")
+    private String sourceRecordNo;
+
+    @Column(name = "detection_limit", columnDefinition = "TEXT")
+    private String detectionLimit;
+
+    @Column(name = "quantification_limit", columnDefinition = "TEXT")
+    private String quantificationLimit;
+
+    @Column(name = "evaluation_basis", columnDefinition = "TEXT")
+    private String evaluationBasis;
+
+    @Column(name = "over_limit_reason", columnDefinition = "TEXT")
+    private String overLimitReason;
+
+    @Column(name = "weekly_work_days")
+    private Integer weeklyWorkDays;
+
+    @Column(name = "reduction_applicable")
+    private Boolean reductionApplicable;
+
+    @Column(name = "peak_limit_multiplier", precision = 16, scale = 6)
+    private BigDecimal peakLimitMultiplier;
+
+    @Column(name = "peak_exposure_minutes", precision = 16, scale = 6)
+    private BigDecimal peakExposureMinutes;
+
+    @Column(name = "peak_times_per_shift")
+    private Integer peakTimesPerShift;
+
+    @Column(name = "peak_interval_minutes", precision = 16, scale = 6)
+    private BigDecimal peakIntervalMinutes;
+
+    @Column(name = "mixed_exposure_group", columnDefinition = "TEXT")
+    private String mixedExposureGroup;
+
+    @Column(name = "mixed_exposure_basis", columnDefinition = "TEXT")
+    private String mixedExposureBasis;
+
+    @Column(name = "measurement_conditions", columnDefinition = "TEXT")
+    private String measurementConditions;
+
 }

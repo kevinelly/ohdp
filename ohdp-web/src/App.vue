@@ -7,6 +7,7 @@ import { findHelpAnchor, findHelpTopic, helpTopicByMenuKey, type HelpTopicId } f
 const RadiologyWorkbench = defineAsyncComponent(() => import('./components/radiology/RadiologyWorkbench.vue'))
 const FeedbackCenter = defineAsyncComponent(() => import('./components/feedback/FeedbackCenter.vue'))
 const HelpCenter = defineAsyncComponent(() => import('./components/help/HelpCenter.vue'))
+const ManualDownloads = defineAsyncComponent(() => import('./components/help/ManualDownloads.vue'))
 const HelpMark = defineAsyncComponent(() => import('./components/help/HelpMark.vue'))
 const ContextHelpDrawer = defineAsyncComponent(() => import('./components/help/ContextHelpDrawer.vue'))
 const ReportSupplementEditor = defineAsyncComponent(() => import('./components/ohdp/ReportSupplementEditor.vue'))
@@ -31,11 +32,37 @@ interface ReportSupplement {
   outsourcedWorkerCount: number
   dispatchedWorkerCount: number
   detectionScope: string
+  lawsRegulations: string
+  basicMaterials: string
   productionProcess: string
   radiationSourceSummary: string
+  radiationSourceMode: string
+  radiationSeparateReportNo: string
   vocAnalysisConclusion: string
+  vocSamplingDate: string
+  vocDetectionDate: string
+  vocDetectionBasis: string
+  vocDetectionMethod: string
+  vocTestingOrganization: string
+  vocSourceReportNo: string
+  mixedExposureAssessment: string
+  mixedExposureAssessmentBasis: string
+  vocInstrument: string
+  vocTotalPeakAreaPercent: string
+  vocInorganicPeakAreaPercent: string
   exclusionScreeningConclusion: string
   rawRecordCompletenessNote: string
+  qualificationCertificatePlan: string
+  qualificationCertificateFileName: string
+  qualificationCertificateImageDataUrl: string
+  attachmentDeliveryPlan: string
+  photoEmbeddingPlan: string
+  reportPhotos: Record<string, any>[]
+  multiDayDisplayRule: string
+  overtimeReductionRule: string
+  physicalFactorScope: string
+  specialMeasurementRule: string
+  signatureStampMode: string
   productionCondition: string
   samplingLayoutDescription: string
   detectionConditions: string
@@ -48,6 +75,13 @@ interface ReportSupplement {
   majorProblems: string
   recommendations: string
   materials: Record<string, any>[]
+  vocAnalysisPerformed: boolean
+  vocAnalysisItems: Record<string, any>[]
+  xrayDevices: Record<string, any>[]
+  sealedSources: Record<string, any>[]
+  unsealedSources: Record<string, any>[]
+  exclusionScreeningPerformed: boolean
+  exclusionScreeningItems: Record<string, any>[]
   equipment: Record<string, any>[]
   protectionFacilities: Record<string, any>[]
   personalProtectiveEquipment: Record<string, any>[]
@@ -63,12 +97,19 @@ function createEmptyReportSupplement(): ReportSupplement {
     reportHeaderName: '', socialCreditCode: '', legalRepresentative: '', registeredAddress: '', technicalServiceAddress: '',
     contactName: '', contactPhone: '', industryCategory: '', commissioningDate: '', economicType: '',
     companyScale: '', employeeCount: 0, outsourcedWorkerCount: 0, dispatchedWorkerCount: 0,
-    detectionScope: '', productionProcess: '', radiationSourceSummary: '', vocAnalysisConclusion: '',
-    exclusionScreeningConclusion: '', rawRecordCompletenessNote: '',
+    detectionScope: '', lawsRegulations: '', basicMaterials: '', productionProcess: '', radiationSourceSummary: '', radiationSourceMode: 'NONE', radiationSeparateReportNo: '',
+    vocAnalysisConclusion: '', vocSamplingDate: '', vocDetectionDate: '', vocDetectionBasis: '', vocDetectionMethod: '', vocTestingOrganization: '', vocSourceReportNo: '', mixedExposureAssessment: '', mixedExposureAssessmentBasis: '', vocInstrument: '', vocTotalPeakAreaPercent: '', vocInorganicPeakAreaPercent: '',
+    exclusionScreeningConclusion: '', exclusionScreeningPerformed: false, exclusionScreeningItems: [], rawRecordCompletenessNote: '',
+    qualificationCertificatePlan: '使用当前有效资质认定证书，嵌入报告第3页。', qualificationCertificateFileName: '', qualificationCertificateImageDataUrl: '',
+    attachmentDeliveryPlan: '委托书、合同、现场调查表、检测计划及其他附件不随主报告提供。',
+    photoEmbeddingPlan: '现场照片由报告编制者上传并直接嵌入Word。', reportPhotos: [],
+    multiDayDisplayRule: '单日保留日期列；两日及以上逐条显示具体检测日期。',
+    overtimeReductionRule: '日接触超过8小时或周接触超过40小时时，按确认公式折减PC-TWA。', physicalFactorScope: '',
+    specialMeasurementRule: '检测人员按实际选择检测部位和波段；留空时报告不显示。', signatureStampMode: '保留打印后手签盖章位置',
     productionCondition: '', samplingLayoutDescription: '', detectionConditions: '', environmentConditions: '',
     onsiteInspectors: '', planDeviation: '已按现场采样与测量计划开展检测，未对计划进行变更。',
     riskCategory: '', majorHazards: '', overLimitSummary: '', majorProblems: '', recommendations: '',
-    materials: [], equipment: [], protectionFacilities: [], personalProtectiveEquipment: [], samplingPlans: [],
+    materials: [], vocAnalysisPerformed: false, vocAnalysisItems: [], xrayDevices: [], sealedSources: [], unsealedSources: [], equipment: [], protectionFacilities: [], personalProtectiveEquipment: [], samplingPlans: [],
     materialsConfirmedNotApplicable: false, equipmentConfirmedNotApplicable: false,
     protectionFacilitiesConfirmedNotApplicable: false, ppeConfirmedNotApplicable: false,
   }
@@ -146,6 +187,37 @@ interface ResultItem {
   unit?: string
   limitValue?: number
   limitUnit?: string
+  factorCategory?: string
+  pointCode?: string
+  sampleCode?: string
+  detectionMode?: string
+  noiseType?: string
+  laboratoryDate?: string
+  detectionBasis?: string
+  detectionMethod?: string
+  instrument?: string
+  testingOrganization?: string
+  sourceRecordNo?: string
+  detectionLimit?: string
+  quantificationLimit?: string
+  evaluationBasis?: string
+  overLimitReason?: string
+  weeklyWorkDays?: number
+  reductionApplicable?: boolean
+  peakLimitMultiplier?: number
+  peakExposureMinutes?: number
+  peakTimesPerShift?: number
+  peakIntervalMinutes?: number
+  mixedExposureGroup?: string
+  mixedExposureBasis?: string
+  measurementConditions?: string
+  measurementDate?: string
+  measurementBodyPart?: string
+  measurementBand?: string
+  dailyExposureHours?: number
+  weeklyExposureHours?: number
+  reductionFactor?: number
+  adjustedLimitValue?: number
   judgement?: string
 }
 
@@ -210,6 +282,9 @@ interface FactorTemplate {
   defaultUnit?: string
   defaultLimitValue?: string
   defaultLimitUnit?: string
+  detectionBasis?: string
+  detectionMethod?: string
+  detectionInstruments?: string
   notes?: string
 }
 
@@ -226,6 +301,7 @@ interface StaffProfile {
   id: number
   staffName: string
   staffTitle?: string
+  profession?: string
   certNo: string
   contactPhone?: string
   notes?: string
@@ -687,6 +763,7 @@ const reportCenterTotal = ref(0)
 const selectedReportCenterRow = ref<ReportCenterRow | null>(null)
 const reportCenterPreview = ref<ReportPreview | null>(null)
 const reportCenterLogs = ref<ReportLog[]>([])
+const deleteNotApplicableOnGenerate = ref(true)
 const reportCenterQuery = reactive({
   projectCode: '',
   companyName: '',
@@ -759,6 +836,35 @@ const resultForm = reactive({
   unit: 'mg/m3',
   limitValue: '',
   limitUnit: 'mg/m3',
+  factorCategory: '',
+  pointCode: '',
+  sampleCode: '',
+  detectionMode: '',
+  noiseType: '',
+  laboratoryDate: '',
+  detectionBasis: '',
+  detectionMethod: '',
+  instrument: '',
+  testingOrganization: '',
+  sourceRecordNo: '',
+  detectionLimit: '',
+  quantificationLimit: '',
+  evaluationBasis: '',
+  overLimitReason: '',
+  weeklyWorkDays: '',
+  reductionApplicable: null as boolean | null,
+  peakLimitMultiplier: '',
+  peakExposureMinutes: '',
+  peakTimesPerShift: '',
+  peakIntervalMinutes: '',
+  mixedExposureGroup: '',
+  mixedExposureBasis: '',
+  measurementConditions: '',
+  measurementDate: '',
+  measurementBodyPart: '',
+  measurementBand: '',
+  dailyExposureHours: '',
+  weeklyExposureHours: '',
 })
 
 const batchResultText = ref('')
@@ -808,6 +914,9 @@ const factorTemplateForm = reactive({
   defaultUnit: '',
   defaultLimitValue: '',
   defaultLimitUnit: '',
+  detectionBasis: '',
+  detectionMethod: '',
+  detectionInstruments: '',
   notes: '',
 })
 
@@ -829,6 +938,7 @@ const staffProfileForm = reactive({
   id: null as number | null,
   staffName: '',
   staffTitle: '',
+  profession: '',
   certNo: '',
   contactPhone: '',
   notes: '',
@@ -1094,11 +1204,27 @@ function mapMissingItem(item: string) {
     'report.legalRepresentative': '法定代表人/负责人',
     'report.industryCategory': '行业类型（大类/中类/小类）',
     'report.detectionScope': '检测范围',
+    'report.lawsRegulations': '法律、法规与规章',
+    'report.basicMaterials': '基础资料',
     'report.productionProcess': '生产工艺说明',
     'report.radiationSourceSummary': '辐射源项情况（需要明确无辐射源、另行检测、另出报告或纳入本报告）',
+    'report.radiationSourceMode': '辐射源项处理方式',
+    'report.radiationSources.empty': '选择了③纳入本报告，但尚未录入任何辐射源项',
+    'report.radiationSeparateReportNo': '放射性因素另行报告编号',
     'report.vocAnalysisConclusion': '物料 VOC 定性分析开展情况',
+    'report.vocAnalysisItems.empty': '已确认开展 VOC 定性分析，但尚未录入组分结果',
     'report.exclusionScreeningConclusion': '排除性检测开展情况及结论',
+    'report.exclusionScreeningItems.empty': '已确认开展排除性检测，但尚未录入结果',
     'report.rawRecordCompletenessNote': '原始记录完整性确认（采样编号、日期、时间、仪器与检测条件）',
+    'report.qualificationCertificatePlan': '资质证书版本、有效期与嵌入方式',
+    'report.qualificationCertificateImage': '当前有效资质证书图片（嵌入报告第3页）',
+    'report.attachmentDeliveryPlan': '委托书、调查表、检测计划、照片等附件交付方案',
+    'report.photoEmbeddingPlan': '检测照片水印与 Word 嵌入方式',
+    'report.multiDayDisplayRule': '单日及多日检测的日期列展示规则',
+    'report.overtimeReductionRule': '超过 8 小时工作制的折减计算与报告规则',
+    'report.physicalFactorScope': '物理因素检测项目及不涉及项的确认范围',
+    'report.specialMeasurementRule': '高频、微波、紫外等特殊检测的部位与波段规则',
+    'report.signatureStampMode': '签名与盖章方式',
     'report.productionCondition': '现场检测时生产情况',
     'report.samplingLayoutDescription': '检测布点说明',
     'report.detectionConditions': '检测条件说明',
@@ -1640,6 +1766,35 @@ function editResult(item: ResultItem) {
   resultForm.unit = item.unit ?? 'mg/m3'
   resultForm.limitValue = item.limitValue != null ? String(item.limitValue) : ''
   resultForm.limitUnit = item.limitUnit ?? 'mg/m3'
+  resultForm.factorCategory = item.factorCategory != null ? String(item.factorCategory) : ''
+  resultForm.pointCode = item.pointCode != null ? String(item.pointCode) : ''
+  resultForm.sampleCode = item.sampleCode != null ? String(item.sampleCode) : ''
+  resultForm.detectionMode = item.detectionMode != null ? String(item.detectionMode) : ''
+  resultForm.noiseType = item.noiseType != null ? String(item.noiseType) : ''
+  resultForm.laboratoryDate = item.laboratoryDate != null ? String(item.laboratoryDate) : ''
+  resultForm.detectionBasis = item.detectionBasis != null ? String(item.detectionBasis) : ''
+  resultForm.detectionMethod = item.detectionMethod != null ? String(item.detectionMethod) : ''
+  resultForm.instrument = item.instrument != null ? String(item.instrument) : ''
+  resultForm.testingOrganization = item.testingOrganization != null ? String(item.testingOrganization) : ''
+  resultForm.sourceRecordNo = item.sourceRecordNo != null ? String(item.sourceRecordNo) : ''
+  resultForm.detectionLimit = item.detectionLimit != null ? String(item.detectionLimit) : ''
+  resultForm.quantificationLimit = item.quantificationLimit != null ? String(item.quantificationLimit) : ''
+  resultForm.evaluationBasis = item.evaluationBasis != null ? String(item.evaluationBasis) : ''
+  resultForm.overLimitReason = item.overLimitReason != null ? String(item.overLimitReason) : ''
+  resultForm.weeklyWorkDays = item.weeklyWorkDays != null ? String(item.weeklyWorkDays) : ''
+  resultForm.reductionApplicable = item.reductionApplicable ?? null
+  resultForm.peakLimitMultiplier = item.peakLimitMultiplier != null ? String(item.peakLimitMultiplier) : ''
+  resultForm.peakExposureMinutes = item.peakExposureMinutes != null ? String(item.peakExposureMinutes) : ''
+  resultForm.peakTimesPerShift = item.peakTimesPerShift != null ? String(item.peakTimesPerShift) : ''
+  resultForm.peakIntervalMinutes = item.peakIntervalMinutes != null ? String(item.peakIntervalMinutes) : ''
+  resultForm.mixedExposureGroup = item.mixedExposureGroup != null ? String(item.mixedExposureGroup) : ''
+  resultForm.mixedExposureBasis = item.mixedExposureBasis != null ? String(item.mixedExposureBasis) : ''
+  resultForm.measurementConditions = item.measurementConditions != null ? String(item.measurementConditions) : ''
+  resultForm.measurementDate = item.measurementDate ?? ''
+  resultForm.measurementBodyPart = item.measurementBodyPart ?? ''
+  resultForm.measurementBand = item.measurementBand ?? ''
+  resultForm.dailyExposureHours = item.dailyExposureHours != null ? String(item.dailyExposureHours) : ''
+  resultForm.weeklyExposureHours = item.weeklyExposureHours != null ? String(item.weeklyExposureHours) : ''
 }
 
 function clearResultForm() {
@@ -1655,13 +1810,42 @@ function clearResultForm() {
   resultForm.unit = 'mg/m3'
   resultForm.limitValue = ''
   resultForm.limitUnit = 'mg/m3'
+  resultForm.factorCategory = ''
+  resultForm.pointCode = ''
+  resultForm.sampleCode = ''
+  resultForm.detectionMode = ''
+  resultForm.noiseType = ''
+  resultForm.laboratoryDate = ''
+  resultForm.detectionBasis = ''
+  resultForm.detectionMethod = ''
+  resultForm.instrument = ''
+  resultForm.testingOrganization = ''
+  resultForm.sourceRecordNo = ''
+  resultForm.detectionLimit = ''
+  resultForm.quantificationLimit = ''
+  resultForm.evaluationBasis = ''
+  resultForm.overLimitReason = ''
+  resultForm.weeklyWorkDays = ''
+  resultForm.reductionApplicable = null
+  resultForm.peakLimitMultiplier = ''
+  resultForm.peakExposureMinutes = ''
+  resultForm.peakTimesPerShift = ''
+  resultForm.peakIntervalMinutes = ''
+  resultForm.mixedExposureGroup = ''
+  resultForm.mixedExposureBasis = ''
+  resultForm.measurementConditions = ''
+  resultForm.measurementDate = ''
+  resultForm.measurementBodyPart = ''
+  resultForm.measurementBand = ''
+  resultForm.dailyExposureHours = ''
+  resultForm.weeklyExposureHours = ''
 }
 
 async function addResult() {
   if (!canProjectOperate.value || !selectedProject.value) return
   const isEdit = resultForm.id != null
-  if (!isEdit && !resultForm.factorTemplateId) {
-    setMessage('请先选择危害因素模板', 'error')
+  if (!resultForm.factorTemplateId && (!resultForm.factorName.trim() || !resultForm.metricType.trim())) {
+    setMessage('请选择模板，或填写危害因素和指标类型', 'error')
     return
   }
   if (!resultForm.positionId && !resultForm.jobName) {
@@ -1683,6 +1867,35 @@ async function addResult() {
       unit: resultForm.unit || null,
       limitValue: resultForm.limitValue === '' ? null : Number(resultForm.limitValue),
       limitUnit: resultForm.limitUnit || null,
+      factorCategory: resultForm.factorCategory || null,
+      pointCode: resultForm.pointCode || null,
+      sampleCode: resultForm.sampleCode || null,
+      detectionMode: resultForm.detectionMode || null,
+      noiseType: resultForm.noiseType || null,
+      laboratoryDate: resultForm.laboratoryDate || null,
+      detectionBasis: resultForm.detectionBasis || null,
+      detectionMethod: resultForm.detectionMethod || null,
+      instrument: resultForm.instrument || null,
+      testingOrganization: resultForm.testingOrganization || null,
+      sourceRecordNo: resultForm.sourceRecordNo || null,
+      detectionLimit: resultForm.detectionLimit || null,
+      quantificationLimit: resultForm.quantificationLimit || null,
+      evaluationBasis: resultForm.evaluationBasis || null,
+      overLimitReason: resultForm.overLimitReason || null,
+      weeklyWorkDays: resultForm.weeklyWorkDays === '' ? null : Number(resultForm.weeklyWorkDays),
+      reductionApplicable: resultForm.reductionApplicable,
+      peakLimitMultiplier: resultForm.peakLimitMultiplier === '' ? null : Number(resultForm.peakLimitMultiplier),
+      peakExposureMinutes: resultForm.peakExposureMinutes === '' ? null : Number(resultForm.peakExposureMinutes),
+      peakTimesPerShift: resultForm.peakTimesPerShift === '' ? null : Number(resultForm.peakTimesPerShift),
+      peakIntervalMinutes: resultForm.peakIntervalMinutes === '' ? null : Number(resultForm.peakIntervalMinutes),
+      mixedExposureGroup: resultForm.mixedExposureGroup || null,
+      mixedExposureBasis: resultForm.mixedExposureBasis || null,
+      measurementConditions: resultForm.measurementConditions || null,
+      measurementDate: resultForm.measurementDate || null,
+      measurementBodyPart: resultForm.measurementBodyPart || null,
+      measurementBand: resultForm.measurementBand || null,
+      dailyExposureHours: resultForm.dailyExposureHours === '' ? null : Number(resultForm.dailyExposureHours),
+      weeklyExposureHours: resultForm.weeklyExposureHours === '' ? null : Number(resultForm.weeklyExposureHours),
     }
     if (isEdit) {
       await api.put(`/api/ohdp/results/${resultForm.id}`, payload)
@@ -1876,10 +2089,15 @@ async function selectReportCenterRow(row: ReportCenterRow) {
 
 async function generateReportFromCenter(row: ReportCenterRow) {
   const verb = row.reportId ? '重新生成并覆盖现有报告' : '生成报告'
-  if (!window.confirm(`确定为项目 ${row.projectCode} ${verb}吗？`)) return
+  const contentMode = deleteNotApplicableOnGenerate.value
+    ? '删除不涉及的章节和表格'
+    : '保留不涉及的章节和表格'
+  if (!window.confirm(`确定为项目 ${row.projectCode} ${verb}吗？\n本次将${contentMode}。`)) return
   actionBusy.generateReport = true
   try {
-    await api.post(`/api/ohdp/projects/${row.projectId}/report/generate`)
+    await api.post(`/api/ohdp/projects/${row.projectId}/report/generate`, null, {
+      params: { deleteNotApplicable: deleteNotApplicableOnGenerate.value },
+    })
     await fetchReportCenter()
     const refreshed = reportCenterRows.value.find((item) => item.projectId === row.projectId)
     if (refreshed) await selectReportCenterRow(refreshed)
@@ -2246,6 +2464,9 @@ function editFactorTemplate(item: FactorTemplate) {
   factorTemplateForm.defaultUnit = item.defaultUnit || ''
   factorTemplateForm.defaultLimitValue = item.defaultLimitValue || ''
   factorTemplateForm.defaultLimitUnit = item.defaultLimitUnit || ''
+  factorTemplateForm.detectionBasis = item.detectionBasis || ''
+  factorTemplateForm.detectionMethod = item.detectionMethod || ''
+  factorTemplateForm.detectionInstruments = item.detectionInstruments || ''
   factorTemplateForm.notes = item.notes || ''
 }
 
@@ -2256,6 +2477,9 @@ function clearFactorTemplateForm() {
   factorTemplateForm.defaultUnit = ''
   factorTemplateForm.defaultLimitValue = ''
   factorTemplateForm.defaultLimitUnit = ''
+  factorTemplateForm.detectionBasis = ''
+  factorTemplateForm.detectionMethod = ''
+  factorTemplateForm.detectionInstruments = ''
   factorTemplateForm.notes = ''
 }
 
@@ -2338,6 +2562,7 @@ function editStaffProfile(item: StaffProfile) {
   staffProfileForm.id = item.id
   staffProfileForm.staffName = item.staffName || ''
   staffProfileForm.staffTitle = item.staffTitle || ''
+  staffProfileForm.profession = item.profession || ''
   staffProfileForm.certNo = item.certNo || ''
   staffProfileForm.contactPhone = item.contactPhone || ''
   staffProfileForm.notes = item.notes || ''
@@ -2347,6 +2572,7 @@ function clearStaffProfileForm() {
   staffProfileForm.id = null
   staffProfileForm.staffName = ''
   staffProfileForm.staffTitle = ''
+  staffProfileForm.profession = ''
   staffProfileForm.certNo = ''
   staffProfileForm.contactPhone = ''
   staffProfileForm.notes = ''
@@ -3052,7 +3278,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <input v-model="loginForm.rememberMe" type="checkbox" />
           <span><strong>保持登录 30 天 <HelpMark anchor-id="session.remember" /></strong><small>浏览器不会保存明文密码</small></span>
         </label>
-        <button class="login-submit" type="submit">进入样品流转工作台</button>
+        <button class="login-submit" type="submit">登陆</button>
         <p class="login-note">系统操作会记录账号、时间和关键数据变更。</p>
       </form>
     </main>
@@ -3139,6 +3365,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <span>帮助中心</span>
           </el-menu-item>
         </el-menu>
+        <ManualDownloads compact />
       </aside>
 
       <div class="admin-content">
@@ -3502,12 +3729,41 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                   </el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="岗位名称"><input v-model="resultForm.jobName" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="危害因素"><input v-model="resultForm.factorName" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="8"><el-form-item label="指标类型"><input v-model="resultForm.metricType" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="指标类型"><input v-model="resultForm.metricType" list="report-metrics" /><datalist id="report-metrics"><option v-for="metric in ['TWA','STEL','MAC','PE','SILICA','LEX8H','LAEQ','PULSE_NOISE','WBGT','WBGT_LOCATION','POWER_FREQUENCY_E8','PF_E','PF_B','HF_E8','HF_E','HF_H8','HF_H','UHF','MICROWAVE_DOSE','MICROWAVE','UVA','UVB','UVC','LASER','HAV','VIBRATION_X','VIBRATION_Y','VIBRATION_Z','X_GAMMA']" :key="metric" :value="metric" /></datalist></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item><template #label>原始值 <HelpMark anchor-id="project.raw-value" /></template><input v-model="resultForm.valueRaw" placeholder="如 <0.04" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="数值"><input v-model="resultForm.valueNum" type="number" step="0.001" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="单位"><input v-model="resultForm.unit" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="限值"><input v-model="resultForm.limitValue" type="number" step="0.001" /></el-form-item></el-col>
                   <el-col :xs="24" :md="8"><el-form-item label="限值单位"><input v-model="resultForm.limitUnit" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检测日期（单日也保留）"><input v-model="resultForm.measurementDate" type="date" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检测部位（不涉及留空）"><input v-model="resultForm.measurementBodyPart" placeholder="如：头部、胸部、手部" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检测波段（不涉及留空）"><input v-model="resultForm.measurementBand" placeholder="如：UVA 315‑400 nm" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="因素分类"><input v-model="resultForm.factorCategory" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="测点编号"><input v-model="resultForm.pointCode" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="样品编号"><input v-model="resultForm.sampleCode" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="采样/测量方式"><select v-model="resultForm.detectionMode"><option value="">请选择</option><option v-for="mode in ['个体', '定点长时间', '定点短时间', '定点', '直读']" :key="mode">{{ mode }}</option></select></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="噪声类型"><input v-model="resultForm.noiseType" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="实验室检测日期"><input v-model="resultForm.laboratoryDate" type="date" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检测依据"><input v-model="resultForm.detectionBasis" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检测方法"><input v-model="resultForm.detectionMethod" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="实际仪器名称及编号"><input v-model="resultForm.instrument" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检测机构"><input v-model="resultForm.testingOrganization" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="原始记录/外部报告编号"><input v-model="resultForm.sourceRecordNo" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="检出限（含单位）"><input v-model="resultForm.detectionLimit" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="定量下限（含单位）"><input v-model="resultForm.quantificationLimit" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="限值/折减/PE适用依据"><input v-model="resultForm.evaluationBasis" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="本结果超标原因"><input v-model="resultForm.overLimitReason" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="每周工作天数"><input v-model="resultForm.weeklyWorkDays" type="number" step="any" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="是否适用TWA折减"><select v-model="resultForm.reductionApplicable"><option :value="null">待确认</option><option :value="true">适用</option><option :value="false">不适用或豁免</option></select></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="PE限值倍数（专业确认）"><input v-model="resultForm.peakLimitMultiplier" type="number" step="any" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="PE每次接触分钟"><input v-model="resultForm.peakExposureMinutes" type="number" step="any" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="PE每班次数"><input v-model="resultForm.peakTimesPerShift" type="number" step="any" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="PE间隔分钟"><input v-model="resultForm.peakIntervalMinutes" type="number" step="any" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="混合接触组合编号"><input v-model="resultForm.mixedExposureGroup" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="混合接触共同健康效应依据"><input v-model="resultForm.mixedExposureBasis" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="测量条件（频率/劳动强度等）"><input v-model="resultForm.measurementConditions" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="每日接触小时"><input v-model="resultForm.dailyExposureHours" type="number" min="0" max="24" step="0.5" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="8"><el-form-item label="每周接触小时"><input v-model="resultForm.weeklyExposureHours" type="number" min="0" max="168" step="0.5" /></el-form-item></el-col>
                 </el-row>
               </el-form>
           <div class="actions wrap">
@@ -3552,6 +3808,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <th>指标</th>
                 <th>值</th>
                 <th>限值</th>
+                <th>日期/特殊条件</th>
                 <th>判定</th>
                 <th>操作</th>
               </tr>
@@ -3562,7 +3819,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <td>{{ item.factorName }}</td>
                 <td>{{ item.metricType }}</td>
                 <td>{{ item.valueRaw || item.valueNum }} {{ item.unit }}</td>
-                <td>{{ item.limitValue }} {{ item.limitUnit }}</td>
+                <td>{{ item.adjustedLimitValue ?? item.limitValue }} {{ item.limitUnit }}<small v-if="item.reductionFactor && item.reductionFactor < 1"><br />折减系数 {{ item.reductionFactor }}</small></td>
+                <td>{{ item.measurementDate || '—' }}<small v-if="item.measurementBodyPart || item.measurementBand"><br />{{ [item.measurementBodyPart, item.measurementBand].filter(Boolean).join(' / ') }}</small></td>
                 <td>{{ codeLabel(item.judgement, '未判定') }}</td>
                 <td>
                   <button class="ghost tiny" :disabled="!canProjectOperate" @click="editResult(item)">编辑</button>
@@ -3639,6 +3897,13 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </label>
           <label>生成日期从<input v-model="reportCenterQuery.generatedFrom" type="date" /></label>
           <label>生成日期至<input v-model="reportCenterQuery.generatedTo" type="date" /></label>
+          <label class="report-generate-option" title="关闭后保留原模板中不涉及的章节和表格">
+            <span>生成选项</span>
+            <span class="report-generate-check">
+              <input v-model="deleteNotApplicableOnGenerate" type="checkbox" />
+              删除不涉及内容
+            </span>
+          </label>
           <button :disabled="actionBusy.reportCenter" @click="fetchReportCenter">
             {{ actionBusy.reportCenter ? '查询中...' : '查询' }}
           </button>
@@ -3801,6 +4066,9 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <label>默认单位<input v-model="factorTemplateForm.defaultUnit" /></label>
           <label>默认限值<input v-model="factorTemplateForm.defaultLimitValue" /></label>
           <label>默认限值单位<input v-model="factorTemplateForm.defaultLimitUnit" /></label>
+          <label>检测依据<input v-model="factorTemplateForm.detectionBasis" /></label>
+          <label>检测方法<input v-model="factorTemplateForm.detectionMethod" /></label>
+          <label>仪器/设备及编号<input v-model="factorTemplateForm.detectionInstruments" /></label>
           <label>备注<input v-model="factorTemplateForm.notes" /></label>
         </div>
         <div class="actions">
@@ -3809,12 +4077,13 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchFactorTemplates">刷新</button>
         </div>
         <table>
-          <thead><tr><th>因素</th><th>指标</th><th>默认限值</th><th>操作</th></tr></thead>
+          <thead><tr><th>因素</th><th>指标</th><th>默认限值</th><th>方法/仪器</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="item in factorTemplates" :key="item.id">
               <td>{{ item.factorName }}</td>
               <td>{{ item.metricType }}</td>
               <td>{{ item.defaultLimitValue }} {{ item.defaultLimitUnit }}</td>
+              <td>{{ item.detectionMethod || '/' }}<br />{{ item.detectionInstruments || '/' }}</td>
               <td>
                 <button class="ghost tiny" @click="editFactorTemplate(item)">编辑</button>
                 <button class="danger tiny" @click="deleteFactorTemplate(item.id)">删除</button>
@@ -3868,6 +4137,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
         <div class="grid2">
           <label>姓名<input v-model="staffProfileForm.staffName" /></label>
           <label>职务/职称<input v-model="staffProfileForm.staffTitle" /></label>
+          <label>专业<input v-model="staffProfileForm.profession" /></label>
           <label>证书编号<input v-model="staffProfileForm.certNo" /></label>
           <label>联系电话<input v-model="staffProfileForm.contactPhone" /></label>
           <label class="full">备注<input v-model="staffProfileForm.notes" /></label>

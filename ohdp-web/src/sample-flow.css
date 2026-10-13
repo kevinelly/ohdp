@@ -1975,7 +1975,7 @@ span.help-mark:focus-visible {
   border: 1px solid var(--sf-line);
   border-radius: 7px;
   background: var(--sf-panel-soft);
-  grid-template-columns: repeat(5, minmax(130px, 1fr)) auto;
+  grid-template-columns: repeat(6, minmax(130px, 1fr)) auto;
   gap: 10px;
   align-items: end;
 }
@@ -1983,6 +1983,24 @@ span.help-mark:focus-visible {
 .report-center-filters label {
   display: grid;
   gap: 5px;
+}
+
+.report-center-filters .report-generate-check {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--sf-line);
+  border-radius: 6px;
+  background: #fff;
+  white-space: nowrap;
+}
+
+.report-center-filters .report-generate-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 
 .report-center-filters button {

@@ -163,8 +163,10 @@ public class OhdpProjectController {
     }
 
     @PostMapping("/projects/{projectId}/report/generate")
-    public OhdpDto.ReportFileResponse generateReport(@PathVariable Long projectId) {
-        return projectService.generateReport(projectId);
+    public OhdpDto.ReportFileResponse generateReport(
+            @PathVariable Long projectId,
+            @RequestParam(defaultValue = "true") boolean deleteNotApplicable) {
+        return projectService.generateReport(projectId, deleteNotApplicable);
     }
 
     @GetMapping("/projects/{projectId}/reports")

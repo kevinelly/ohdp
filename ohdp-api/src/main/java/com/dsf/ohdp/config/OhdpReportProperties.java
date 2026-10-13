@@ -20,4 +20,7 @@ import org.springframework.context.annotation.Configuration;
 public class OhdpReportProperties {
 
     private String storageDir;
+
+    /** Refresh TOC/page fields through the locally installed Word/WPS automation on Windows. */
+    private boolean refreshFieldsOnWindows;
 }

@@ -19,6 +19,9 @@ public class OhdpStaffProfile extends BaseAuditEntity {
     @Column(name = "staff_title", length = 64)
     private String staffTitle;
 
+    @Column(name = "profession", length = 100)
+    private String profession;
+
     @Column(name = "cert_no", nullable = false, length = 128)
     private String certNo;
 

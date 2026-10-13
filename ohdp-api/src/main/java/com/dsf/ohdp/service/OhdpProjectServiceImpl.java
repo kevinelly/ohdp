@@ -17,6 +17,7 @@ import com.dsf.ohdp.entity.OhdpReportFile;
 import com.dsf.ohdp.entity.OhdpReportOperationLog;
 import com.dsf.ohdp.entity.OhdpReportTextTemplate;
 import com.dsf.ohdp.entity.OhdpResultItem;
+import com.dsf.ohdp.support.ReportResultRules;
 import com.dsf.ohdp.entity.OhdpStaffProfile;
 import com.dsf.ohdp.entity.ProjectStatus;
 import com.dsf.ohdp.repository.OhdpCompanyProfileRepository;
@@ -40,6 +41,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -76,8 +79,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     private static final DateTimeFormatter CHINESE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy\u5e74M\u6708d\u65e5");
     private static final Pattern NUMBER_PATTERN = Pattern.compile("-?\\d+(\\.\\d+)?");
     private static final Pattern MOJIBAKE_PATTERN = Pattern.compile("\uFFFD");
-    private static final String REPORT_TEMPLATE_PATH = "templates/occupational_report_template.docx";
+    private static final String REPORT_TEMPLATE_PATH = "templates/occupational_report_template_v2.docx";
     private static final String REPORT_GENERATOR_SCRIPT_PATH = "templates/generate_beihai_report.ps1";
+    private static final String REPORT_FIELD_REFRESH_SCRIPT_PATH = "templates/refresh_report_fields.ps1";
     private static final Random RANDOM = new Random();
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String WORD_REPLACE_SCRIPT = """
@@ -680,7 +684,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
 
     @Override
     @Transactional
-    public OhdpDto.ReportFileResponse generateReport(Long projectId) {
+    public OhdpDto.ReportFileResponse generateReport(Long projectId, boolean deleteNotApplicable) {
         OhdpProject project = getActiveProject(projectId);
         fillDefaultReportFields(project);
         project = projectRepository.save(project);
@@ -696,7 +700,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
 
         List<OhdpProjectPosition> positions = listProjectPositions(projectId);
         List<OhdpResultItem> results = resultItemRepository.findByProjectIdAndDeletedFalseOrderByIdAsc(projectId);
-        writeReportDocument(filePath, project, positions, results);
+        results.forEach(item -> item.setJudgement(evaluate(item)));
+        resultItemRepository.saveAll(results);
+        writeReportDocument(filePath, project, positions, results, deleteNotApplicable);
 
         OhdpReportFile reportFile = reportFileRepository.findByProjectIdAndDeletedFalse(projectId).orElse(null);
         boolean overwrite = reportFile != null;
@@ -716,9 +722,11 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         projectRepository.save(project);
 
         if (overwrite) {
-            logReportOperation(projectId, "OVERWRITE", "报告已重新生成，原文件已覆盖");
+            logReportOperation(projectId, "OVERWRITE", "报告已重新生成，原文件已覆盖（"
+                    + (deleteNotApplicable ? "已删除不涉及内容" : "已保留不涉及内容") + "）");
         } else {
-            logReportOperation(projectId, "CREATE", "报告已生成");
+            logReportOperation(projectId, "CREATE", "报告已生成（"
+                    + (deleteNotApplicable ? "已删除不涉及内容" : "已保留不涉及内容") + "）");
         }
         return toReportResponse(saved);
     }
@@ -1030,6 +1038,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         entity.setDefaultUnit(trimNullable(request.getDefaultUnit()));
         entity.setDefaultLimitValue(trimNullable(request.getDefaultLimitValue()));
         entity.setDefaultLimitUnit(trimNullable(request.getDefaultLimitUnit()));
+        entity.setDetectionBasis(trimNullable(request.getDetectionBasis()));
+        entity.setDetectionMethod(trimNullable(request.getDetectionMethod()));
+        entity.setDetectionInstruments(trimNullable(request.getDetectionInstruments()));
         entity.setNotes(trimNullable(request.getNotes()));
         entity.setDeleted(false);
         return toFactorTemplateResponse(factorTemplateRepository.save(entity));
@@ -1046,6 +1057,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         entity.setDefaultUnit(trimNullable(request.getDefaultUnit()));
         entity.setDefaultLimitValue(trimNullable(request.getDefaultLimitValue()));
         entity.setDefaultLimitUnit(trimNullable(request.getDefaultLimitUnit()));
+        entity.setDetectionBasis(trimNullable(request.getDetectionBasis()));
+        entity.setDetectionMethod(trimNullable(request.getDetectionMethod()));
+        entity.setDetectionInstruments(trimNullable(request.getDetectionInstruments()));
         entity.setNotes(trimNullable(request.getNotes()));
         return toFactorTemplateResponse(factorTemplateRepository.save(entity));
     }
@@ -1131,6 +1145,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         OhdpStaffProfile entity = new OhdpStaffProfile();
         entity.setStaffName(requireText(request.getStaffName(), "staffName"));
         entity.setStaffTitle(trimNullable(request.getStaffTitle()));
+        entity.setProfession(trimNullable(request.getProfession()));
         entity.setCertNo(requireText(request.getCertNo(), "certNo"));
         entity.setContactPhone(trimNullable(request.getContactPhone()));
         entity.setNotes(trimNullable(request.getNotes()));
@@ -1146,6 +1161,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .orElseThrow(() -> new BusinessException("staff profile not found: " + id));
         entity.setStaffName(requireText(request.getStaffName(), "staffName"));
         entity.setStaffTitle(trimNullable(request.getStaffTitle()));
+        entity.setProfession(trimNullable(request.getProfession()));
         entity.setCertNo(requireText(request.getCertNo(), "certNo"));
         entity.setContactPhone(trimNullable(request.getContactPhone()));
         entity.setNotes(trimNullable(request.getNotes()));
@@ -1369,42 +1385,52 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 DEFAULT_SAMPLE_NAME);
         String submitUnit = firstNonBlank(
                 submitCompany == null ? null : submitCompany.getCompanyName(),
+                trimNullable(request.getSubmitUnit()),
                 createMode ? DEFAULT_SUBMIT_UNIT : project.getSubmitUnit(),
                 DEFAULT_SUBMIT_UNIT);
         String entrustUnit = firstNonBlank(
                 entrustCompany == null ? null : entrustCompany.getCompanyName(),
+                trimNullable(request.getEntrustUnit()),
                 createMode ? DEFAULT_ENTRUST_UNIT : project.getEntrustUnit(),
                 DEFAULT_ENTRUST_UNIT);
         String taskOrigin = firstNonBlank(
                 taskOriginTemplate == null ? null : taskOriginTemplate.getTemplateContent(),
+                trimNullable(request.getTaskOrigin()),
                 createMode ? defaultTaskOrigin(companyName) : project.getTaskOrigin(),
                 defaultTaskOrigin(companyName));
         String evaluationBasis = firstNonBlank(
                 evaluationBasisTemplate == null ? null : evaluationBasisTemplate.getTemplateContent(),
+                trimNullable(request.getEvaluationBasis()),
                 createMode ? DEFAULT_EVALUATION_BASIS : project.getEvaluationBasis(),
                 DEFAULT_EVALUATION_BASIS);
         String writerCertNo = firstNonBlank(
                 writerStaff == null ? null : writerStaff.getCertNo(),
+                trimNullable(request.getWriterCertNo()),
                 createMode ? DEFAULT_WRITER_CERT_NO : project.getWriterCertNo(),
                 DEFAULT_WRITER_CERT_NO);
         String reviewerCertNo = firstNonBlank(
                 reviewerStaff == null ? null : reviewerStaff.getCertNo(),
+                trimNullable(request.getReviewerCertNo()),
                 createMode ? DEFAULT_REVIEWER_CERT_NO : project.getReviewerCertNo(),
                 DEFAULT_REVIEWER_CERT_NO);
         String approverCertNo = firstNonBlank(
                 approverStaff == null ? null : approverStaff.getCertNo(),
+                trimNullable(request.getApproverCertNo()),
                 createMode ? DEFAULT_APPROVER_CERT_NO : project.getApproverCertNo(),
                 DEFAULT_APPROVER_CERT_NO);
         String writerName = firstNonBlank(
                 writerStaff == null ? null : writerStaff.getStaffName(),
+                trimNullable(request.getWriterName()),
                 createMode ? DEFAULT_WRITER_NAME : project.getWriterName(),
                 DEFAULT_WRITER_NAME);
         String reviewerName = firstNonBlank(
                 reviewerStaff == null ? null : reviewerStaff.getStaffName(),
+                trimNullable(request.getReviewerName()),
                 createMode ? DEFAULT_REVIEWER_NAME : project.getReviewerName(),
                 DEFAULT_REVIEWER_NAME);
         String approverName = firstNonBlank(
                 approverStaff == null ? null : approverStaff.getStaffName(),
+                trimNullable(request.getApproverName()),
                 createMode ? DEFAULT_APPROVER_NAME : project.getApproverName(),
                 DEFAULT_APPROVER_NAME);
 
@@ -1576,9 +1602,46 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 trimNullable(request.getLimitUnit()),
                 template == null ? null : trimNullable(template.getDefaultLimitUnit()),
                 createMode ? null : result.getLimitUnit()));
+        result.setMeasurementDate(request.getMeasurementDate() == null && !createMode
+                ? result.getMeasurementDate() : request.getMeasurementDate());
+        result.setMeasurementBodyPart(trimNullable(request.getMeasurementBodyPart()));
+        result.setMeasurementBand(trimNullable(request.getMeasurementBand()));
+        result.setDailyExposureHours(request.getDailyExposureHours() == null && !createMode
+                ? result.getDailyExposureHours() : request.getDailyExposureHours());
+        result.setWeeklyExposureHours(request.getWeeklyExposureHours() == null && !createMode
+                ? result.getWeeklyExposureHours() : request.getWeeklyExposureHours());
+        result.setFactorCategory(request.getFactorCategory());
+        result.setPointCode(request.getPointCode());
+        result.setSampleCode(request.getSampleCode());
+        result.setDetectionMode(request.getDetectionMode());
+        result.setNoiseType(request.getNoiseType());
+        result.setLaboratoryDate(request.getLaboratoryDate());
+        result.setDetectionBasis(request.getDetectionBasis());
+        result.setDetectionMethod(request.getDetectionMethod());
+        result.setInstrument(request.getInstrument());
+        result.setTestingOrganization(request.getTestingOrganization());
+        result.setSourceRecordNo(request.getSourceRecordNo());
+        result.setDetectionLimit(request.getDetectionLimit());
+        result.setQuantificationLimit(request.getQuantificationLimit());
+        result.setEvaluationBasis(request.getEvaluationBasis());
+        result.setOverLimitReason(request.getOverLimitReason());
+        result.setWeeklyWorkDays(request.getWeeklyWorkDays());
+        result.setReductionApplicable(request.getReductionApplicable());
+        result.setPeakLimitMultiplier(request.getPeakLimitMultiplier());
+        result.setPeakExposureMinutes(request.getPeakExposureMinutes());
+        result.setPeakTimesPerShift(request.getPeakTimesPerShift());
+        result.setPeakIntervalMinutes(request.getPeakIntervalMinutes());
+        result.setMixedExposureGroup(request.getMixedExposureGroup());
+        result.setMixedExposureBasis(request.getMixedExposureBasis());
+        result.setMeasurementConditions(request.getMeasurementConditions());
+        List<String> validation = ReportResultRules.errors(result, false);
+        if (!validation.isEmpty()) throw new BusinessException(String.join("；", validation));
+        result.setValueNum(ReportResultRules.numeric(result));
+        result.setReductionFactor(ReportResultRules.reduction(result));
+        result.setAdjustedLimitValue(ReportResultRules.effectiveLimit(result));
 
         Long uniquePositionId = result.getPositionId();
-        if (uniquePositionId != null) {
+        if (uniquePositionId != null && result.getMeasurementDate() == null) {
             boolean duplicated = createMode
                     ? resultItemRepository.existsByProjectIdAndPositionIdAndFactorNameAndMetricTypeAndDeletedFalse(
                     result.getProjectId(), uniquePositionId, result.getFactorName(), result.getMetricType())
@@ -1591,18 +1654,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
     }
 
     private String evaluate(OhdpResultItem item) {
-        BigDecimal limitValue = item.getLimitValue();
-        if (limitValue == null) {
-            return JUDGE_PENDING;
-        }
-        BigDecimal value = item.getValueNum();
-        if (value == null) {
-            value = extractNumeric(item.getValueRaw());
-        }
-        if (value == null) {
-            return JUDGE_PENDING;
-        }
-        return value.compareTo(limitValue) <= 0 ? JUDGE_PASS : JUDGE_FAIL;
+        item.setReductionFactor(ReportResultRules.reduction(item));
+        item.setAdjustedLimitValue(ReportResultRules.effectiveLimit(item));
+        return ReportResultRules.judge(item);
     }
 
     private BigDecimal extractNumeric(String valueRaw) {
@@ -1631,15 +1685,28 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
             OhdpProject project,
             List<OhdpProjectPosition> positions,
             List<OhdpResultItem> results) {
+        writeReportDocument(filePath, project, positions, results, true);
+    }
+
+    private void writeReportDocument(
+            Path filePath,
+            OhdpProject project,
+            List<OhdpProjectPosition> positions,
+            List<OhdpResultItem> results,
+            boolean deleteNotApplicable) {
         Path tempFile = null;
         Map<String, String> replacements = buildTemplateReplacements(project, positions, results);
         try {
             tempFile = Files.createTempFile(filePath.getParent(), "ohdp-report-", ".docx");
             try (InputStream templateStream = new ClassPathResource(REPORT_TEMPLATE_PATH).getInputStream();
                  OutputStream outputStream = Files.newOutputStream(tempFile)) {
-                BeiHaiPeriodicReportGenerator.generate(templateStream, outputStream, replacements);
+                BeiHaiPeriodicReportGenerator.generate(
+                        templateStream, outputStream, replacements, deleteNotApplicable);
             }
             Files.move(tempFile, filePath, StandardCopyOption.REPLACE_EXISTING);
+            if (reportProperties.isRefreshFieldsOnWindows()) {
+                refreshReportFieldsByOffice(filePath);
+            }
         } catch (Exception e) {
             throw new BusinessException("failed to generate BeiHai periodic report document: " + e.getMessage());
         } finally {
@@ -1649,6 +1716,49 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 } catch (IOException ignored) {
                 }
             }
+        }
+    }
+
+    private void refreshReportFieldsByOffice(Path filePath) {
+        if (!System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            return;
+        }
+        Path scriptFile = null;
+        try {
+            scriptFile = Files.createTempFile(filePath.getParent(), "ohdp-refresh-fields-", ".ps1");
+            try (InputStream scriptStream = new ClassPathResource(REPORT_FIELD_REFRESH_SCRIPT_PATH).getInputStream()) {
+                Files.writeString(scriptFile, "\uFEFF" + new String(scriptStream.readAllBytes(), StandardCharsets.UTF_8),
+                        StandardCharsets.UTF_8);
+            }
+            ProcessBuilder processBuilder = new ProcessBuilder(
+                    resolvePowerShellExecutable(),
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    scriptFile.toString(),
+                    filePath.toAbsolutePath().toString());
+            processBuilder.redirectErrorStream(true);
+            Process process = processBuilder.start();
+            if (!process.waitFor(60, TimeUnit.SECONDS)) {
+                process.descendants().forEach(child -> child.destroyForcibly());
+                process.destroyForcibly();
+                org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                        "Report field refresh exceeded 60 seconds and was stopped: {}", filePath);
+                return;
+            }
+            byte[] output = process.getInputStream().readAllBytes();
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                        "Report field refresh was skipped (exit {}): {}", exitCode,
+                        new String(output, StandardCharsets.UTF_8).trim());
+            }
+        } catch (Exception ex) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                    "Report field refresh was skipped: {}", ex.getMessage());
+        } finally {
+            tryDelete(scriptFile);
         }
     }
 
@@ -1838,6 +1948,30 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         if (supplement.getMaterials() == null) {
             supplement.setMaterials(new ArrayList<>());
         }
+        if (supplement.getVocAnalysisPerformed() == null) {
+            supplement.setVocAnalysisPerformed(Boolean.FALSE);
+        }
+        if (supplement.getVocAnalysisItems() == null) {
+            supplement.setVocAnalysisItems(new ArrayList<>());
+        }
+        if (isBlank(supplement.getRadiationSourceMode())) {
+            supplement.setRadiationSourceMode("NONE");
+        }
+        if (supplement.getXrayDevices() == null) {
+            supplement.setXrayDevices(new ArrayList<>());
+        }
+        if (supplement.getSealedSources() == null) {
+            supplement.setSealedSources(new ArrayList<>());
+        }
+        if (supplement.getUnsealedSources() == null) {
+            supplement.setUnsealedSources(new ArrayList<>());
+        }
+        if (supplement.getExclusionScreeningPerformed() == null) {
+            supplement.setExclusionScreeningPerformed(Boolean.FALSE);
+        }
+        if (supplement.getExclusionScreeningItems() == null) {
+            supplement.setExclusionScreeningItems(new ArrayList<>());
+        }
         if (supplement.getEquipment() == null) {
             supplement.setEquipment(new ArrayList<>());
         }
@@ -1849,6 +1983,24 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         }
         if (supplement.getSamplingPlans() == null) {
             supplement.setSamplingPlans(new ArrayList<>());
+        }
+        if (supplement.getReportPhotos() == null) {
+            supplement.setReportPhotos(new ArrayList<>());
+        }
+        if (isBlank(supplement.getAttachmentDeliveryPlan())) {
+            supplement.setAttachmentDeliveryPlan("委托书、合同、现场调查表、检测计划及其他附件不随主报告提供。");
+        }
+        if (isBlank(supplement.getPhotoEmbeddingPlan())) {
+            supplement.setPhotoEmbeddingPlan("现场照片由报告编制者上传并直接嵌入Word。");
+        }
+        if (isBlank(supplement.getMultiDayDisplayRule())) {
+            supplement.setMultiDayDisplayRule("单日保留日期列；两日及以上逐条显示具体检测日期。");
+        }
+        if (isBlank(supplement.getOvertimeReductionRule())) {
+            supplement.setOvertimeReductionRule("日接触超过8小时或周接触超过40小时时，按确认公式折减PC-TWA。");
+        }
+        if (isBlank(supplement.getSignatureStampMode())) {
+            supplement.setSignatureStampMode("保留打印后手签盖章位置");
         }
         if (supplement.getMaterialsConfirmedNotApplicable() == null) {
             supplement.setMaterialsConfirmedNotApplicable(Boolean.FALSE);
@@ -1970,7 +2122,38 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 row.put("unit", valueOf(r.getUnit()));
                 row.put("limitValue", r.getLimitValue() != null ? r.getLimitValue().toPlainString() : "");
                 row.put("limitUnit", valueOf(r.getLimitUnit()));
+                row.put("measurementDate", r.getMeasurementDate() == null ? "" : r.getMeasurementDate().toString());
+                row.put("measurementBodyPart", valueOf(r.getMeasurementBodyPart()));
+                row.put("measurementBand", valueOf(r.getMeasurementBand()));
+                row.put("dailyExposureHours", r.getDailyExposureHours() == null ? "" : r.getDailyExposureHours().toPlainString());
+                row.put("weeklyExposureHours", r.getWeeklyExposureHours() == null ? "" : r.getWeeklyExposureHours().toPlainString());
+                row.put("reductionFactor", r.getReductionFactor() == null ? "" : r.getReductionFactor().toPlainString());
+                row.put("adjustedLimitValue", r.getAdjustedLimitValue() == null ? "" : r.getAdjustedLimitValue().toPlainString());
                 row.put("judgement", valueOf(r.getJudgement()));
+                row.put("factorCategory", r.getFactorCategory() == null ? "" : r.getFactorCategory().toString());
+                row.put("pointCode", r.getPointCode() == null ? "" : r.getPointCode().toString());
+                row.put("sampleCode", r.getSampleCode() == null ? "" : r.getSampleCode().toString());
+                row.put("detectionMode", r.getDetectionMode() == null ? "" : r.getDetectionMode().toString());
+                row.put("noiseType", r.getNoiseType() == null ? "" : r.getNoiseType().toString());
+                row.put("laboratoryDate", r.getLaboratoryDate() == null ? "" : r.getLaboratoryDate().toString());
+                row.put("detectionBasis", r.getDetectionBasis() == null ? "" : r.getDetectionBasis().toString());
+                row.put("detectionMethod", r.getDetectionMethod() == null ? "" : r.getDetectionMethod().toString());
+                row.put("instrument", r.getInstrument() == null ? "" : r.getInstrument().toString());
+                row.put("testingOrganization", r.getTestingOrganization() == null ? "" : r.getTestingOrganization().toString());
+                row.put("sourceRecordNo", r.getSourceRecordNo() == null ? "" : r.getSourceRecordNo().toString());
+                row.put("detectionLimit", r.getDetectionLimit() == null ? "" : r.getDetectionLimit().toString());
+                row.put("quantificationLimit", r.getQuantificationLimit() == null ? "" : r.getQuantificationLimit().toString());
+                row.put("evaluationBasis", r.getEvaluationBasis() == null ? "" : r.getEvaluationBasis().toString());
+                row.put("overLimitReason", r.getOverLimitReason() == null ? "" : r.getOverLimitReason().toString());
+                row.put("weeklyWorkDays", r.getWeeklyWorkDays() == null ? "" : r.getWeeklyWorkDays().toString());
+                row.put("reductionApplicable", r.getReductionApplicable() == null ? "" : r.getReductionApplicable().toString());
+                row.put("peakLimitMultiplier", r.getPeakLimitMultiplier() == null ? "" : r.getPeakLimitMultiplier().toString());
+                row.put("peakExposureMinutes", r.getPeakExposureMinutes() == null ? "" : r.getPeakExposureMinutes().toString());
+                row.put("peakTimesPerShift", r.getPeakTimesPerShift() == null ? "" : r.getPeakTimesPerShift().toString());
+                row.put("peakIntervalMinutes", r.getPeakIntervalMinutes() == null ? "" : r.getPeakIntervalMinutes().toString());
+                row.put("mixedExposureGroup", r.getMixedExposureGroup() == null ? "" : r.getMixedExposureGroup().toString());
+                row.put("mixedExposureBasis", r.getMixedExposureBasis() == null ? "" : r.getMixedExposureBasis().toString());
+                row.put("measurementConditions", r.getMeasurementConditions() == null ? "" : r.getMeasurementConditions().toString());
                 resData.add(row);
             }
             replacements.put("__RESULTS_JSON__", OBJECT_MAPPER.writeValueAsString(resData));
@@ -2042,6 +2225,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
             if (sp != null) {
                 name = valueOf(sp.getStaffName());
                 title = valueOf(sp.getStaffTitle());
+                entry.put("profession", valueOf(sp.getProfession()));
             }
         }
         if (isBlank(name)) {
@@ -2152,6 +2336,14 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         if (results.isEmpty()) {
             missingItems.add("results.empty");
         }
+        for (OhdpResultItem item : results) {
+            String prefix = "结果[" + item.getJobName() + "/" + item.getFactorName() + "/" + item.getMetricType() + "]：";
+            for (String error : ReportResultRules.errors(item, true)) missingItems.add(prefix + error);
+            String expected = ReportResultRules.judge(item);
+            if (JUDGE_PENDING.equals(expected) || !expected.equals(item.getJudgement())) missingItems.add(prefix + "未完成有效判定，请校正数据后重新判定");
+            if (project.getReportDate() != null && ((item.getMeasurementDate() != null && item.getMeasurementDate().isAfter(project.getReportDate()))
+                    || (item.getLaboratoryDate() != null && item.getLaboratoryDate().isAfter(project.getReportDate())))) missingItems.add(prefix + "检测日期晚于报告日期");
+        }
         if (results.stream().anyMatch(item -> isBlank(item.getJobName()) || isBlank(item.getFactorName()) || isBlank(item.getMetricType()))) {
             missingItems.add("results.requiredFields");
         }
@@ -2170,15 +2362,81 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         }
         OhdpDto.ReportSupplement supplement = readReportSupplement(project.getReportSupplementJson());
         addMissing(missingItems, "report.reportHeaderName", supplement.getReportHeaderName());
+        addMissing(missingItems, "联系人", supplement.getContactName());
+        addMissing(missingItems, "联系电话", supplement.getContactPhone());
+        addMissing(missingItems, "投产日期", supplement.getCommissioningDate());
+        addMissing(missingItems, "经济类型", supplement.getEconomicType());
+        addMissing(missingItems, "企业规模", supplement.getCompanyScale());
+        if (supplement.getEmployeeCount() == null || supplement.getEmployeeCount() <= 0
+                || supplement.getEmployeeCount() < positions.stream().mapToInt(p -> p.getWorkerCount() == null ? 0 : p.getWorkerCount()).sum()) missingItems.add("劳动定员总数不得小于岗位人数合计");
+        if (!java.util.Set.of("APPLICABLE", "NOT_APPLICABLE").contains(ReportResultRules.blank(supplement.getMixedExposureAssessment()))) missingItems.add("混合接触适用性须由专业人员确认");
+        addMissing(missingItems, "混合接触适用性依据", supplement.getMixedExposureAssessmentBasis());
+        if ("APPLICABLE".equals(supplement.getMixedExposureAssessment()) && results.stream().noneMatch(r -> !isBlank(r.getMixedExposureGroup()))) missingItems.add("适用混合接触但未指定结果组合");
+        if ("NOT_APPLICABLE".equals(supplement.getMixedExposureAssessment()) && results.stream().anyMatch(r -> !isBlank(r.getMixedExposureGroup()))) missingItems.add("混合接触不适用声明与已填组合矛盾");
+        if (results.stream().anyMatch(r -> !isBlank(r.getMixedExposureGroup()) && (isBlank(r.getMixedExposureBasis()) || !ReportResultRules.isTwa(r)))) missingItems.add("混合接触组合需同一评价时段的TWA及相同效应依据");
+        Map<String, List<OhdpResultItem>> mixedGroups = results.stream().filter(r -> !isBlank(r.getMixedExposureGroup()))
+                .collect(java.util.stream.Collectors.groupingBy(r -> r.getMixedExposureGroup() + "/" + r.getPositionId() + "/" + r.getMeasurementDate()));
+        for (var group : mixedGroups.entrySet()) {
+            if (group.getValue().size() < 2 || group.getValue().stream().map(OhdpResultItem::getFactorName).distinct().count() != group.getValue().size()) missingItems.add("混合接触组合" + group.getKey() + "必须包含至少两种因素且每因素仅一条同周期结果");
+            if (group.getValue().stream().map(OhdpResultItem::getMixedExposureBasis).distinct().count() != 1) missingItems.add("混合接触组合" + group.getKey() + "共同效应依据不一致");
+        }
+        if (Boolean.TRUE.equals(supplement.getVocAnalysisPerformed())) {
+            addMissing(missingItems, "VOC检测机构", supplement.getVocTestingOrganization());
+            addMissing(missingItems, "VOC外部报告编号", supplement.getVocSourceReportNo());
+        }
+
         addMissing(missingItems, "report.socialCreditCode", supplement.getSocialCreditCode());
         addMissing(missingItems, "report.legalRepresentative", supplement.getLegalRepresentative());
         addMissing(missingItems, "report.industryCategory", supplement.getIndustryCategory());
         addMissing(missingItems, "report.detectionScope", supplement.getDetectionScope());
+        addMissing(missingItems, "report.lawsRegulations", supplement.getLawsRegulations());
+        addMissing(missingItems, "report.basicMaterials", supplement.getBasicMaterials());
         addMissing(missingItems, "report.productionProcess", supplement.getProductionProcess());
         addMissing(missingItems, "report.radiationSourceSummary", supplement.getRadiationSourceSummary());
+        addMissing(missingItems, "report.radiationSourceMode", supplement.getRadiationSourceMode());
+        if ("INCLUDED_REPORT".equalsIgnoreCase(supplement.getRadiationSourceMode())
+                && (supplement.getXrayDevices() == null || supplement.getXrayDevices().isEmpty())
+                && (supplement.getSealedSources() == null || supplement.getSealedSources().isEmpty())
+                && (supplement.getUnsealedSources() == null || supplement.getUnsealedSources().isEmpty())) {
+            missingItems.add("report.radiationSources.empty");
+        }
+        if ("SEPARATE_REPORT".equalsIgnoreCase(supplement.getRadiationSourceMode())) {
+            addMissing(missingItems, "report.radiationSeparateReportNo", supplement.getRadiationSeparateReportNo());
+        }
         addMissing(missingItems, "report.vocAnalysisConclusion", supplement.getVocAnalysisConclusion());
+        if (Boolean.TRUE.equals(supplement.getVocAnalysisPerformed())
+                && (supplement.getVocAnalysisItems() == null || supplement.getVocAnalysisItems().isEmpty())) {
+            missingItems.add("report.vocAnalysisItems.empty");
+        }
         addMissing(missingItems, "report.exclusionScreeningConclusion", supplement.getExclusionScreeningConclusion());
+        if (Boolean.TRUE.equals(supplement.getExclusionScreeningPerformed())
+                && (supplement.getExclusionScreeningItems() == null || supplement.getExclusionScreeningItems().isEmpty())) {
+            missingItems.add("report.exclusionScreeningItems.empty");
+        }
         addMissing(missingItems, "report.rawRecordCompletenessNote", supplement.getRawRecordCompletenessNote());
+        addMissing(missingItems, "report.qualificationCertificatePlan", supplement.getQualificationCertificatePlan());
+        addMissing(missingItems, "report.qualificationCertificateImage", supplement.getQualificationCertificateImageDataUrl());
+        if (!isValidReportImage(supplement.getQualificationCertificateImageDataUrl())) missingItems.add("资质证书图片无效，请上传可读取的证书图片");
+        if (supplement.getReportPhotos() == null || supplement.getReportPhotos().isEmpty()) missingItems.add("缺少现场照片");
+        else for (var photo : supplement.getReportPhotos()) {
+            if (!isValidReportImage(photo.getImageDataUrl())) missingItems.add("现场照片无法读取：" + photo.getFileName());
+            addMissing(missingItems,"现场照片日期",photo.getTakenDate());
+            addMissing(missingItems,"现场照片地点/说明",photo.getCaption());
+        }
+        for (var staff : java.util.List.of(
+                buildStaffEntry(project.getWriterStaffId(),project.getWriterName(),project.getWriterCertNo(),TEMPLATE_WRITER_CERT),
+                buildStaffEntry(project.getReviewerStaffId(),project.getReviewerName(),project.getReviewerCertNo(),TEMPLATE_REVIEWER_CERT),
+                buildStaffEntry(project.getApproverStaffId(),project.getApproverName(),project.getApproverCertNo(),DEFAULT_APPROVER_CERT_NO))) {
+            addMissing(missingItems,"报告人员职称",staff.get("title"));addMissing(missingItems,"报告人员专业",staff.get("profession"));
+        }
+
+        addMissing(missingItems, "report.attachmentDeliveryPlan", supplement.getAttachmentDeliveryPlan());
+        addMissing(missingItems, "report.photoEmbeddingPlan", supplement.getPhotoEmbeddingPlan());
+        addMissing(missingItems, "report.multiDayDisplayRule", supplement.getMultiDayDisplayRule());
+        addMissing(missingItems, "report.overtimeReductionRule", supplement.getOvertimeReductionRule());
+        addMissing(missingItems, "report.physicalFactorScope", supplement.getPhysicalFactorScope());
+        addMissing(missingItems, "report.specialMeasurementRule", supplement.getSpecialMeasurementRule());
+        addMissing(missingItems, "report.signatureStampMode", supplement.getSignatureStampMode());
         addMissing(missingItems, "report.productionCondition", supplement.getProductionCondition());
         addMissing(missingItems, "report.samplingLayoutDescription", supplement.getSamplingLayoutDescription());
         addMissing(missingItems, "report.detectionConditions", supplement.getDetectionConditions());
@@ -2209,11 +2467,29 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
         if (supplement.getSamplingPlans() == null || supplement.getSamplingPlans().isEmpty()) {
             missingItems.add("report.samplingPlans.empty");
         }
+        boolean noDeviation = isBlank(supplement.getPlanDeviation()) || supplement.getPlanDeviation().contains("无变更") || supplement.getPlanDeviation().contains("无偏离");
+        if (supplement.getSamplingPlans() != null && noDeviation) for (var plan : supplement.getSamplingPlans()) {
+            var actual = results.stream().filter(r -> java.util.Objects.equals(r.getFactorName(), plan.getFactorName()) && java.util.Objects.equals(r.getJobName(), plan.getJobName())).toList();
+            long days = actual.stream().map(OhdpResultItem::getMeasurementDate).filter(java.util.Objects::nonNull).distinct().count();
+            if (plan.getDays() != null && days > 0 && days != plan.getDays()) missingItems.add("采样计划与实际天数不符：" + plan.getJobName() + "/" + plan.getFactorName() + "，须记录计划偏离");
+            if (actual.stream().anyMatch(r -> !isBlank(r.getDetectionMode()) && !isBlank(plan.getDetectionMode()) && !r.getDetectionMode().contains(plan.getDetectionMode().replace("检测", "")))) missingItems.add("计划与实际采样方式不符：" + plan.getFactorName() + "，须记录计划偏离");
+        }
+        if (results.stream().anyMatch(r -> "放射性因素".equals(ReportResultRules.category(r.getFactorName(),r.getMetricType(),r.getFactorCategory()))) && !"INCLUDED_REPORT".equals(supplement.getRadiationSourceMode())) missingItems.add("已有放射性检测结果，辐射源项处理方式须为合并写入本报告");
         return OhdpDto.ReportPrecheckResponse.builder()
                 .projectId(projectId)
                 .passed(missingItems.isEmpty())
                 .missingItems(missingItems)
                 .build();
+    }
+
+    private boolean isValidReportImage(String dataUrl) {
+        if (isBlank(dataUrl)) return false;
+        try {
+            int comma=dataUrl.indexOf(',');
+            byte[] bytes=java.util.Base64.getDecoder().decode(comma>=0?dataUrl.substring(comma+1):dataUrl);
+            var image=javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            return image!=null && image.getWidth()>1 && image.getHeight()>1;
+        } catch (Exception ex) { return false; }
     }
 
     private void logReportOperation(Long projectId, String operationType, String message) {
@@ -2378,6 +2654,37 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .unit(item.getUnit())
                 .limitValue(item.getLimitValue())
                 .limitUnit(item.getLimitUnit())
+                .measurementDate(item.getMeasurementDate())
+                .measurementBodyPart(item.getMeasurementBodyPart())
+                .measurementBand(item.getMeasurementBand())
+                .dailyExposureHours(item.getDailyExposureHours())
+                .weeklyExposureHours(item.getWeeklyExposureHours())
+                .reductionFactor(item.getReductionFactor())
+                .adjustedLimitValue(item.getAdjustedLimitValue())
+                .factorCategory(item.getFactorCategory())
+                .pointCode(item.getPointCode())
+                .sampleCode(item.getSampleCode())
+                .detectionMode(item.getDetectionMode())
+                .noiseType(item.getNoiseType())
+                .laboratoryDate(item.getLaboratoryDate())
+                .detectionBasis(item.getDetectionBasis())
+                .detectionMethod(item.getDetectionMethod())
+                .instrument(item.getInstrument())
+                .testingOrganization(item.getTestingOrganization())
+                .sourceRecordNo(item.getSourceRecordNo())
+                .detectionLimit(item.getDetectionLimit())
+                .quantificationLimit(item.getQuantificationLimit())
+                .evaluationBasis(item.getEvaluationBasis())
+                .overLimitReason(item.getOverLimitReason())
+                .weeklyWorkDays(item.getWeeklyWorkDays())
+                .reductionApplicable(item.getReductionApplicable())
+                .peakLimitMultiplier(item.getPeakLimitMultiplier())
+                .peakExposureMinutes(item.getPeakExposureMinutes())
+                .peakTimesPerShift(item.getPeakTimesPerShift())
+                .peakIntervalMinutes(item.getPeakIntervalMinutes())
+                .mixedExposureGroup(item.getMixedExposureGroup())
+                .mixedExposureBasis(item.getMixedExposureBasis())
+                .measurementConditions(item.getMeasurementConditions())
                 .judgement(item.getJudgement())
                 .judgementLabel(OhdpCodeLabels.label(item.getJudgement()))
                 .build();
@@ -2460,6 +2767,9 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .defaultUnit(entity.getDefaultUnit())
                 .defaultLimitValue(entity.getDefaultLimitValue())
                 .defaultLimitUnit(entity.getDefaultLimitUnit())
+                .detectionBasis(entity.getDetectionBasis())
+                .detectionMethod(entity.getDetectionMethod())
+                .detectionInstruments(entity.getDetectionInstruments())
                 .notes(entity.getNotes())
                 .build();
     }
@@ -2480,6 +2790,7 @@ public class OhdpProjectServiceImpl implements OhdpProjectService {
                 .id(entity.getId())
                 .staffName(entity.getStaffName())
                 .staffTitle(entity.getStaffTitle())
+                .profession(entity.getProfession())
                 .certNo(entity.getCertNo())
                 .contactPhone(entity.getContactPhone())
                 .notes(entity.getNotes())

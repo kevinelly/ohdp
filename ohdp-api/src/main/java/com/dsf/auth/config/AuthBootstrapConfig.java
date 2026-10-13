@@ -26,6 +26,9 @@ public class AuthBootstrapConfig {
     @Value("${dsf.auth.initial-password:123456}")
     private String initialPassword;
 
+    @Value("${dsf.auth.bootstrap-must-change-password:true}")
+    private boolean mustChangePassword;
+
     @Bean
     public CommandLineRunner initAdminUser() {
         return args -> {
@@ -37,7 +40,7 @@ public class AuthBootstrapConfig {
             user.setEmployeeId(null);
             user.setRole(UserRole.ADMIN);
             user.setStatus(RecordStatus.ACTIVE);
-            user.setMustChangePassword(true);
+            user.setMustChangePassword(mustChangePassword);
             user.setPasswordHash(passwordEncoder.encode(initialPassword));
             sysUserRepository.save(user);
         };

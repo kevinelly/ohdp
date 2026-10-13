@@ -38,7 +38,7 @@ public interface OhdpProjectService {
 
     OhdpDto.JudgeResponse judge(Long projectId);
 
-    OhdpDto.ReportFileResponse generateReport(Long projectId);
+    OhdpDto.ReportFileResponse generateReport(Long projectId, boolean deleteNotApplicable);
 
     OhdpDto.ReportPrecheckResponse precheckReport(Long projectId);
 
