@@ -50,6 +50,8 @@ interface ProtectionPoint {
   readings: number[]
   averageValue?: number
   resultValue?: number
+  averageDisplay?: string
+  resultDisplay?: string
   controlLimit?: number
   annualWorkloadMas?: number
   occupancyFactor?: number
@@ -139,6 +141,7 @@ interface InspectionCase {
 }
 
 interface CaseSummary {
+  generatedAt?: string
   sampleAcceptanceNo?: string
   equipmentNo?: string
   reportDate?: string
@@ -206,7 +209,7 @@ interface ImportPreview {
 interface InstrumentRecord { deviceId?: number; name: string; model: string; deviceNo: string; certificateNo: string; validFrom?: string; validTo?: string }
 interface ReportProfile {
   sampleName?: string; submittingUnit?: string; commissionedUnit?: string; equipmentParameters?: string; manufacturedDate?: string;
-  detectorName?: string; backgroundLocation?: string; backgroundOperation?: string; calibrationMode?: string;
+  detectorName?: string; backgroundLocation?: string; backgroundOperation?: string; calibrationMode?: string; instrumentResponseTime?: string;
   protectionConditions?: string; overallConclusion?: string; selectedGroups?: string[]; instruments?: InstrumentRecord[];
 }
 const blankProfile = (modality: Modality): ReportProfile => ({ sampleName: '', submittingUnit: '', commissionedUnit: '', equipmentParameters: '',
@@ -255,6 +258,7 @@ interface CaseForm {
 
 const emit=defineEmits<{ 'select-modality':[Modality] }>()
 const pendingQueryId=ref<number>()
+const pendingQueryEdit=ref(false)
 const props = withDefaults(defineProps<{
   token: string
   modality: Modality
@@ -362,9 +366,10 @@ const importType = ref<'PERFORMANCE' | 'PROTECTION'>('PERFORMANCE')
 const importPreview = ref<ImportPreview | null>(null)
 const attachmentCategory = ref<'POINT_MAP' | 'CERTIFICATE' | 'PHANTOM_MANUAL' | 'OTHER'>('POINT_MAP')
 const queryPage=computed({get:()=>query.page+1,set:(v:number)=>{query.page=v-1}})
-async function selectQueryCase(item: CaseSummary) {
-  if(item.modality!==props.modality){queryVisible.value=false;pendingQueryId.value=item.id;emit('select-modality',item.modality);return}
+async function selectQueryCase(item: CaseSummary, edit=false) {
+  if(item.modality!==props.modality){queryVisible.value=false;pendingQueryId.value=item.id;pendingQueryEdit.value=edit;emit('select-modality',item.modality);return}
   queryVisible.value=false;await selectCase(item.id)
+  if(edit && editable.value) openEditCase()
 }
 const ruleDialogVisible = ref(false)
 const editingRuleId = ref<number | null>(null)
@@ -435,7 +440,7 @@ watch(() => props.modality, async (value) => {
   calculation.value = null
   Object.assign(caseForm, blankCaseForm(value))
   await Promise.all([loadCatalog(), loadCases(), loadRules(), loadLibraries()])
-  if(pendingQueryId.value){const id=pendingQueryId.value;pendingQueryId.value=undefined;await selectCase(id)}
+  if(pendingQueryId.value){const id=pendingQueryId.value;pendingQueryId.value=undefined;await selectCase(id);if(pendingQueryEdit.value && editable.value) openEditCase();pendingQueryEdit.value=false}
 }, { immediate: true })
 
 watch(caseForm, () => {
@@ -715,6 +720,32 @@ function computedFields(itemCode: string) {
   return (selectedCase.value?.measurements || []).filter(value => value.itemCode === itemCode && value.fieldRole !== 'RAW')
 }
 
+function readingUnit(itemCode: string) {
+  try { const unit=JSON.parse(conditionValues[`__params.${itemCode}`] || '{}').doseUnit || (['ROA','ROQ'].includes(itemCode) ? 'mGy' : itemCode==='ARS' ? 'μGy' : 'mAs');return unit==='mA,s' ? 'mAs' : unit } catch { return '' }
+}
+function isAicExposurePair(itemCode:string) {
+  try {return itemCode==='AIC' && JSON.parse(conditionValues['__params.AIC'] || '{}').doseUnit==='mA,s'} catch {return false}
+}
+function aicExposurePair(field:string): {current:string;time:string} {
+  try {return JSON.parse(conditionValues['__aic.pairs'] || '{}')[field] || {current:'',time:''}} catch {return {current:'',time:''}}
+}
+function updateAicExposurePair(field:string,part:'current'|'time',value:string) {
+  let pairs:Record<string,{current:string;time:string}>={}
+  try {pairs=JSON.parse(conditionValues['__aic.pairs'] || '{}')} catch { /* Start with an empty structured pair. */ }
+  const pair={...aicExposurePair(field),[part]:value};pairs[field]=pair;conditionValues['__aic.pairs']=JSON.stringify(pairs)
+  measurementValues[key('AIC',field)]=pair.current && pair.time ? String(Number(pair.current)*Number(pair.time)) : ''
+}
+function rawFieldUnit(itemCode: string, field: FieldDefinition) {
+  if(itemCode === 'RPD' && field.code.startsWith('RPD0-')) return selectedCase.value?.rpdUnit || 'nSv/h'
+  if(['ROA','ROQ','ARP','ARS','AIC'].includes(itemCode) && new RegExp(`^${itemCode}(?:\\d|-)`).test(field.code) && !field.code.includes('-K')) return readingUnit(itemCode)
+  return field.unit
+}
+function itemResultDisplay(item: CalculationItem) {
+  if(item.resultText) return item.resultText
+  const result=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode && m.fieldCode==='RESULT' && m.fieldRole==='FINAL')
+  return result ? resultDisplay(result) : `${item.resultValue ?? '-'} ${item.resultUnit || ''}`.trim()
+}
+
 async function saveMeasurements() {
   if (!selectedCase.value) return
   const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number | string | null; valueText?: string | null }> = []
@@ -737,7 +768,7 @@ async function saveMeasurements() {
       }
     }
   }
-  if (!values.length) {
+  if (!values.length && !isAicExposurePair('AIC')) {
     ElMessage.warning('尚未填写测量数据')
     return
   }
@@ -775,7 +806,8 @@ async function calculateCase() {
 }
 
 function resultDisplay(value: Measurement) {
-  if (value.displayValue) return value.displayValue + (value.unit ? " " + value.unit : "")
+  const unit=value.unit || (['ROQ','ARP','ARS','AIC'].includes(value.itemCode) && value.fieldCode.includes('MEAN') ? readingUnit(value.itemCode) : '')
+  if (value.displayValue) return value.displayValue + (unit ? " " + unit : "")
   if (value.valueText) return value.valueText
   if (value.valueNum === undefined || value.valueNum === null) return '-'
   return `${value.valueNum}${value.unit ? ` ${value.unit}` : ''}`
@@ -1162,7 +1194,11 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <div class="field-grid">
                     <label v-for="field in visibleFields(item)" :key="field.code" class="field-card">
                       <span>{{ field.label }} <em v-if="field.required">*</em> <HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" /></span>
-                      <el-select v-if="textOptions(field.code).length" v-model="measurementValues[key(item.code,field.code)]" :disabled="!editable" clearable>
+                      <div v-if="isAicExposurePair(item.code)" class="aic-exposure-pair">
+                        <el-input :model-value="aicExposurePair(field.code).current" type="number" :disabled="!editable" placeholder="电流" @update:model-value="updateAicExposurePair(field.code,'current',$event)"><template #append>mA</template></el-input>
+                        <el-input :model-value="aicExposurePair(field.code).time" type="number" :disabled="!editable" placeholder="曝光时间" @update:model-value="updateAicExposurePair(field.code,'time',$event)"><template #append>s</template></el-input>
+                      </div>
+                      <el-select v-else-if="textOptions(field.code).length" v-model="measurementValues[key(item.code,field.code)]" :disabled="!editable" clearable>
                         <el-option v-for="o in textOptions(field.code)" :key="o" :value="o" :label="o" />
                       </el-select>
                       <el-select
@@ -1184,7 +1220,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                         :disabled="!editable || field.code === 'a'"
                         :placeholder="field.code"
                       >
-                        <template v-if="field.unit" #append>{{ item.code === 'RPD' && field.code.startsWith('RPD0-') ? selectedCase.rpdUnit : field.unit }}</template>
+                        <template v-if="rawFieldUnit(item.code, field)" #append>{{ rawFieldUnit(item.code, field) }}</template>
                       </el-input>
                     </label>
                   </div>
@@ -1203,7 +1239,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <el-table-column prop="itemCode" label="代码" width="84" />
                   <el-table-column prop="itemName" label="检测项目" min-width="170" />
                   <el-table-column label="结果" min-width="120">
-                    <template #default="scope">{{ scope.row.resultText || (scope.row.resultValue ?? '-') }} {{ scope.row.resultUnit }}</template>
+                    <template #default="scope">{{ itemResultDisplay(scope.row) }}</template>
                   </el-table-column>
                   <el-table-column label="状态" width="120">
                     <template #default="scope"><el-tag :type="scope.row.complete ? 'success' : 'danger'">{{ scope.row.complete ? '完成' : '不完整' }}</el-tag></template>
@@ -1227,6 +1263,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-input v-model="profileDraft.protectionConditions" :disabled="!editable" placeholder="防护检测条件：kV、mA、s/mAs、模体、扫描方式等" />
                 <el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" placeholder="本底测量地点" />
                 <el-input v-model="profileDraft.backgroundOperation" :disabled="!editable" placeholder="本底运行情况（未曝光）" />
+                <el-input v-model="profileDraft.instrumentResponseTime" :disabled="!editable" placeholder="仪器响应时间（含单位）" />
                 <el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button>
               </div>
               <el-table :data="pointDrafts" border>
@@ -1237,8 +1274,8 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-table-column v-if="modality === 'DR'" width="150"><template #header>年工作负荷 <HelpMark anchor-id="radiology.annual-workload" /></template><template #default="scope"><el-input v-model.number="scope.row.annualWorkloadMas" type="number" :disabled="!editable" placeholder="mAs/a" /></template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" width="120"><template #header>居留因子 T <HelpMark anchor-id="radiology.occupancy-factor" /></template><template #default="scope"><el-input v-model.number="scope.row.occupancyFactor" type="number" :disabled="!editable" /></template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" width="120"><template #header>使用因子 U <HelpMark anchor-id="radiology.use-factor" /></template><template #default="scope"><el-input v-model.number="scope.row.useFactor" type="number" :disabled="!editable" /></template></el-table-column>
-                <el-table-column prop="averageValue" label="平均值" width="100" />
-                <el-table-column label="结果" width="130"><template #default="scope">{{ scope.row.resultValue ?? '-' }} μSv/h</template></el-table-column>
+                <el-table-column prop="averageDisplay" label="平均值" width="100" />
+                <el-table-column label="结果" width="130"><template #default="scope">{{ scope.row.resultDisplay || '-' }} μSv/h</template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" label="年有效剂量" width="150"><template #default="scope">{{ scope.row.annualEffectiveDose ?? '-' }} mSv/a</template></el-table-column>
                 <el-table-column label="结论" width="110"><template #default="scope">{{ judgementText(scope.row.judgement) }}</template></el-table-column>
                 <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="danger" :disabled="!editable" @click="removePoint(scope.row, scope.$index)">删除</el-button></template></el-table-column>
@@ -1463,7 +1500,7 @@ function showMeasurementHelp(field: FieldDefinition) {
         <el-col :span="6"><el-form-item label="受理编号"><el-input v-model="query.receipt" clearable /></el-form-item></el-col><el-col :span="6"><el-form-item label="受检单位"><el-input v-model="query.company" clearable /></el-form-item></el-col>
         <el-col :span="12"><el-form-item label="设备类别"><el-checkbox v-model="query.crossModality">跨类别查询</el-checkbox><el-select v-model="query.modalities" multiple clearable><el-option label="DR" value="DR" /><el-option label="CT" value="CT" /></el-select></el-form-item></el-col>
       </el-row></el-form><el-button type="primary" @click="query.page=0;loadCases()">查询</el-button><el-button @click="resetQuery">重置</el-button>
-      <el-table :data="cases" border style="margin-top:16px"><el-table-column prop="sampleAcceptanceNo" label="受理编号" min-width="150" /><el-table-column prop="inspectedUnitName" label="受检单位" min-width="160" /><el-table-column prop="modality" label="设备类别" width="90" /><el-table-column prop="equipmentName" label="设备名称" min-width="150" /><el-table-column prop="equipmentNo" label="设备编号" min-width="120" /><el-table-column prop="inspectionDate" label="检测时间" width="120" /><el-table-column prop="reportDate" label="出具报告时间" width="130" /><el-table-column label="操作" width="100"><template #default="s"><el-button link @click="selectQueryCase(s.row)">查看</el-button></template></el-table-column></el-table>
+      <el-table :data="cases" border style="margin-top:16px"><el-table-column prop="sampleAcceptanceNo" label="受理编号" min-width="150" /><el-table-column prop="inspectedUnitName" label="受检单位" min-width="160" /><el-table-column prop="modality" label="设备类别" width="90" /><el-table-column prop="equipmentName" label="设备名称" min-width="150" /><el-table-column prop="equipmentNo" label="设备编号" min-width="120" /><el-table-column prop="inspectionDate" label="检测时间" width="120" /><el-table-column label="出具报告时间" min-width="170"><template #default="s">{{s.row.generatedAt?.replace("T"," ").slice(0,19) || "—"}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="s"><el-button link @click="selectQueryCase(s.row)">查看</el-button><el-button v-if="['DRAFT','DATA_ENTERED','CALCULATED'].includes(s.row.status)" link @click="selectQueryCase(s.row,true)">修改</el-button></template></el-table-column></el-table>
       <el-pagination v-model:current-page="queryPage" :page-size="query.size" :total="totalCases" layout="prev,pager,next,total" @current-change="loadCases" />
     </el-dialog>
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">

@@ -52,7 +52,7 @@ public class RadiologyStandardEvaluator {
             Map<String, BigDecimal> raw,
             Map<String, BigDecimal> calculated) {
         String standard = "WS 76—2020";
-        if(List.of("DDI","HCR").contains(item) && resultText!=null && resultText.startsWith("建立基线"))
+        if(List.of("DDI","HCR","LCR").contains(item) && resultText!=null && resultText.startsWith("建立基线"))
             return evaluation(RadiologyJudgement.BASELINE_ESTABLISHED, standard+"：首次建立基线");
         return switch (item) {
             case "TVD" -> evaluateTvd(raw, calculated);

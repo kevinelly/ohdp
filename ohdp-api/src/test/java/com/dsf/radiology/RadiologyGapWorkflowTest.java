@@ -23,6 +23,12 @@ class RadiologyGapWorkflowTest {
     @Autowired RadiologyCaseRepository caseRepository;
     @Autowired RadiologyMeasurementRepository measurementRepository;
     @Autowired RadiologyAttachmentService attachments;
+    @Test void caseGantryMethodIsAppliedFromSavedConditions() {
+        var r=request();r.setDetectionCategory("验收检测");r.getProfile().setSelectedGroups(List.of("QC"));Long id=cases.createCase(r).id();
+        var raw=new RadiologyDto.MeasurementBatchRequest();raw.setValues(List.of(RadiologyTestFixture.value("GTA","扫描倾角显示值α1","0"),RadiologyTestFixture.value("GTA","模体上下边沿间距L1","100"),RadiologyTestFixture.value("GTA","倾斜α1角后模体上下边沿间距L2","100"),RadiologyTestFixture.value("GTA","测量值α2","2")));
+        raw.setConditions(Map.of("GTA","虚构倾角仪条件","__method.GTA","INCLINOMETER"));cases.saveMeasurements(id,raw);cases.calculate(id);
+        assertThat(cases.getCase(id).itemResults()).filteredOn(x->x.itemCode().equals("GTA")).singleElement().satisfies(x->assertThat(x.resultValue()).isEqualByComparingTo("2"));
+    }
     @Test void completeDrAcceptanceWithFirstBaselinesAndWebpMapCanBeApproved() throws Exception {
         var r=request();r.setModality(RadiologyModality.DR);r.setDetectionCategory("验收检测");r.setHasAec(true);r.setHasRawImages(true);
         r.getProfile().setSelectedGroups(List.of("GENERAL","SPECIAL","PROTECTION"));
@@ -47,12 +53,26 @@ class RadiologyGapWorkflowTest {
         assertThat(detail.itemResults()).filteredOn(x->x.itemCode().equals("STP")).extracting(RadiologyDto.ItemCalculationResponse::resultText).containsExactly("1.0000");
         var w=RadiologyTestFixture.workflow();cases.submitForReview(id,w);cases.review(id,w);cases.approve(id,w);var report=reports.generate(id);
         Path path=Path.of(reportRepository.findById(report.id()).orElseThrow().getStoragePath());Files.createDirectories(Path.of("../.task/round2-qa"));Files.copy(path,Path.of("../.task/round2-qa/DR-full.docx"),StandardCopyOption.REPLACE_EXISTING);
-        try(var doc=new XWPFDocument(Files.newInputStream(path))) {assertThat(doc.getAllPictures()).isNotEmpty();assertThat(doc.getTables().stream().map(t->t.getText()).collect(java.util.stream.Collectors.joining())).contains("建立基线","1.0000");}
+        try(var doc=new XWPFDocument(Files.newInputStream(path))) {assertThat(doc.getAllPictures()).isNotEmpty();assertThat(doc.getTables().stream().map(t->t.getText()).collect(java.util.stream.Collectors.joining())).contains("建立基线","1.0000","曝光时间指示的偏离（第1组）","曝光时间指示的偏离（第2组）","曝光时间指示的偏离（第3组）");}
     }
     RadiologyDto.CaseRequest request() {
         var r=RadiologyTestFixture.request();r.setInspectionEndDate(LocalDate.of(2026,10,14));r.setCity("测试地市");r.setCounty("测试县区");
         var p=new RadiologyProfile();p.setSampleName("软件验收CT样品");p.setCommissionedUnit("软件验收委托单位");p.setSubmittingUnit("软件验收送检单位");p.setBackgroundLocation("虚构本底点位");p.setProtectionConditions("120kV，100mA，1s，水模体");
-        p.setSelectedGroups(List.of("QC","PROTECTION"));r.setProfile(p);return r;
+        p.setInstrumentResponseTime("0.05s");p.setSelectedGroups(List.of("QC","PROTECTION"));r.setProfile(p);return r;
+    }
+    @Test void aicExposurePairsDeriveMasAndClearingTimeCannotReuseOldReading() {
+        var r=request();r.setModality(RadiologyModality.DR);r.getProfile().setSelectedGroups(List.of("GENERAL","SPECIAL","PROTECTION"));Long id=cases.createCase(r).id();
+        var batch=new RadiologyDto.MeasurementBatchRequest();batch.setValues(new ArrayList<>());
+        var pairs=new java.util.LinkedHashMap<String,Map<String,String>>();
+        for(String d:List.of("C","L","R")) for(int i=1;i<=3;i++) pairs.put("AIC-"+d+i,Map.of("current","100.0","time","0.10"));
+        batch.setConditions(new java.util.LinkedHashMap<>());batch.getConditions().put("__params.AIC","{\"doseUnit\":\"mA,s\"}");
+        try {batch.getConditions().put("__aic.pairs",new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(pairs));} catch(Exception ex){throw new RuntimeException(ex);}
+        cases.saveMeasurements(id,batch);cases.calculate(id);
+        assertThat(cases.getCase(id).itemResults()).filteredOn(x->x.itemCode().equals("AIC")).allMatch(x->x.complete() && x.resultValue().signum()==0);
+        pairs.put("AIC-C1",Map.of("current","100.0","time",""));
+        try {batch.getConditions().put("__aic.pairs",new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(pairs));} catch(Exception ex){throw new RuntimeException(ex);}
+        cases.saveMeasurements(id,batch);cases.calculate(id);
+        assertThat(cases.getCase(id).itemResults()).filteredOn(x->x.itemCode().equals("AIC")).allMatch(x->!x.complete());
     }
     Long complete(RadiologyDto.CaseRequest r) {
         Long id=cases.createCase(r).id();cases.saveMeasurements(id,RadiologyTestFixture.measurements());cases.saveProtectionPoints(id,RadiologyTestFixture.points());cases.calculate(id);return id;
@@ -62,13 +82,14 @@ class RadiologyGapWorkflowTest {
         assertThat(cases.getCase(id).dataVersion()).isEqualTo(before.dataVersion());assertThat(reports.list(id)).isEmpty();
         try(var doc=new XWPFDocument(new java.io.ByteArrayInputStream(bytes))) {
             String text=doc.getParagraphs().stream().map(p->p.getText()).collect(java.util.stream.Collectors.joining());
-            assertThat(text).contains("预览稿","十五日","本检验检测报告书总页数");
+            assertThat(text).contains("预览稿","十五日","本检验检测报告书总页数","仪器响应时间：0.05s","体部模体项目不检测");
             assertThat(doc.getTables().stream().map(t->t.getText()).collect(java.util.stream.Collectors.joining())).contains("软件验收委托单位","软件验收送检单位","前进","后退","体部模体");
         }
     }
     @Test void officialReportUsesApprovedProfileAndTraceableDeletionKeepsFile() throws Exception {
         Long id=complete(request());var w=RadiologyTestFixture.workflow();cases.submitForReview(id,w);cases.review(id,w);cases.approve(id,w);
         var first=reports.generate(id);assertThat(first.fileName()).startsWith("检测报告--").contains("[CT-软件验收虚构医院]");
+        assertThat(cases.searchCases(null,null,null,cases.getCase(id).caseCode(),null,null,null,null,null,null,null,0,20).getContent()).filteredOn(c->c.id().equals(id)).allMatch(c->c.generatedAt()!=null);
         Path path=Path.of(reportRepository.findById(first.id()).orElseThrow().getStoragePath());
         Path qa=Path.of("../.task/round2-qa");Files.createDirectories(qa);Files.copy(path,qa.resolve("CT.docx"),StandardCopyOption.REPLACE_EXISTING);
         reports.deleteReport(first.id(),"虚构软件验收报告清理");assertThat(reports.list(id)).isEmpty();assertThat(path).exists();
@@ -93,6 +114,7 @@ class RadiologyGapWorkflowTest {
         var raw=RadiologyTestFixture.measurements();raw.getValues().add(RadiologyTestFixture.value("RPD","k","5"));raw.getValues().add(RadiologyTestFixture.value("RPD","RPD-k2","2"));
         cases.saveMeasurements(id,raw);cases.saveProtectionPoints(id,RadiologyTestFixture.points());cases.calculate(id);
         assertThat(cases.getCase(id).protectionPoints().get(0).resultValue()).isEqualByComparingTo("2.4");
+        assertThat(cases.getCase(id).protectionPoints().get(0).resultDisplay()).isEqualTo("2.400");
     }
     @Test void drReportContainsSeparateGroupsDirectionsAndExplicitImageExclusions() throws Exception {
         var r=request();r.setModality(RadiologyModality.DR);r.setHasAec(false);r.setHasRawImages(false);r.setFeatureReason("测试设备无法获取预处理图像");r.getProfile().setSelectedGroups(List.of("GENERAL","SPECIAL","PROTECTION"));

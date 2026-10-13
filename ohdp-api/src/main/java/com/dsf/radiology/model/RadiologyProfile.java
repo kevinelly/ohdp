@@ -16,6 +16,7 @@ public class RadiologyProfile {
     private String backgroundLocation;
     private String backgroundOperation = "未曝光";
     private String calibrationMode = "INSTRUMENT";
+    private String instrumentResponseTime;
     private String protectionConditions;
     private String overallConclusion;
     private List<String> selectedGroups;

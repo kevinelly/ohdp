@@ -76,7 +76,7 @@ public final class RadiologyDto {
             RadiologyCaseStatus status,
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
-            String sampleAcceptanceNo, String equipmentNo, LocalDate reportDate, String city, String county) {
+            String sampleAcceptanceNo, String equipmentNo, LocalDate reportDate, String city, String county, LocalDateTime generatedAt) {
     }
 
     public record CaseDetail(
@@ -228,6 +228,10 @@ public final class RadiologyDto {
             BigDecimal annualDoseLimit,
             RadiologyJudgement judgement,
             Integer sortNo) {
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String averageDisplay() {return averageValue==null?"—":averageValue.setScale(3,java.math.RoundingMode.HALF_EVEN).toPlainString();}
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String resultDisplay() {return resultValue==null?"—":resultValue.setScale(3,java.math.RoundingMode.HALF_EVEN).toPlainString();}
     }
 
     @Data

@@ -55,6 +55,7 @@ public class RadiologyReportComposer {
             } else {heading(doc,"一、质量控制检测项目");qualityTable(doc,inspection,results,conditions,values,null);}
             var excluded=results.stream().filter(r->!r.itemCode().equals("RPD") && r.judgement()==RadiologyJudgement.NOT_APPLICABLE).map(r->r.itemName()+"："+r.ruleDescription()).distinct().toList();
             if(!excluded.isEmpty()) paragraph(doc,"注："+String.join("；",excluded),false);
+            if(inspection.getModality()==RadiologyModality.CT && !RadiologyScopeService.type(inspection.getDetectionCategory()).equals("ACCEPTANCE") && cases.groupSelected(inspection,"CTDI")) paragraph(doc,"注：CT剂量指数的体部模体项目不检测；状态/稳定性检测仅检测头部模体。",false);
             page(doc);heading(doc,inspection.getModality()==RadiologyModality.DR?"三、放射工作场所卫生防护检测":"二、放射工作场所卫生防护检测");
             protectionTable(doc,inspection,profile,points,values);
             heading(doc,"检测点分布图");
@@ -108,13 +109,13 @@ public class RadiologyReportComposer {
             String condition=conditions.getOrDefault(item.code(),"—");
             boolean applicable=result!=null && result.complete() && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE;
             List<String> groups=switch(item.code()) {
-                case "TVD"->List.of("DISPLAY_1","DISPLAY_2","DISPLAY_3");case "LRD"->List.of("RESULT_A1","RESULT_A2","RESULT_B1","RESULT_B2");
+                case "TVD"->List.of("DISPLAY_1","DISPLAY_2","DISPLAY_3");case "ETD"->List.of("DEVIATION_MS_1","DEVIATION_MS_2","DEVIATION_MS_3");case "LRD"->List.of("RESULT_A1","RESULT_A2","RESULT_B1","RESULT_B2");
                 case "REA"->List.of("HORIZONTAL","VERTICAL");case "TPA"->List.of("FORWARD","BACKWARD");case "CTDI"->List.of("HEAD_CTDIW","BODY_CTDIW");default->List.of();};
             if(groups.isEmpty() || !applicable) {row(t,item.name(),condition,value,rule,judgement);continue;}
             for(int index=0;index<groups.size();index++) {
                 String code=groups.get(index);var field=fields.get(code);String label=switch(code){case "FORWARD"->"前进";case "BACKWARD"->"后退";case "HORIZONTAL"->"水平";case "VERTICAL"->"垂直";case "RESULT_A1"->"左a1";case "RESULT_A2"->"右a2";case "RESULT_B1"->"前b1";case "RESULT_B2"->"后b2";case "HEAD_CTDIW"->"头部模体";case "BODY_CTDIW"->"体部模体";default->"第"+(index+1)+"组";};
-                String display=format(field), assessment=judgement;
-                if(field==null) {display="—";assessment="—";}
+                String display=format(field), assessment=judgement, rowRule=rule;
+                if(field==null) {display="不检测";assessment="—";rowRule="WS 519—2019：状态/稳定性检测不检测体部模体";}
                 else if(!rule.contains(" / ") && Set.of("LRD","REA","TPA").contains(item.code())) {
                     BigDecimal limit=new BigDecimal(item.code().equals("LRD")?"10":"2");assessment=field.getValueNum().abs().compareTo(limit)<=0?"符合":"不符合";
                     if(item.code().equals("LRD"))display=field.getValueNum().divide(BigDecimal.TEN).setScale(1,RoundingMode.HALF_EVEN)+" cm";
@@ -125,6 +126,14 @@ public class RadiologyReportComposer {
                         assessment=deviation.getValueNum().abs().compareTo(limit)<=0?"符合":"不符合";
                         rule=nominal.getValueNum().compareTo(new BigDecimal("100"))<0 ? "WS 76—2020：偏离≤5 kV" : "WS 76—2020：偏离≤5%";
                     }
+                } else if(!rule.contains(" / ") && item.code().equals("ETD")) {
+                    var nominal=fields.get("ETD"+(index+1)+"-0");var relative=fields.get("DEVIATION_PERCENT_"+(index+1));
+                    if(nominal!=null && nominal.getValueNum()!=null) {
+                        BigDecimal n=nominal.getValueNum(),limit=n.compareTo(new BigDecimal("100"))>=0?n.multiply(new BigDecimal("0.10")):n.multiply(new BigDecimal("0.15")).max(new BigDecimal("2"));
+                        assessment=field.getValueNum().abs().compareTo(limit)<=0?"符合":"不符合";
+                        rowRule="WS 76—2020：|Δ|≤"+limit.stripTrailingZeros().toPlainString()+" ms";
+                        if(relative!=null) display+="（"+format(relative)+"）";
+                    }
                 } else if(!rule.contains(" / ") && item.code().equals("CTDI")) {
                     String refPrefix=code.startsWith("HEAD")?"CTDI-HEAD-":"CTDI-BODY-";
                     var reference=fields.get(refPrefix+(RadiologyScopeService.type(c.getDetectionCategory()).equals("STABILITY")?"BASELINE":"MANUFACTURER"));
@@ -133,7 +142,7 @@ public class RadiologyReportComposer {
                         display=deviation.setScale(1,RoundingMode.HALF_EVEN)+"%";assessment=deviation.abs().compareTo(new BigDecimal(RadiologyScopeService.type(c.getDetectionCategory()).equals("STATE")?"20":"15"))<=0?"符合":"不符合";
                     }
                 }
-                row(t,item.name()+"（"+label+"）",conditions.getOrDefault(item.code()+"."+(index+1),condition)+"；"+label,display,field==null?"—":rule,assessment);
+                row(t,item.name()+"（"+label+"）",field==null?"—":conditions.getOrDefault(item.code()+"."+(index+1),condition)+"；"+label,display,item.code().equals("TVD")?rule:rowRule,assessment);
             }
         }
     }
@@ -144,7 +153,7 @@ public class RadiologyReportComposer {
         if(points.isEmpty())row(t,"—","—","—","—","—");
         var rpd=values.getOrDefault("RPD",Map.of());
         String calibration=switch(p.getCalibrationMode()==null?"INSTRUMENT":p.getCalibrationMode()){case "NONE"->"无需修正";case "TIME"->"仅时间响应修正";case "BOTH"->"仪器刻度与时间响应修正";default->"仅仪器刻度修正";};
-        paragraph(doc,"注：1.检测条件："+text(p.getProtectionConditions())+"；仪器校准因子k1："+format(rpd.get("k"))+"；修正方式："+calibration+"；时间响应修正因子k2："+format(rpd.get("RPD-k2"))+"。",false);
+        paragraph(doc,"注：1.检测条件："+text(p.getProtectionConditions())+"；仪器校准因子k1："+format(rpd.get("k"))+"；修正方式："+calibration+"；仪器响应时间："+text(p.getInstrumentResponseTime())+"；时间响应修正因子k2："+format(rpd.get("RPD-k2"))+"。",false);
         var background=rpd.get("RESULT_TEXT");
         paragraph(doc,"2.工作场所环境本底值："+(background==null?"—":format(background))+" μSv/h；本底测量运行情况："+text(p.getBackgroundOperation())+"；检测地点："+text(p.getBackgroundLocation())+"。",false);
         paragraph(doc,"3.检测结果"+("UNSUBTRACTED".equals(c.getProtectionMode())?"未扣除":"已扣除")+"本底值。",false);

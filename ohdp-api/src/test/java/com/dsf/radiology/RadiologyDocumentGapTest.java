@@ -11,6 +11,23 @@ class RadiologyDocumentGapTest {
     final RadiologyCalculationEngine engine=new RadiologyCalculationEngine();
     final RadiologyStandardEvaluator evaluator=new RadiologyStandardEvaluator();
     Map<String,BigDecimal> n(String... data){var m=new LinkedHashMap<String,BigDecimal>();for(int i=0;i<data.length;i+=2)m.put(data[i],new BigDecimal(data[i+1]));return m;}
+    @Test void stateLowContrastWithoutReferenceEstablishesBaseline() {
+        var raw=n("LCR1（可观察细节数）","10","LCR2（可观察对比度）","0.3");
+        var r=engine.calculate("LCR",raw,Map.of(),Map.of());assertThat(r.complete()).isTrue();
+        assertThat(evaluator.evaluate(RadiologyModality.DR,"状态检测","LCR",true,r.resultValue(),r.resultText(),raw,r.fields()).judgement()).isEqualTo(RadiologyJudgement.BASELINE_ESTABLISHED);
+    }
+    @Test void uniformityInverseDoseRetainsRawInputPrecision() {
+        var raw=n("RUE1","7.00","RUE2","7.00","RUE3","7.00","RUE4","7.00","RUE5","7.00");
+        var stp=n("STP-K1","1","STP-K2","2","STP-K3","3","STP-K4","4","STP-K5","5","STP-R1","5","STP-R2","7","STP-R3","9","STP-R4","11","STP-R5","13");
+        var r=engine.calculate("RUE",raw,Map.of(),Map.of("STP",stp),Map.of("STP",Map.of("STP-MODEL","LINEAR")));
+        assertThat(r.fields()).filteredOn(f->f.code().equals("MEAN")).extracting(RadiologyCalculationEngine.CalculatedField::displayValue).containsExactly("2.00");
+    }
+    @Test void gantryMethodChoiceOverridesReadingsRetainedFromOtherMethod() {
+        var raw=n("扫描倾角显示值α1","0","模体上下边沿间距L1","100","倾斜α1角后模体上下边沿间距L2","100","测量值α2","2");
+        assertThat(engine.calculate("GTA",raw,Map.of("__METHOD","PHANTOM"),Map.of()).resultValue()).isEqualByComparingTo("0");
+        assertThat(engine.calculate("GTA",raw,Map.of("__METHOD","INCLINOMETER"),Map.of()).resultValue()).isEqualByComparingTo("2");
+        raw.remove("测量值α2");assertThat(engine.calculate("GTA",raw,Map.of("__METHOD","INCLINOMETER"),Map.of()).complete()).isFalse();
+    }
     @Test void firstDdiMeasurementCreatesBaselineWithoutFabricatingReference() {
         var raw=n("DDI1","100","DDI2","110","DDI3","120");var r=engine.calculate("DDI",raw,Map.of(),Map.of());
         assertThat(r.complete()).isTrue();assertThat(r.resultText()).contains("建立基线值：110.000");

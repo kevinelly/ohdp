@@ -158,9 +158,29 @@ public class RadiologyCaseService {
         for (RadiologyDto.MeasurementRequest value : request.getValues()) {
             upsertRawMeasurement(entity, value.getItemCode(), value.getFieldCode(), value.getValueNum(), value.getValueText(), "MANUAL");
         }
+        saveAicExposurePairs(entity);
         invalidate(entity);
         caseRepository.saveAndFlush(entity);
         return detail(entity);
+    }
+
+    private void saveAicExposurePairs(RadiologyCase entity) {
+        Map<String,String> conditions=itemConditions(entity);
+        try {
+            if(!"mA,s".equals(objectMapper.readTree(conditions.getOrDefault("__params.AIC","{}")).path("doseUnit").asText())) return;
+            var pairs=objectMapper.readTree(conditions.getOrDefault("__aic.pairs","{}"));
+            for(String direction:List.of("C","L","R")) for(int i=1;i<=3;i++) {
+                String field="AIC-"+direction+i;
+                String current=pairs.path(field).path("current").asText("").trim(),time=pairs.path(field).path("time").asText("").trim();
+                BigDecimal mas=null;
+                if(!current.isEmpty() && !time.isEmpty()) {
+                    BigDecimal amps=new BigDecimal(current),seconds=new BigDecimal(time);
+                    if(amps.signum()<=0 || seconds.signum()<=0) throw new BusinessException("AEC电离室的电流和曝光时间必须大于0");
+                    mas=amps.multiply(seconds);
+                }
+                upsertRawMeasurement(entity,"AIC",field,mas,null,"EXPOSURE_PAIR");
+            }
+        } catch(JsonProcessingException | NumberFormatException ex) {throw new BusinessException("AEC电离室电流/时间输入格式无效");}
     }
 
     @Transactional
@@ -205,6 +225,9 @@ public class RadiologyCaseService {
                 case "μSv/h" -> BigDecimal.ONE; case "mSv/h" -> new BigDecimal("1000"); default -> new BigDecimal("0.001");
             });
             String unitCondition=itemConditions(entity).get("__params."+item.code());
+            if(item.code().equals("GTA") && StringUtils.hasText(itemConditions(entity).get("__method.GTA"))) {
+                itemTexts=new LinkedHashMap<>(itemTexts);itemTexts.put("__METHOD",itemConditions(entity).get("__method.GTA"));
+            }
             if(unitCondition!=null) try {String unit=objectMapper.readTree(unitCondition).path("doseUnit").asText();if(unit.equals("μGy"))itemNumbers.put("__MICROGY",BigDecimal.ONE);} catch(JsonProcessingException ex){throw new BusinessException("检测条件结构损坏");}
             RadiologyCalculationEngine.CalculationResult result = calculationEngine.calculate(
                     item.code(), itemNumbers, itemTexts, numbersByItem, textsByItem);
@@ -876,7 +899,7 @@ public class RadiologyCaseService {
                 entity.getId(), entity.getCaseCode(), entity.getModality(), entity.getRevisionNo(), entity.getInspectedUnitName(),
                 entity.getEquipmentName(), entity.getEquipmentModel(), entity.getInspectionDate(), entity.getStatus(),
                 entity.getCreatedAt(), entity.getUpdatedAt(),entity.getSampleAcceptanceNo(),entity.getEquipmentNo(),
-                entity.getReportDate(),entity.getCity(),entity.getCounty());
+                entity.getReportDate(),entity.getCity(),entity.getCounty(),reportRepository.findFirstByCaseIdAndDeletedFalseOrderByGeneratedAtDesc(entity.getId()).map(com.dsf.radiology.entity.RadiologyReport::getGeneratedAt).orElse(null));
     }
 
     private RadiologyDto.CaseDetail detail(RadiologyCase entity) {

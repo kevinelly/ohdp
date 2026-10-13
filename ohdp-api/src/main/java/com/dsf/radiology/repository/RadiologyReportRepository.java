@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RadiologyReportRepository extends JpaRepository<RadiologyReport, Long> {
+    Optional<RadiologyReport> findFirstByCaseIdAndDeletedFalseOrderByGeneratedAtDesc(Long caseId);
     List<RadiologyReport> findByCaseIdAndDeletedFalseOrderByGeneratedAtDesc(Long caseId);
 
     Optional<RadiologyReport> findByIdAndDeletedFalse(Long id);

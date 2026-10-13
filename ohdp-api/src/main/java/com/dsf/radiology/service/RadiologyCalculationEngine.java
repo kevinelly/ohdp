@@ -85,7 +85,7 @@ public class RadiologyCalculationEngine {
                 case "HCR" -> hcr(numbers);
                 case "LCR" -> lcr(numbers,texts);
                 case "TPA" -> tpa(numbers);
-                case "GTA" -> gta(numbers);
+                case "GTA" -> gta(numbers, texts);
                 case "CTDI" -> ctdi(numbers);
                 case "LBA" -> scaledDirect(itemCode, numbers, "LBA", "LBA-FACTOR", 1, "mm");
                 case "RST" -> rst(numbers);
@@ -299,12 +299,12 @@ public class RadiologyCalculationEngine {
             double dose = selected.inverse(req(n, "RUE" + i));
             if (!Double.isFinite(dose)) throw new IncompleteException("STP 逆变换结果无效");
             doses.add(dose);
-            out.add(CalculatedField.number("DOSE_" + i, "区域" + i + "剂量值", dose, 3, ""));
+            out.add(CalculatedField.number("DOSE_" + i, "区域" + i + "剂量值", dose, rawScale(n,"RUE"), ""));
         }
         double average = mean(doses);
         double cv = sampleStdDev(doses) / average * 100;
         out.add(CalculatedField.text("MODEL", "采用拟合模型", selected.model));
-        out.add(CalculatedField.number("MEAN", "剂量平均值", average, 3, ""));
+        out.add(CalculatedField.number("MEAN", "剂量平均值", average, rawScale(n,"RUE"), ""));
         out.add(CalculatedField.number("RESULT", "响应均匀性", cv, 1, "%"));
         return complete("RUE", cv, null, "%", out);
     }
@@ -371,7 +371,7 @@ public class RadiologyCalculationEngine {
             throw new IncompleteException("百分比基线与细节数的换算尚无明确业务公式，请核定后使用；可选择个数基线");
         double details = req(n, "LCR1（可观察细节数）");
         double contrast = req(n, "LCR2（可观察对比度）");
-        if (value(n,"__ESTABLISH_BASELINE",0)==1)
+        if (value(n,"__ESTABLISH_BASELINE",0)==1 || n.get("厂家规定值/基线值")==null)
             return complete("LCR",details,"建立基线值可观察影像细节数"+round(details,0).toPlainString()+"个（对比度"+round(contrast,3).stripTrailingZeros().toPlainString()+"%）", "个细节",List.of(
                     CalculatedField.number("CONTRAST","可观察对比度",contrast,3,"%"),
                     CalculatedField.number("RESULT","可观察细节数基线",details,2,"个细节")));
@@ -394,10 +394,12 @@ public class RadiologyCalculationEngine {
                 CalculatedField.number("RESULT", "最大绝对定位误差", result, 2, "mm")));
     }
 
-    private CalculationResult gta(Map<String, BigDecimal> n) {
+    private CalculationResult gta(Map<String, BigDecimal> n, Map<String,String> texts) {
         double alpha1 = req(n, "扫描倾角显示值α1");
+        String method=texts.get("__METHOD");
+        if(method!=null && !List.of("PHANTOM","INCLINOMETER").contains(method)) throw new IncompleteException("请选择模体法或倾角仪法");
         double measured;
-        if (n.get("模体上下边沿间距L1") != null && n.get("倾斜α1角后模体上下边沿间距L2") != null) {
+        if ("PHANTOM".equals(method) || (method==null && n.get("模体上下边沿间距L1") != null && n.get("倾斜α1角后模体上下边沿间距L2") != null)) {
             double ratio = req(n, "模体上下边沿间距L1") / req(n, "倾斜α1角后模体上下边沿间距L2");
             if (ratio < -1 || ratio > 1) throw new IncompleteException("GTA 模体间距比必须在 [-1,1] 范围");
             measured = Math.toDegrees(Math.acos(ratio));
@@ -437,6 +439,12 @@ public class RadiologyCalculationEngine {
         double peripheral100 = mean(peripheral) * scale;
         double weighted = center100 / 3 + peripheral100 * 2 / 3;
         String name = prefix.equals("H") ? "HEAD" : "BODY";
+        out.add(CalculatedField.number(name+"_MEAN_CD", "中心原始读数平均值", center, rawScale(n,prefix+"CD"), "mGy·cm"));
+        for(int i=0;i<4;i++) {
+            String direction=List.of("U","D","L","R").get(i);
+            out.add(CalculatedField.number(name+"_MEAN_"+direction+"D", "周边"+List.of("上","下","左","右").get(i)+"原始读数平均值", peripheral.get(i), rawScale(n,prefix+direction+"D"), "mGy·cm"));
+            out.add(CalculatedField.number(name+"_"+direction+"_CTDI100", "周边"+List.of("上","下","左","右").get(i)+" CTDI100", peripheral.get(i)*scale, 2, "mGy"));
+        }
         out.add(CalculatedField.number(name + "_CENTER", name + " 中心 CTDI100", center100, 2, "mGy"));
         out.add(CalculatedField.number(name + "_PERIPHERAL", name + " 周边 CTDI100", peripheral100, 2, "mGy"));
         out.add(CalculatedField.number(name + "_CTDIW", name + " CTDIw", weighted, 1, "mGy"));
