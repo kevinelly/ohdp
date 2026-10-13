@@ -22,12 +22,12 @@ public class RadiologyPdfPreviewService {
         Path temp=null;Process process=null;
         try {
             Path root=Path.of(storage.getBaseDir()).toAbsolutePath().normalize().resolve("preview");Files.createDirectories(root);
-            temp=Files.createTempDirectory(root,"report-");Path input=temp.resolve("report.docx");Files.write(input,source);
+            temp=Files.createTempDirectory(root,"report-");Path input=temp.resolve("report.docx");Files.write(input,RadiologyPdfPagination.prepare(source));
             process=new ProcessBuilder("/usr/bin/soffice","-env:UserInstallation="+temp.resolve("office").toUri(),"--headless","--convert-to","pdf:writer_pdf_Export","--outdir",temp.toString(),input.toString())
                 .redirectErrorStream(true).redirectOutput(temp.resolve("conversion.log").toFile()).start();
             if(!process.waitFor(60,TimeUnit.SECONDS)){process.destroyForcibly();throw new BusinessException("报告预览超时，请稍后重试");}
             Path output=temp.resolve("report.pdf");if(process.exitValue()!=0 || !Files.isRegularFile(output))throw new BusinessException("报告分页预览转换失败");
-            byte[] pdf=Files.readAllBytes(output);if(pdf.length<5 || pdf[0]!='%' || pdf[1]!='P')throw new BusinessException("报告预览文件无效");return pdf;
+            byte[] pdf=Files.readAllBytes(output);if(pdf.length<5 || pdf[0]!='%' || pdf[1]!='P')throw new BusinessException("报告预览文件无效");return RadiologyPdfPagination.number(pdf);
         }catch(InterruptedException ex){Thread.currentThread().interrupt();throw new BusinessException("报告预览已中断");}
         catch(java.io.IOException ex){throw new BusinessException("报告预览服务异常");}
         finally {

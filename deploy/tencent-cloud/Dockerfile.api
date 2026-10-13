@@ -1,6 +1,8 @@
 FROM eclipse-temurin:17-jre-alpine
 
 RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories && apk add --no-cache libreoffice-writer font-noto-cjk
+RUN apk add --no-cache font-liberation
+COPY fonts.conf /etc/fonts/conf.d/99-radiology-fonts.conf
 RUN addgroup -S bhfyzx && adduser -S -G bhfyzx bhfyzx
 WORKDIR /app
 COPY app.jar /app/app.jar
