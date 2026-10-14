@@ -13,6 +13,18 @@ class RadiologyCalculationEngineTest {
     private final RadiologyCalculationEngine engine = new RadiologyCalculationEngine();
 
     @Test
+    void confirmedPowerModelHasNoOffsetAndInverseRecoversDose() {
+        Map<String, BigDecimal> raw=new LinkedHashMap<>(), pixels=new LinkedHashMap<>();
+        for(int i=1;i<=5;i++){raw.put("STP-K"+i,BigDecimal.valueOf(i));raw.put("STP-R"+i,BigDecimal.valueOf(2*i*i));pixels.put("RUE"+i,BigDecimal.valueOf(2*i*i));}
+        var fitted=engine.calculate("STP",raw,Map.of("STP-MODEL","POWER"),Map.of());
+        assertThat(fitted.complete()).isTrue();
+        assertThat(fitted.fields().stream().filter(f->f.code().equals("POWER_C")).findFirst().orElseThrow().valueNum()).isZero();
+        var inverse=engine.calculate("RUE",pixels,Map.of(),Map.of("STP",raw),Map.of("STP",Map.of("STP-MODEL","POWER")));
+        assertThat(inverse.complete()).isTrue();
+        for(int i=1;i<=5;i++){String key="DOSE_"+i;assertThat(inverse.fields().stream().filter(f->f.code().equals(key)).findFirst().orElseThrow().valueNum()).isCloseTo(BigDecimal.valueOf(i),org.assertj.core.data.Offset.offset(new BigDecimal("0.001")));}
+    }
+
+    @Test
     void calculatesHvlAndUsesHalfEvenRounding() {
         var result = engine.calculate("HVL", numbers("HVL1", "2.22", "HVL2", "2.23", "HVL3", "2.245"), Map.of(), Map.of());
 

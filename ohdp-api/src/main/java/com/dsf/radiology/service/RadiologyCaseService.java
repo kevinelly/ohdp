@@ -388,7 +388,7 @@ public class RadiologyCaseService {
                 measurementRepository.findByCaseIdAndDeletedFalseOrderByItemCodeAscSortNoAsc(caseId),
                 protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(caseId),
                 attachmentRepository.findByCaseIdAndDeletedFalseOrderByUploadedAtDesc(caseId),
-                itemResults(entity),"2026.10.13",RadiologyReportService.templateHash(entity.getModality()));
+                itemResults(entity),entity.getModality()==RadiologyModality.CT?"2026.10.14":"2026.10.13",RadiologyReportService.templateHash(entity.getModality()));
         entity.setApprovedSnapshotJson(writeJson(approved));
         caseRepository.save(entity);
         return detail(entity);

@@ -45,7 +45,7 @@ public class RadiologyCalculationEngine {
             return switch (model) {
                 case "LINEAR" -> (y - c) / a;
                 case "LOG" -> Math.exp((y - c) / a);
-                case "POWER" -> Math.pow((y - c) / a, 1 / b);
+                case "POWER" -> Math.pow(y / a, 1 / b);
                 default -> Double.NaN;
             };
         }
@@ -370,7 +370,7 @@ public class RadiologyCalculationEngine {
 
     private CalculationResult lcr(Map<String, BigDecimal> n,Map<String,String> texts) {
         if("%".equals(texts.get("LCR-BASELINE-UNIT")) && n.get("厂家规定值/基线值")!=null && value(n,"__ESTABLISH_BASELINE",0)!=1)
-            throw new IncompleteException("百分比基线与细节数的换算尚无明确业务公式，请核定后使用；可选择个数基线");
+            throw new IncompleteException("基线已统一按细节个数，请将原百分比基线转换并重新录入，不能直接按个数使用");
         double details = req(n, "LCR1（可观察细节数）");
         double contrast = req(n, "LCR2（可观察对比度）");
         if (value(n,"__ESTABLISH_BASELINE",0)==1 || n.get("厂家规定值/基线值")==null)
@@ -627,12 +627,12 @@ public class RadiologyCalculationEngine {
         double numerator = 0;
         double denominator = 0;
         for (int i = 0; i < powered.length; i++) {
-            numerator += (powered[i] - zMean) * (y[i] - yMean);
-            denominator += Math.pow(powered[i] - zMean, 2);
+            numerator += powered[i] * y[i];
+            denominator += powered[i] * powered[i];
         }
         if (denominator == 0) return new Regression("POWER", 0, exponent, yMean, Double.NEGATIVE_INFINITY);
         double coefficient = numerator / denominator;
-        double offset = yMean - coefficient * zMean;
+        double offset = 0; // Client confirmed PV=a*K^b, with no additive constant.
         double r2 = r2(y, powered, coefficient, offset, false);
         return new Regression("POWER", coefficient, exponent, offset, r2);
     }

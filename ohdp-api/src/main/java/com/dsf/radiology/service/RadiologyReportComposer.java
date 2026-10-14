@@ -56,12 +56,14 @@ public class RadiologyReportComposer {
             var excluded=results.stream().filter(r->!r.itemCode().equals("RPD") && r.judgement()==RadiologyJudgement.NOT_APPLICABLE).map(r->r.itemName()+"："+r.ruleDescription()).distinct().toList();
             if(!excluded.isEmpty()) paragraph(doc,"注："+String.join("；",excluded),false);
             if(inspection.getModality()==RadiologyModality.CT && !RadiologyScopeService.type(inspection.getDetectionCategory()).equals("ACCEPTANCE") && cases.groupSelected(inspection,"CTDI")) paragraph(doc,"注：CT剂量指数的体部模体项目不检测；状态/稳定性检测仅检测头部模体。",false);
+            if(cases.groupSelected(inspection,"RPD")) {
             page(doc);heading(doc,inspection.getModality()==RadiologyModality.DR?"三、放射工作场所卫生防护检测":"二、放射工作场所卫生防护检测");
             protectionTable(doc,inspection,profile,points,values);
             heading(doc,"检测点分布图");
             var map=attachments.stream().filter(a->"POINT_MAP".equals(a.getCategory())).findFirst();
             if(map.isPresent()) image(doc,map.get());else paragraph(doc,"未上传检测点分布图。",false);
-            page(doc);heading(doc,"四、检测结果评价");
+            }
+            page(doc);heading(doc,inspection.getModality()==RadiologyModality.CT?"三、检测结果评价":"四、检测结果评价");
             if(StringUtils.hasText(profile.getOverallConclusion())) paragraph(doc,profile.getOverallConclusion(),false);
             else {
                 boolean qcFailure=results.stream().anyMatch(r->r.judgement()==RadiologyJudgement.UNQUALIFIED);
@@ -89,6 +91,7 @@ public class RadiologyReportComposer {
         cell(t.getRow(0).getCell(0),"设备名称："+text(c.getEquipmentName())+"\n设备型号："+text(c.getEquipmentModel())+"\n设备编号："+text(c.getEquipmentNo())+"\n生产厂家："+text(c.getManufacturer())+"\n检测类别："+text(c.getDetectionCategory()),false);
         cell(t.getRow(0).getCell(1),"受检单位："+text(c.getInspectedUnitName())+"\n单位地址："+text(c.getInspectedUnitAddress())+"\n检测地点："+text(c.getDetectionLocation())+"\n检测时间："+text(c.getInspectionDate())+(c.getInspectionEndDate()!=null?" 至 "+c.getInspectionEndDate():"")+"\n检测人："+text(p.getDetectorName()),false);
         if(StringUtils.hasText(p.getEquipmentParameters()) || p.getManufacturedDate()!=null) paragraph(doc,"设备参数："+text(p.getEquipmentParameters())+"；出厂日期："+text(p.getManufacturedDate()),false);
+        paragraph(doc,"检测项目："+(cases.groupSelected(c,c.getModality()==RadiologyModality.CT?"TPA":"TVD") || cases.groupSelected(c,"HCR")?"质量控制检测；":"")+(cases.groupSelected(c,"RPD")?"放射工作场所卫生防护检测":""),false);
         paragraph(doc,"检测依据："+text(c.getStandardBasis()),false);
         if(p.getInstruments()!=null && !p.getInstruments().isEmpty()) {
             int i=1;for(var instrument:p.getInstruments()) paragraph(doc,"检测仪器 "+i+++"："+text(instrument.getName())+"（型号："+text(instrument.getModel())+"；仪器编号："+text(instrument.getDeviceNo())+"）[证书编号："+text(instrument.getCertificateNo())+"]（有效期："+text(instrument.getValidFrom())+"至"+text(instrument.getValidTo())+"）",false);
@@ -148,7 +151,7 @@ public class RadiologyReportComposer {
                     var reference=fields.get(refPrefix+(RadiologyScopeService.type(c.getDetectionCategory()).equals("STABILITY")?"BASELINE":"MANUFACTURER"));
                     if(reference!=null && reference.getValueNum()!=null && reference.getValueNum().signum()>0) {
                         var deviation=field.getValueNum().subtract(reference.getValueNum()).divide(reference.getValueNum(),12,RoundingMode.HALF_EVEN).multiply(new BigDecimal("100"));
-                        display=deviation.setScale(1,RoundingMode.HALF_EVEN)+"%";assessment=deviation.abs().compareTo(new BigDecimal(RadiologyScopeService.type(c.getDetectionCategory()).equals("STATE")?"20":"15"))<=0?"符合":"不符合";
+                        display=format(field)+"（偏差"+deviation.setScale(1,RoundingMode.HALF_EVEN)+"%）";assessment=deviation.abs().compareTo(new BigDecimal(RadiologyScopeService.type(c.getDetectionCategory()).equals("STATE")?"20":"15"))<=0?"符合":"不符合";
                     }
                 }
                 row(t,item.name()+"（"+label+"）",field==null?"—":conditions.getOrDefault(item.code()+"."+(index+1),condition)+"；"+label,display,item.code().equals("TVD")?rule:rowRule,assessment);

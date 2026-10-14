@@ -11,7 +11,7 @@ if len(sys.argv)!=2 or not re.fullmatch(r'release-\d{8}-test1013-\d{6}',sys.argv
 NAME=sys.argv[1]
 RELEASE=ROOT/'releases'/NAME
 BACKUP=ROOT/'backups'/('before-'+NAME)
-EXPECTED_PREVIOUS=ROOT/'releases/release-20261013-test1013-165046'
+EXPECTED_PREVIOUS=ROOT/'releases/release-20261014-test1013-183454'
 TAG=NAME.removeprefix('release-')
 
 def run(args,**kwargs): return subprocess.run(args,check=True,**kwargs)
@@ -20,7 +20,7 @@ def sql(query):
     return subprocess.check_output(['docker','exec','-i','bhfyzx-db-1','sh','-c',
         'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql -u"$MYSQL_USER" "$MYSQL_DATABASE" -N -B --raw'],input=query.encode()).decode().strip()
 def state():
-    tables=sql("SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() AND (table_name LIKE 'ohdp_%' OR table_name LIKE 'qc_%' OR table_name LIKE 'radiology_%') ORDER BY table_name").splitlines()
+    tables=sql("SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() AND (table_name LIKE 'ohdp_%' OR table_name LIKE 'qc_%' OR table_name LIKE 'radiology_%' OR table_name LIKE 'personal_dose_%') ORDER BY table_name").splitlines()
     counts={t:int(sql('SELECT COUNT(*) FROM `'+t+'`')) for t in tables}
     admin=sql("SELECT id,username,password_hash,must_change_password,deleted FROM sys_user WHERE username='admin'")
     return {'rows':counts,'adminDigest':hashlib.sha256(admin.encode()).hexdigest()}
@@ -44,7 +44,9 @@ def verify_api():
         if cases['content']:
             detail=request('/api/radiology/cases/'+str(cases['content'][0]['id']),token=token)
             assert 'dataVersion' in detail and 'submissionIssues' in detail and 'itemConditions' in detail
-        return {'login':'passed','projects':projects['totalElements'],'cases':cases['totalElements'],'catalog':'CT=12, DR=19','newCaseFields':'passed'}
+        dose=request('/api/personal-dose/cases?page=0&size=1',token=token)
+        assert 'totalElements' in dose
+        return {'personalDose':'passed','login':'passed','projects':projects['totalElements'],'cases':cases['totalElements'],'catalog':'CT=12, DR=19','newCaseFields':'passed'}
     finally: request('/api/auth/logout',{},token)
 
 previous=(ROOT/'current').resolve()
@@ -92,7 +94,10 @@ try:
         run(['tar','-czf',str(BACKUP/(volume+'.tar.gz')),'-C',mount,'.'])
     print('BACKUP_COMPLETE '+str(BACKUP),flush=True)
     compose(RELEASE,'up','-d','--no-deps','--wait','--wait-timeout','180','api','web')
-    assert state()==before,'Business rows or administrator credentials changed'
+    after=state()
+    assert after['adminDigest']==before['adminDigest'],'Administrator credentials changed'
+    assert all(after['rows'].get(t)==n for t,n in before['rows'].items()),'Existing business row counts changed'
+    assert all(n==0 for t,n in after['rows'].items() if t not in before['rows']),'New tables unexpectedly contain data'
     checks=verify_api()
     for url,file in [('/', 'dist/index.html'),('/test1013-changes.html','dist/test1013-changes.html'),('/manuals/detailed-guide.docx','dist/manuals/detailed-guide.docx'),('/manuals/quick-guide.docx','dist/manuals/quick-guide.docx')]:
         with urllib.request.urlopen(base+url,timeout=30) as response: assert response.read()==(RELEASE/file).read_bytes(),file

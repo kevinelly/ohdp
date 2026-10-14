@@ -78,7 +78,7 @@ class RadiologyDocumentGapTest {
     }
     @Test void percentLowContrastBaselineCannotSilentlyBecomeCountBaseline() {
         var r=engine.calculate("LCR",n("LCR1（可观察细节数）","10","LCR2（可观察对比度）","0.3","厂家规定值/基线值","0.3"),Map.of("LCR-BASELINE-UNIT","%"),Map.of());
-        assertThat(r.complete()).isFalse();assertThat(r.message()).contains("尚无明确业务公式");
+        assertThat(r.complete()).isFalse();assertThat(r.message()).contains("基线已统一按细节个数");
     }
     @Test void greaterThanThreeDegreesDoesNotPassEqualityBoundary() {
         var raw=n("UBD","3");var r=engine.calculate("UBD",raw,Map.of("UBD-QUALIFIER",">"),Map.of());

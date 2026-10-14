@@ -69,7 +69,7 @@ public class RadiologyReportService {
         List<RadiologyProtectionPoint> points=approved.protectionPoints();
         List<RadiologyAttachment> attachments=approved.attachments();
         if (!templateHash(entity.getModality()).equals(approved.templateSha256()))
-            throw new BusinessException("模板与批准版本不一致，请恢复批准时模板后生成报告");
+            throw new BusinessException("模板与批准版本不一致，请创建修订版重新审批；原归档报告仍可下载");
         String reportNo=entity.getSampleAcceptanceNo();
         if (!StringUtils.hasText(reportNo)) throw new BusinessException("批准快照缺少受理编号");
         String fileName = "检测报告--"+safeName(reportNo)+"["+entity.getModality()+"-"+safeName(entity.getInspectedUnitName())+"]."+LocalDateTime.now().format(FILE_TIME)+"-R"+entity.getRevisionNo()+"-"+java.util.UUID.randomUUID().toString().substring(0,8)+".docx";
@@ -151,7 +151,7 @@ public class RadiologyReportService {
     }
 
     public static String templatePath(com.dsf.radiology.model.RadiologyModality modality) {
-        return "templates/radiology/"+modality.name()+"-v20261013-r2.docx";
+        return "templates/radiology/"+modality.name()+(modality==com.dsf.radiology.model.RadiologyModality.CT?"-v20261014.docx":"-v20261013-r2.docx");
     }
     public static String templateHash(com.dsf.radiology.model.RadiologyModality modality) {
         try (var input=new org.springframework.core.io.ClassPathResource(templatePath(modality)).getInputStream()) {

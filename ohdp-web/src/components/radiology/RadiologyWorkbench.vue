@@ -746,7 +746,7 @@ function conditionRows(code: string): string[] {return ({TVD:['第1组','第2组
 function textOptions(code: string): string[] {
   if(code==='UBD-QUALIFIER')return ['>','<']
   if(code==='ART-SOURCE')return ['探测器','监视器']
-  if(code==='LCR-BASELINE-UNIT')return ['个','%']
+  if(code==='LCR-BASELINE-UNIT')return ['个']
   if(code==='填“是”或“否”' || code.startsWith('是否有残影'))return ['是','否']
   return []
 }
@@ -1168,6 +1168,7 @@ function showMeasurementHelp(field: FieldDefinition) {
             </div>
           </section>
 
+          <el-alert v-if="(selectedCase.profile?.selectedGroups || blankProfile(modality).selectedGroups || []).includes('PROTECTION') && !selectedCase.attachments.some(a=>a.category==='POINT_MAP')" title="本次包含放射工作场所卫生防护检测，必须上传点位图；当前缺图，请在附件中补充。" type="warning" :closable="false" show-icon />
           <section v-if="editable" class="submission-check">
             <strong>{{ selectedCase.calculationFresh ? '计算与当前数据一致' : '需要重新计算' }}</strong>
             <span>数据版本 {{ selectedCase.dataVersion }} · 计算版本 {{ selectedCase.calculatedDataVersion ?? '未计算' }}</span>
@@ -1275,7 +1276,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                       >
                         <el-option label="线性 PV=aK+c" value="LINEAR" />
                         <el-option label="对数 PV=a·ln(K)+c" value="LOG" />
-                        <el-option label="幂函数 PV=a·K^b+c" value="POWER" />
+                        <el-option label="幂函数 PV=a·K^b" value="POWER" />
                         <el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT" />
                       </el-select>
                       <el-input

@@ -40,7 +40,7 @@ function remove(id:number) {
         <header><strong>第{{id}}行</strong><el-button type="danger" link :disabled="disabled || rows.length===1" @click="remove(id)">删除第{{id}}行</el-button></header>
         <el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="本行检测条件，留空使用上方共有条件" />
         <div class="row-fields"><label v-for="f in fields" :key="f.code"><span>{{label(f)}} <em v-if="f.required">*</em></span>
-          <el-select v-if="f.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,f.code)]" :disabled="disabled" :aria-label="`${code}第${id}行${f.label}`"><el-option value="个" label="个"/><el-option value="%" label="%"/></el-select>
+          <el-select v-if="f.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,f.code)]" :disabled="disabled" :aria-label="`${code}第${id}行${f.label}`"><el-option value="个" label="个"/></el-select>
           <el-input v-else v-model="values[key(id,f.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${f.label}`"><template v-if="f.unit" #append>{{f.unit}}</template></el-input>
         </label></div>
       </section>

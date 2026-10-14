@@ -8,6 +8,7 @@ import HelpMark from './components/help/HelpMark.vue'
 import type { AsyncComponentLoader, Component } from 'vue'
 
 function loadView<T extends Component>(loader: AsyncComponentLoader<T>) { return defineAsyncComponent({ loader, errorComponent: ModuleLoadError }) }
+const PersonalDoseWorkbench = loadView(() => import('./components/radiology/PersonalDoseWorkbench.vue'))
 const RadiologyWorkbench = loadView(() => import('./components/radiology/RadiologyWorkbench.vue'))
 const FeedbackCenter = loadView(() => import('./components/feedback/FeedbackCenter.vue'))
 const HelpCenter = loadView(() => import('./components/help/HelpCenter.vue'))
@@ -443,7 +444,7 @@ const actionBusy = reactive({
   reportCenter: false,
   uploadReferenceDocument: false,
 })
-const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'feedback' | 'help'>('project')
+const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'personalDose' | 'feedback' | 'help'>('project')
 const projectChildMenu = ref<'workspace' | 'report'>('workspace')
 const projectWorkTab = ref<'base' | 'supplement' | 'position' | 'result'>('base')
 const maintenanceChildMenu = ref<'company' | 'position' | 'factor' | 'dict' | 'staff' | 'reportText'>('company')
@@ -458,7 +459,7 @@ type MenuKey =
   | 'hazardFactor' | 'hazardFactor.factor' | 'hazardFactor.sds'
   | 'configCenter' | 'configCenter.detectMethod' | 'configCenter.orgConfig' | 'configCenter.detectType'
   | 'labManage' | 'labManage.task' | 'labManage.result'
-  | 'radiology' | 'radiology.dr' | 'radiology.ct'
+  | 'radiology' | 'radiology.dr' | 'radiology.ct' | 'radiology.dose'
   | 'feedback'
   | 'help'
 const selectedMenuKey = ref<MenuKey>('project.workspace')
@@ -511,6 +512,7 @@ const menuMeta = computed(() => {
     'labManage.result': { group: '实验检测', title: '结果计算与复核', description: '核对曲线参数、计算结果并完成复核' },
     radiology: { group: '放射诊疗检测', title: 'DR 质量控制', description: '依据标准完成设备性能与场所防护检测' },
     'radiology.dr': { group: '放射诊疗检测', title: 'DR 质量控制', description: '依据 WS 76-2020 与 GBZ 130-2020' },
+    'radiology.dose': { group: '放射检测', title: '个人剂量监测', description: '监测周期、人员、剂量计算与报告归档' },
     'radiology.ct': { group: '放射诊疗检测', title: 'CT 质量控制', description: '依据 WS 519-2019 与 GBZ 130-2020' },
     feedback: { group: '意见反馈', title: '意见跟踪', description: '提交改进意见并跟踪采纳、处理与确认记录' },
     help: { group: '帮助与支持', title: '帮助中心', description: '按功能查看操作步骤、字段说明和常见问题' },
@@ -654,6 +656,7 @@ function selectMenu(key: MenuKey) {
   if (key === 'labManage' || key === 'labManage.task') { activeTab.value = 'labManage'; labChildMenu.value = 'task'; selectedMenuKey.value = 'labManage.task'; return }
   if (key === 'labManage.result') { activeTab.value = 'labManage'; labChildMenu.value = 'result'; selectedMenuKey.value = 'labManage.result'; return }
   if (key === 'radiology' || key === 'radiology.dr') { activeTab.value = 'radiology'; radiologyChildMenu.value = 'DR'; selectedMenuKey.value = 'radiology.dr'; return }
+  if (key === 'radiology.dose') { activeTab.value = 'personalDose'; selectedMenuKey.value = 'radiology.dose'; return }
   if (key === 'radiology.ct') { activeTab.value = 'radiology'; radiologyChildMenu.value = 'CT'; selectedMenuKey.value = 'radiology.ct'; return }
   if (key === 'system.dept') { openSystemMenu('dept'); return }
   if (key === 'system.post') { openSystemMenu('post'); return }
@@ -3308,6 +3311,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <template #title>放射诊疗检测</template>
             <el-menu-item index="radiology.dr">DR 质量控制</el-menu-item>
             <el-menu-item index="radiology.ct">CT 质量控制</el-menu-item>
+            <el-menu-item index="radiology.dose">个人剂量监测</el-menu-item>
+            <el-menu-item index="radiology.reserved" disabled>牙科 / DSA / 乳腺 / 工业探伤（预留）</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu index="labManage-group">
@@ -4765,6 +4770,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <div class="actions"><button @click="saveOrgConfig">保存配置</button><button class="ghost" @click="fetchOrgConfig">刷新</button></div>
         </section>
       </section>
+
+      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench :token="token" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
 
       <section v-else-if="activeTab === 'radiology'" class="radiology-module">
         <RadiologyWorkbench
