@@ -27,14 +27,20 @@ public class PersonalDoseReportComposer {
             p(doc,"注：1.仪器的最低可探测水平（MDL）为 "+text(d,"mdl")+" mSv。低于MDL的计算结果已标注。",false);
             p(doc,"2.本周期剂量调查水平参考值为 "+text(d,"investigationLevel")+" mSv，凡检测结果≥ "+text(d,"investigationLevel")+" mSv的均需调查（※）。",false);
             p(doc,"二、结果评价",true);p(doc,text(d,"conclusion").isBlank()?"待编制人员结合本周期检测结果填写。单个周期不能代替年度累计剂量评价。":text(d,"conclusion"),false);
-            p(doc,"编制人：________________    复核人：________________    授权签字人：________________",false);p(doc,"报告日期："+text(d,"reportDate")+"                 检验检测单位（章）",false);p(doc,"（本报告结果仅对本次检验检测样品负责，以下空白）",false);
+            var signatures=table(doc,"编制人：\n________________","复核人：\n________________","授权签字人：\n________________");
+            signatures.setTopBorder(XWPFTable.XWPFBorderType.NONE,0,0,"FFFFFF");signatures.setBottomBorder(XWPFTable.XWPFBorderType.NONE,0,0,"FFFFFF");signatures.setLeftBorder(XWPFTable.XWPFBorderType.NONE,0,0,"FFFFFF");signatures.setRightBorder(XWPFTable.XWPFBorderType.NONE,0,0,"FFFFFF");signatures.setInsideHBorder(XWPFTable.XWPFBorderType.NONE,0,0,"FFFFFF");signatures.setInsideVBorder(XWPFTable.XWPFBorderType.NONE,0,0,"FFFFFF");
+            p(doc,"报告日期："+text(d,"reportDate")+"                 检验检测单位（章）",false);p(doc,"（本报告结果仅对本次检验检测样品负责，以下空白）",false);
             doc.write(out);return out.toByteArray();
         }catch(Exception e){throw new BusinessException("个人剂量报告生成失败："+e.getMessage());}
     }
     private void replace(XWPFParagraph p,Map<String,String> slots){for(var run:p.getRuns()){String s=run.getText(0);if(s!=null){for(var e:slots.entrySet())s=s.replace(e.getKey(),e.getValue());run.setText(s,0);}}}
-    private void p(XWPFDocument d,String s,boolean bold){var p=d.createParagraph();p.setSpacingAfter(80);p.setSpacingBetween(1.15);if(bold)p.setKeepNext(true);write(p,s,11,bold);}
-    private XWPFTable table(XWPFDocument d,String... headers){var t=d.createTable(1,headers.length);t.setWidth("100%");t.getRow(0).setRepeatHeader(true);for(int i=0;i<headers.length;i++)cell(t.getRow(0).getCell(i),headers[i],true);return t;}
+    private void p(XWPFDocument d,String s,boolean bold){var p=d.createParagraph();layout(p);p.setSpacingAfter(80);if(bold)p.setKeepNext(true);write(p,s,11,bold);}
+    private XWPFTable table(XWPFDocument d,String... headers){var t=d.createTable(1,headers.length);t.setWidth("100%");
+        int[] widths=switch(headers.length){case 7->new int[]{1100,1100,600,1100,2600,1100,2350};case 2->new int[]{4500,5450};default->new int[]{3316,3317,3317};};
+        var grid=t.getCTTbl().getTblGrid()!=null?t.getCTTbl().getTblGrid():t.getCTTbl().addNewTblGrid();while(grid.sizeOfGridColArray()>0)grid.removeGridCol(0);for(int width:widths)grid.addNewGridCol().setW(java.math.BigInteger.valueOf(width));t.getCTTbl().getTblPr().addNewTblLayout().setType(org.openxmlformats.schemas.wordprocessingml.x2006.main.STTblLayoutType.FIXED);
+        t.getRow(0).setRepeatHeader(true);for(int i=0;i<headers.length;i++){t.getRow(0).getCell(i).setWidth(String.valueOf(widths[i]));cell(t.getRow(0).getCell(i),headers[i],true);}return t;}
     private void row(XWPFTable t,String... values){var r=t.createRow();r.setCantSplitRow(true);for(int i=0;i<values.length;i++)cell(r.getCell(i),values[i],false);}
-    private void cell(XWPFTableCell c,String s,boolean bold){c.setText("");var p=c.getParagraphs().get(0);p.setSpacingAfter(40);p.setSpacingBefore(40);p.setAlignment(ParagraphAlignment.LEFT);write(p,s,10,bold);}
+    private void cell(XWPFTableCell c,String s,boolean bold){c.setText("");var p=c.getParagraphs().get(0);layout(p);p.setSpacingAfter(40);p.setSpacingBefore(40);write(p,s,10,bold);}
+    private void layout(XWPFParagraph p){p.setAlignment(ParagraphAlignment.LEFT);p.setSpacingBefore(0);p.setSpacingBetween(16,LineSpacingRule.EXACT);var pr=p.getCTP().isSetPPr()?p.getCTP().getPPr():p.getCTP().addNewPPr();if(pr.isSetSnapToGrid())pr.getSnapToGrid().setVal(false);else pr.addNewSnapToGrid().setVal(false);}
     private void write(XWPFParagraph p,String s,int size,boolean bold){String[] lines=(s.isBlank()?"—":s).split("\\n");for(int i=0;i<lines.length;i++){var run=p.createRun();run.setFontFamily("宋体");run.setFontSize(size);run.setBold(bold);if(i>0)run.addBreak();run.setText(lines[i]);}}
 }
