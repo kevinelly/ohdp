@@ -23,6 +23,7 @@ public interface RadiologyCaseRepository extends JpaRepository<RadiologyCase, Lo
     Optional<RadiologyCase> findByIdAndDeletedFalse(Long id);
 
     boolean existsByCaseCodeAndDeletedFalse(String caseCode);
+    boolean existsByCaseCode(String caseCode);
 
     Page<RadiologyCase> findByDeletedFalseAndModalityAndStatusAndCaseCodeContainingIgnoreCase(
             RadiologyModality modality, RadiologyCaseStatus status, String keyword, Pageable pageable);

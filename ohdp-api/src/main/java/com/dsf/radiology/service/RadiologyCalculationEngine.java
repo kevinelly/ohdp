@@ -108,7 +108,7 @@ public class RadiologyCalculationEngine {
     private CalculationResult tvd(Map<String, BigDecimal> n) {
         List<CalculatedField> out = new ArrayList<>();
         List<String> summaries = new ArrayList<>();
-        for (int group = 1; group <= 3; group++) {
+        for (int group = 1; group <= value(n, "__GROUP_COUNT", 3); group++) {
             double nominal = req(n, "TVD" + group + "-0");
             double average = mean(req(n, "TVD" + group + "-1"), req(n, "TVD" + group + "-2"), req(n, "TVD" + group + "-3"));
             double corrected = average * value(n, "TVD-K" + group, 1);
@@ -165,7 +165,7 @@ public class RadiologyCalculationEngine {
     private CalculationResult etd(Map<String, BigDecimal> n) {
         List<CalculatedField> out = new ArrayList<>();
         List<String> summaries = new ArrayList<>();
-        for (int group = 1; group <= 3; group++) {
+        for (int group = 1; group <= value(n, "__GROUP_COUNT", 3); group++) {
             double nominal = req(n, "ETD" + group + "-0");
             double average = mean(req(n, "ETD" + group + "-1"), req(n, "ETD" + group + "-2"), req(n, "ETD" + group + "-3"));
             double corrected = average * value(n, "ETD-K" + group, 1);
@@ -354,10 +354,12 @@ public class RadiologyCalculationEngine {
 
     private CalculationResult hcr(Map<String, BigDecimal> n) {
         double measured=req(n,"HCR1");
-        BigDecimal reference=n.get("HCR-MANUFACTURER");
+        boolean state=value(n,"__STATE",0)==1;
+        BigDecimal reference=state?n.get("HCR-BASELINE"):n.get("HCR-MANUFACTURER");
         if(reference==null) reference=n.get("厂家规定值/基线值"); // imported legacy records
+        if(state && reference==null) throw new IncompleteException("状态检测须录入高对比分辨力基线值");
         double factor=1;
-        if(reference==null && n.get("HCR-NYQUIST")!=null) {reference=n.get("HCR-NYQUIST");factor=1.4;}
+        if(!state && reference==null && n.get("HCR-NYQUIST")!=null) {reference=n.get("HCR-NYQUIST");factor=1.4;}
         if(reference==null) reference=n.get("HCR-BASELINE");
         if(reference==null) return complete("HCR",measured,"建立基线值："+round(measured,1).toPlainString()+" lp/mm","lp/mm",List.of(
             CalculatedField.number("RESULT","分辨力基线",measured,1,"lp/mm")));
@@ -415,12 +417,15 @@ public class RadiologyCalculationEngine {
 
     private CalculationResult ctdi(Map<String, BigDecimal> n) {
         List<CalculatedField> out = new ArrayList<>();
-        double head = ctdiGroup(n, "H", "层数n1", "层厚T1", "刻度系数k1", out);
-        double body = value(n, "__HEAD_ONLY", 0) == 1 ? head : ctdiGroup(n, "S", "层数n2", "层厚T2", "刻度系数k2", out);
+        boolean useHead=value(n,"__CTDI_HEAD",1)==1;
+        boolean useBody=value(n,"__CTDI_BODY",value(n,"__HEAD_ONLY",0)==1?0:1)==1;
+        if(!useHead && !useBody) throw new IncompleteException("请至少选择一个CTDI检测部位");
+        double head = useHead ? ctdiGroup(n, "H", "层数n1", "层厚T1", "刻度系数k1", out) : 0;
+        double body = useBody ? ctdiGroup(n, "S", "层数n2", "层厚T2", "刻度系数k2", out) : 0;
         double result = Math.max(head, body);
         out.add(CalculatedField.number("RESULT", "CTDIw 最大值", result, 1, "mGy"));
-        String description="头模 CTDIw："+round(head,1).toPlainString()+" mGy";
-        if (value(n,"__HEAD_ONLY",0)!=1) description+="；体模 CTDIw："+round(body,1).toPlainString()+" mGy";
+        String description=useHead?"头模 CTDIw："+round(head,1).toPlainString()+" mGy":"";
+        if (useBody) description+=(useHead?"；":"")+"体模 CTDIw："+round(body,1).toPlainString()+" mGy";
         return complete("CTDI", result, description, "mGy", out);
     }
 

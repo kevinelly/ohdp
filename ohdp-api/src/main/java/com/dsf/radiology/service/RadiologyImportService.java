@@ -134,6 +134,8 @@ public class RadiologyImportService {
                 errors.add(new RadiologyDto.ImportCellError(1, String.join("、", duplicateHeaders), "", "字段代码重复"));
             }
             validateRequiredGroups(entity, suppliedFields, measurementValues, errors);
+            for(String item:suppliedFields.keySet()) if(caseService.itemConditions(entity).containsKey("__rows."+item))
+                errors.add(new RadiologyDto.ImportCellError(1,item,"","此项目已采用分行录入，请在测量行编辑；普通单行模板不覆盖分行数据"));
             for (Map.Entry<Integer, List<BigDecimal>> entry : pointReadings.entrySet()) {
                 if (entry.getValue().size() != 5) {
                     errors.add(new RadiologyDto.ImportCellError(
@@ -295,8 +297,11 @@ public class RadiologyImportService {
                     if(hasAngle && field.code().contains("边沿间距"))continue;
                     if(!hasAngle && field.code().equals("测量值α2"))continue;
                 }
-                if (item.code().equals("CTDI") && !RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")
-                        && (field.code().matches("S[CDULR]D[123]") || List.of("层数n2", "层厚T2", "刻度系数k2").contains(field.code()))) continue;
+                if(item.code().equals("CTDI")) {
+                    String parts=caseService.itemConditions(entity).getOrDefault("__ctdi.parts",RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")?"HEAD,BODY":"HEAD");
+                    boolean body=field.code().matches("S[CDULR]D[123]") || List.of("层数n2","层厚T2","刻度系数k2").contains(field.code());
+                    if(!parts.contains(body?"BODY":"HEAD"))continue;
+                }
                 if (item.code().equals("LCR") && RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")
                         && field.code().equals("厂家规定值/基线值")) continue;
                 if (noResidualImage && (field.code().equals("残影区D1") || field.code().equals("非残影区D0"))) continue;

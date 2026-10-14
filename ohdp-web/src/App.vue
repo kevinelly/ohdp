@@ -3223,7 +3223,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
         <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
         <div>
           <h1>职业危害与放射诊疗检测数据平台</h1>
-          <p>10月13日新版 · <a href="/test1013-changes.html" target="_blank" rel="noopener" style="color:inherit">查看改动对照</a></p>
+          <p>10月14日补齐版 · <a href="/test1013-changes.html" target="_blank" rel="noopener" style="color:inherit">查看改动记录</a></p>
         </div>
       </div>
       <div v-if="isLoggedIn" class="topbar-context">

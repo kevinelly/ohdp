@@ -16,6 +16,22 @@ public class RadiologyPdfPreviewService {
     private final RadiologyStorageProperties storage;
     private final Semaphore slots=new Semaphore(2);
     public boolean available(){return Files.isExecutable(Path.of("/usr/bin/soffice"));}
+    public java.util.List<String> renderPages(byte[] pdf) {
+        if(!slots.tryAcquire()) throw new BusinessException("报告预览繁忙，请稍后重试");
+        try(var document=org.apache.pdfbox.Loader.loadPDF(pdf)) {
+            if(document.getNumberOfPages()>80) throw new BusinessException("报告超过80页，请下载PDF查看");
+            var renderer=new org.apache.pdfbox.rendering.PDFRenderer(document);
+            var pages=new java.util.ArrayList<String>();
+            for(int i=0;i<document.getNumberOfPages();i++) {
+                try(var output=new java.io.ByteArrayOutputStream()) {
+                    javax.imageio.ImageIO.write(renderer.renderImageWithDPI(i,120,org.apache.pdfbox.rendering.ImageType.RGB),"png",output);
+                    pages.add("data:image/png;base64,"+java.util.Base64.getEncoder().encodeToString(output.toByteArray()));
+                }
+            }
+            return pages;
+        } catch(java.io.IOException ex) {throw new BusinessException("报告页面渲染失败，请下载PDF查看");}
+        finally {slots.release();}
+    }
     public byte[] convert(byte[] source) {
         if(!available())throw new BusinessException("服务器未安装报告分页预览组件");
         if(!slots.tryAcquire())throw new BusinessException("报告预览繁忙，请稍后重试");

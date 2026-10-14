@@ -44,6 +44,18 @@ public class RadiologyController {
     private final RadiologyAttachmentService attachmentService;
     private final RadiologyReportService reportService;
     private final com.dsf.radiology.service.RadiologyPdfPreviewService pdfPreviewService;
+    private final com.dsf.radiology.service.RadiologyBatchImportService batchImportService;
+
+    @GetMapping("/batch-import-template")
+    public ResponseEntity<Resource> batchTemplate() {
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename=radiology-batch.xlsx")
+            .body(new ByteArrayResource(batchImportService.template()));
+    }
+    @PostMapping("/batch-import")
+    public com.dsf.radiology.service.RadiologyBatchImportService.Preview batchImport(@RequestPart("file") MultipartFile file,@RequestParam(defaultValue="true") boolean dryRun) {
+        return batchImportService.importWorkbook(file,dryRun);
+    }
 
     @GetMapping("/catalog/{modality}")
     public List<RadiologyCatalogService.ItemDefinition> catalog(@PathVariable RadiologyModality modality) {
@@ -223,6 +235,11 @@ public class RadiologyController {
     }
     @GetMapping("/preview-capabilities")
     public java.util.Map<String,Boolean> previewCapabilities(){return java.util.Map.of("pdf",pdfPreviewService.available());}
+    @GetMapping("/cases/{id}/report-preview-pages")
+    public ResponseEntity<List<String>> previewPages(@PathVariable Long id) {
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL,"no-store")
+            .body(pdfPreviewService.renderPages(pdfPreviewService.convert(reportService.preview(id))));
+    }
     @DeleteMapping("/reports/{id}")
     public void deleteReport(@PathVariable Long id,@RequestParam String reason) {reportService.deleteReport(id,reason);}
 

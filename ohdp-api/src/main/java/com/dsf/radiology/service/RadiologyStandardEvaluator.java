@@ -74,7 +74,7 @@ public class RadiologyStandardEvaluator {
             case "REA" -> upper(result, 2, "%", standard);
             case "ILA" -> evaluateResidualImage(result, resultText);
             case "ART" -> expectedNo("无影响临床诊断的伪影".equals(resultText)?"否":resultText, "不得有影响临床诊断的伪影", standard);
-            case "HCR" -> lower(result, raw.get("HCR-MANUFACTURER")==null && raw.get("厂家规定值/基线值")==null && raw.get("HCR-NYQUIST")!=null ? 80:90, "%（相对厂家规定值或基线）", standard);
+            case "HCR" -> lower(result, type!=DetectionType.STATE && raw.get("HCR-MANUFACTURER")==null && raw.get("厂家规定值/基线值")==null && raw.get("HCR-NYQUIST")!=null ? 80:90, type==DetectionType.STATE?"%（相对基线）":"%（相对厂家规定值、Nyquist参考或基线）", standard);
             case "LCR" -> type == DetectionType.ACCEPTANCE
                     ? evaluation(RadiologyJudgement.BASELINE_ESTABLISHED, standard + "：验收检测建立基线，不作数值合格判定")
                     : upper(result, 2, "个可观察细节（相对基线的绝对变化）", standard);
@@ -118,7 +118,7 @@ public class RadiologyStandardEvaluator {
     private Evaluation evaluateTvd(Map<String, BigDecimal> raw, Map<String, BigDecimal> calculated) {
         boolean qualified = true;
         StringBuilder details = new StringBuilder("WS 76—2020：");
-        for (int group = 1; group <= 3; group++) {
+        for (int group = 1; group <= raw.getOrDefault("__GROUP_COUNT",new BigDecimal("3")).intValue(); group++) {
             double nominal = required(raw, "TVD" + group + "-0");
             double measured = required(calculated, "MEAN_" + group);
             double error = Math.abs(measured - nominal);
@@ -134,7 +134,7 @@ public class RadiologyStandardEvaluator {
     private Evaluation evaluateEtd(Map<String, BigDecimal> raw, Map<String, BigDecimal> calculated) {
         boolean qualified = true;
         StringBuilder details = new StringBuilder("WS 76—2020：");
-        for (int group = 1; group <= 3; group++) {
+        for (int group = 1; group <= raw.getOrDefault("__GROUP_COUNT",new BigDecimal("3")).intValue(); group++) {
             double nominal = required(raw, "ETD" + group + "-0");
             double measured = required(calculated, "MEAN_" + group);
             double error = Math.abs(measured - nominal);
@@ -158,9 +158,11 @@ public class RadiologyStandardEvaluator {
             DetectionType type, Map<String, BigDecimal> raw, Map<String, BigDecimal> calculated) {
         String standard = "WS 519—2019";
         if (type == DetectionType.ACCEPTANCE) {
+            if(!calculated.containsKey("HEAD_CTDIW")) return compareReferences(standard,15,
+                    calculated.get("BODY_CTDIW"),raw.get("CTDI-BODY-MANUFACTURER"),"体模厂家值",null,null,null);
             return compareReferences(standard, 15,
                     calculated.get("HEAD_CTDIW"), raw.get("CTDI-HEAD-MANUFACTURER"), "头模厂家值",
-                    calculated.get("BODY_CTDIW"), raw.get("CTDI-BODY-MANUFACTURER"), "体模厂家值");
+                    calculated.get("BODY_CTDIW"), raw.get("CTDI-BODY-MANUFACTURER"), calculated.containsKey("BODY_CTDIW")?"体模厂家值":null);
         }
         if (type == DetectionType.STABILITY) {
             return compareReferences(standard, 15,

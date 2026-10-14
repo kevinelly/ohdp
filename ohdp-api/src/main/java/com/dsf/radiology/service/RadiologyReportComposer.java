@@ -107,6 +107,15 @@ public class RadiologyReportComposer {
             String value=result==null?"待录入":result.resultText()!=null?result.resultText():format(fields.get("RESULT"));
             String judgement=result==null?"待录入":evaluation(result.judgement());
             String condition=conditions.getOrDefault(item.code(),"—");
+            if(fields.containsKey("ROWS_JSON") && result!=null && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE) {
+                try {
+                    var rows=new com.fasterxml.jackson.databind.ObjectMapper().readTree(fields.get("ROWS_JSON").getValueText());
+                    for(var r:rows) row(t,item.name()+"（第"+r.path("rowId").asInt()+"行）",r.path("condition").asText("—"),r.path("result").asText("待录入"),
+                        result.judgement()==RadiologyJudgement.NOT_CONFIGURED?rule:r.path("rule").asText(),
+                        result.judgement()==RadiologyJudgement.NOT_CONFIGURED?"—":evaluation(RadiologyJudgement.valueOf(r.path("judgement").asText())));
+                } catch(java.io.IOException ex) {throw new BusinessException("分行计算结果结构损坏，请重新计算");}
+                continue;
+            }
             boolean applicable=result!=null && result.complete() && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE;
             List<String> groups=switch(item.code()) {
                 case "TVD"->List.of("DISPLAY_1","DISPLAY_2","DISPLAY_3");case "ETD"->List.of("DEVIATION_MS_1","DEVIATION_MS_2","DEVIATION_MS_3");case "LRD"->List.of("RESULT_A1","RESULT_A2","RESULT_B1","RESULT_B2");
@@ -115,7 +124,7 @@ public class RadiologyReportComposer {
             for(int index=0;index<groups.size();index++) {
                 String code=groups.get(index);var field=fields.get(code);String label=switch(code){case "FORWARD"->"前进";case "BACKWARD"->"后退";case "HORIZONTAL"->"水平";case "VERTICAL"->"垂直";case "RESULT_A1"->"左a1";case "RESULT_A2"->"右a2";case "RESULT_B1"->"前b1";case "RESULT_B2"->"后b2";case "HEAD_CTDIW"->"头部模体";case "BODY_CTDIW"->"体部模体";default->"第"+(index+1)+"组";};
                 String display=format(field), assessment=judgement, rowRule=rule;
-                if(field==null) {display="不检测";assessment="—";rowRule="WS 519—2019：状态/稳定性检测不检测体部模体";}
+                if(field==null) {display="不检测";assessment="—";rowRule=RadiologyScopeService.type(c.getDetectionCategory()).equals("ACCEPTANCE")?"本次未选择此部位":"WS 519—2019：状态/稳定性检测不检测体部模体";}
                 else if(!rule.contains(" / ") && Set.of("LRD","REA","TPA").contains(item.code())) {
                     BigDecimal limit=new BigDecimal(item.code().equals("LRD")?"10":"2");assessment=field.getValueNum().abs().compareTo(limit)<=0?"符合":"不符合";
                     if(item.code().equals("LRD"))display=field.getValueNum().divide(BigDecimal.TEN).setScale(1,RoundingMode.HALF_EVEN)+" cm";

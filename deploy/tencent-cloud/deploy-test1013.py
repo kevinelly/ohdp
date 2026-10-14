@@ -1,17 +1,17 @@
 """Publish a prebuilt test1013 release; reuse production credentials and volumes.
 
-Usage on the server: python3 deploy-test1013.py release-20261013-test1013-HHMMSS
+Usage on the server: python3 deploy-test1013.py release-YYYYMMDD-test1013-HHMMSS
 The release directory must already contain app.jar, dist/ and manifest.json.
 """
 import hashlib, json, os, pathlib, re, shutil, subprocess, sys, urllib.request
 
 ROOT=pathlib.Path('/opt/bhfyzx')
-if len(sys.argv)!=2 or not re.fullmatch(r'release-20261013-test1013-\d{6}',sys.argv[1]):
-    raise SystemExit('Expected release-20261013-test1013-HHMMSS')
+if len(sys.argv)!=2 or not re.fullmatch(r'release-\d{8}-test1013-\d{6}',sys.argv[1]):
+    raise SystemExit('Expected release-YYYYMMDD-test1013-HHMMSS')
 NAME=sys.argv[1]
 RELEASE=ROOT/'releases'/NAME
 BACKUP=ROOT/'backups'/('before-'+NAME)
-EXPECTED_PREVIOUS=ROOT/'releases/release-20261013-test1013-154403'
+EXPECTED_PREVIOUS=ROOT/'releases/release-20261013-test1013-165046'
 TAG=NAME.removeprefix('release-')
 
 def run(args,**kwargs): return subprocess.run(args,check=True,**kwargs)

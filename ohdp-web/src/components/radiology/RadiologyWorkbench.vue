@@ -2,9 +2,10 @@
 import axios from 'axios'
 import { renderAsync } from 'docx-preview'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
+import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
 
 type Modality = 'DR' | 'CT'
 type CaseStatus = 'DRAFT' | 'DATA_ENTERED' | 'CALCULATED' | 'PENDING_REVIEW' | 'REVIEWED' | 'APPROVED' | 'REPORTED'
@@ -298,11 +299,25 @@ type WorkbenchTab = 'base' | 'data' | 'points' | 'attachments' | 'report' | 'rul
 const workTab = ref<WorkbenchTab>('base')
 const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20, year: undefined as number | undefined,
   from: '', to: '', city: '', county: '', receipt: '', company: '', modalities: [props.modality] as Modality[] })
+const batchVisible=ref(false)
+const batchFile=ref<File>()
+const batchResult=ref<{dryRun:boolean;cases:number;appliedCases:number;rows:Array<{row:number;caseCode:string;status:string;message:string}>}>()
+function selectBatchFile(event:Event) {batchFile.value=(event.target as HTMLInputElement).files?.[0];batchResult.value=undefined}
+async function importBatch(dryRun:boolean) {
+  if(!batchFile.value)return
+  await run(async()=>{const form=new FormData();form.append('file',batchFile.value!);batchResult.value=(await api.post('/api/radiology/batch-import',form,{params:{dryRun}})).data;if(!dryRun)await loadCases()})
+}
 const queryVisible = ref(false)
 const previewVisible = ref(false)
-const previewPdfUrl=ref('')
-watch(previewVisible,value=>{if(!value && previewPdfUrl.value){URL.revokeObjectURL(previewPdfUrl.value);previewPdfUrl.value=''}})
+const previewPages=ref<string[]>([])
+const previewDocx=ref<Blob>()
 const previewContainer = ref<HTMLElement>()
+async function renderPreviewDocx() {
+  if(previewDocx.value && previewContainer.value) {
+    previewContainer.value.innerHTML=''
+    await renderAsync(previewDocx.value,previewContainer.value,undefined,{breakPages:true,renderHeaders:true,renderFooters:true,inWrapper:true,ignoreLastRenderedPageBreak:false})
+  }
+}
 const profileDraft = reactive<ReportProfile>(blankProfile(props.modality))
 const regionsLibrary=ref<Array<{id:number;parentId?:number;regionName:string;level:number}>>([])
 const cityOptions=computed(()=>regionsLibrary.value.filter(r=>r.level===2))
@@ -329,13 +344,11 @@ function resetQuery() { Object.assign(query,{keyword:'',status:'',year:undefined
 async function previewReport() {
   if(!selectedCase.value)return
   await run(async()=>{
+    previewPages.value=[];previewDocx.value=undefined
     const caps=await api.get('/api/radiology/preview-capabilities')
-    const pdf=!!caps.data.pdf
-    const {data}=await api.get(`/api/radiology/cases/${selectedCase.value!.id}/report-preview`,{responseType:'blob',params:{format:pdf?'pdf':'docx'}})
-    if(previewPdfUrl.value)URL.revokeObjectURL(previewPdfUrl.value)
-    previewPdfUrl.value=pdf?URL.createObjectURL(new Blob([data],{type:'application/pdf'})):''
-    previewVisible.value=true;await nextTick()
-    if(!pdf && previewContainer.value) { previewContainer.value.innerHTML='';await renderAsync(data,previewContainer.value,undefined,{breakPages:true,renderHeaders:true,renderFooters:true,inWrapper:true,ignoreLastRenderedPageBreak:false}) }
+    if(caps.data.pdf) previewPages.value=(await api.get<string[]>(`/api/radiology/cases/${selectedCase.value!.id}/report-preview-pages`)).data
+    else previewDocx.value=(await api.get(`/api/radiology/cases/${selectedCase.value!.id}/report-preview`,{responseType:'blob'})).data
+    previewVisible.value=true
   })
 }
 async function deleteReport(id: number) {
@@ -701,11 +714,29 @@ async function removeCase(item: CaseSummary) {
   }, '案例已删除')
 }
 
+const repeatableItems=['TVD','ROA','ETD','HCR','LCR','RST']
+function rowIds(code:string):number[] {return JSON.parse(conditionValues['__rows.'+code] || '[]')}
+function editableFields(item:ItemDefinition):FieldDefinition[] {
+  const ids=rowIds(item.code)
+  if(!ids.length) return item.fields
+  return ids.flatMap(id=>item.fields.filter(f=>!['TVD','ETD'].includes(item.code) || f.code.startsWith(item.code+'1-') || f.code===item.code+'-K1')
+    .map(f=>({...f,code:`R${id}__${f.code}`})))
+}
+function ctdiParts():string[] {return (conditionValues['__ctdi.parts'] ?? (selectedCase.value?.detectionCategory?.includes('验收')?'HEAD,BODY':'HEAD')).split(',').filter(Boolean)}
+function setCtdiParts(parts:Array<string|number|boolean>) {conditionValues['__ctdi.parts']=parts.join(',')}
+interface EvaluationRow {itemName:string;condition:string;result:string;judgement:string;rule:string;message?:string}
+const evaluationRows=computed<EvaluationRow[]>(()=>calculationItems.value.flatMap(item=>{
+  const raw=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode && m.fieldCode==='ROWS_JSON')?.valueText
+  if(raw && item.judgement!=='NOT_APPLICABLE') return (JSON.parse(raw) as Array<{rowId:number;condition:string;result:string;judgement:string;rule:string;message:string}>).map(r=>({...r,itemName:`${item.itemName}（第${r.rowId}行）`,...(item.judgement==='NOT_CONFIGURED'?{judgement:item.judgement,rule:item.ruleDescription}:{})}))
+  return [{itemName:item.itemCode==='RPD'?'场所防护本底与校准':item.itemName,condition:selectedCase.value?.itemConditions?.[item.itemCode] || '—',result:itemResultDisplay(item),judgement:item.judgement,rule:item.ruleDescription,message:item.message}]
+}))
+function evaluationText(j:string) {return j==='QUALIFIED'?'符合':j==='UNQUALIFIED'?'不符合':'—'}
 function visibleFields(item: ItemDefinition) {
   return item.fields.filter(f=>{
     if(item.code==='LCD' && (f.code.startsWith('NUM') || f.code.startsWith('mm')))return selectedCase.value?.measurements.some(m=>m.itemCode==='LCD' && m.fieldCode===f.code && m.fieldRole==='RAW' && m.valueNum!=null)
     if(item.code==='HCR' && f.code==='厂家规定值/基线值')return selectedCase.value?.measurements.some(m=>m.itemCode==='HCR' && m.fieldCode===f.code && m.fieldRole==='RAW' && m.valueNum!=null)
     if(item.code==='RST' && ['WWmin','CThm'].includes(f.code))return false
+    if(item.code==='CTDI') {const body=f.code.startsWith('S') || ['层数n2','层厚T2','刻度系数k2'].includes(f.code) || f.code.startsWith('CTDI-BODY');return ctdiParts().includes(body?'BODY':'HEAD')}
     if(item.code==='GTA' && conditionValues['__method.GTA']==='PHANTOM' && f.code==='测量值α2')return false
     if(item.code==='GTA' && conditionValues['__method.GTA']==='INCLINOMETER' && f.code.includes('边沿间距'))return false
     return true
@@ -720,6 +751,7 @@ function textOptions(code: string): string[] {
   return []
 }
 function isTextField(_itemCode: string, fieldCode: string) {
+  fieldCode=fieldCode.replace(/^R[1-9]\d{0,2}__/, '')
   return fieldCode === '填“是”或“否”' || fieldCode.startsWith('是否有残影') || ['STP-MODEL','UBD-QUALIFIER','ART-SOURCE','LCR-BASELINE-UNIT'].includes(fieldCode)
 }
 
@@ -728,7 +760,7 @@ function key(itemCode: string, fieldCode: string) {
 }
 
 function computedFields(itemCode: string) {
-  return (selectedCase.value?.measurements || []).filter(value => value.itemCode === itemCode && value.fieldRole !== 'RAW')
+  return (selectedCase.value?.measurements || []).filter(value => value.itemCode === itemCode && value.fieldRole !== 'RAW' && value.fieldCode!=='ROWS_JSON')
 }
 
 function readingUnit(itemCode: string) {
@@ -759,18 +791,12 @@ function itemResultDisplay(item: CalculationItem) {
 function isProtectionRecord(item: CalculationItem) {
   return item.itemCode==='RPD' && item.complete && item.ruleDescription==='场所防护按点位逐项判定'
 }
-function calculationStatus(item: CalculationItem) {
-  return isProtectionRecord(item) ? '本底已记录' : item.judgement==='NOT_APPLICABLE' ? '不检测' : item.complete ? '完成' : '不完整'
-}
-function calculationStatusType(item: CalculationItem) {
-  return isProtectionRecord(item) || item.judgement==='NOT_APPLICABLE' ? 'info' : item.complete ? 'success' : 'danger'
-}
 
 async function saveMeasurements() {
   if (!selectedCase.value) return
   const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number | string | null; valueText?: string | null }> = []
   for (const item of catalog.value) {
-    for (const field of item.fields) {
+    for (const field of editableFields(item)) {
       const raw = measurementValues[key(item.code, field.code)]
       if (raw === '' || raw === undefined || raw === null) {
         if (selectedCase.value.measurements.some(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW'))
@@ -788,7 +814,7 @@ async function saveMeasurements() {
       }
     }
   }
-  if (!values.length && !isAicExposurePair('AIC')) {
+  if (!values.length && !isAicExposurePair('AIC') && JSON.stringify(conditionValues)===JSON.stringify(selectedCase.value.itemConditions || {})) {
     ElMessage.warning('尚未填写测量数据')
     return
   }
@@ -803,14 +829,14 @@ async function saveMeasurements() {
 async function calculateCase() {
   if (!selectedCase.value) return
   const conditionsPending = JSON.stringify(conditionValues) !== JSON.stringify(selectedCase.value.itemConditions || {})
-  const pending = conditionsPending || catalog.value.some(item => item.fields.some(field => {
+  const pending = conditionsPending || catalog.value.some(item => editableFields(item).some(field => {
     const current = measurementValues[key(item.code, field.code)] ?? ''
     const stored = selectedCase.value!.measurements.find(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW')
     return String(current) !== String(stored?.valueText ?? stored?.valueNum ?? '')
   }))
   if (pending) {
     await saveMeasurements()
-    const stillPending = catalog.value.some(item => item.fields.some(field => {
+    const stillPending = catalog.value.some(item => editableFields(item).some(field => {
       const stored = selectedCase.value!.measurements.find(v => v.itemCode === item.code && v.fieldCode === field.code && v.fieldRole === 'RAW')
       return String(measurementValues[key(item.code,field.code)] ?? '') !== String(stored?.valueText ?? stored?.valueNum ?? '')
     }))
@@ -1049,7 +1075,7 @@ function showMeasurementHelp(field: FieldDefinition) {
 <template>
   <div class="radiology-workbench" v-loading="busy">
     <div class="comparison-banner">
-      <strong>10月13日新版 · 应检清单与审批改造</strong>
+      <strong>10月14日补齐版 · 测量行和批量导入</strong>
       <span>原始数据修改后重新计算；报告采用批准快照</span>
       <a href="/test1013-changes.html" target="_blank" rel="noopener">查看改动对照</a>
     </div>
@@ -1058,11 +1084,11 @@ function showMeasurementHelp(field: FieldDefinition) {
         <span class="modality-mark">{{ modality }}</span>
         <div>
           <h2>{{ modality }} 设备质量控制检测 <HelpMark anchor-id="radiology.case" /></h2>
-          <p>{{ modality === 'DR' ? 'WS 76-2020' : 'WS 519-2019' }} · GBZ 130-2020 · 计算规则 2026.10.13</p>
+          <p>{{ modality === 'DR' ? 'WS 76-2020' : 'WS 519-2019' }} · GBZ 130-2020 · 计算规则 2026.10.14</p>
         </div>
       </div>
       <div class="hero-actions">
-        <el-button @click="loadCases">刷新</el-button>
+        <el-button @click="loadCases">刷新</el-button><el-button @click="batchVisible=true">多案例批量导入</el-button>
         <el-button type="primary" @click="openCreateCase">新建 {{ modality }} 案例</el-button>
       </div>
     </header>
@@ -1226,9 +1252,11 @@ function showMeasurementHelp(field: FieldDefinition) {
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
                   <RadiologyConditionEditor v-if="item.code!=='RPD'" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable" />
-                  <div v-if="conditionRows(item.code).length" class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div>
+                  <div v-if="conditionRows(item.code).length && !rowIds(item.code).length" class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div>
                   <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体法" value="PHANTOM" /><el-option label="倾角仪法" value="INCLINOMETER" /></el-select>
-                  <div class="field-grid">
+                  <div v-if="item.code==='CTDI'" class="ctdi-parts"><strong>检测部位</strong><el-checkbox-group :model-value="ctdiParts()" :disabled="!editable" @update:model-value="setCtdiParts"><el-checkbox value="HEAD">头部模体</el-checkbox><el-checkbox value="BODY" :disabled="!selectedCase?.detectionCategory?.includes('验收')">体部模体</el-checkbox></el-checkbox-group><small>验收检测可多选；状态及稳定性检测仅头部模体。</small></div>
+                  <RadiologyMeasurementRows v-if="repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :disabled="!editable" />
+                  <div v-if="!rowIds(item.code).length" class="field-grid">
                     <label v-for="field in visibleFields(item)" :key="field.code" class="field-card">
                       <span>{{ field.label }} <em v-if="field.required">*</em> <HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" /></span>
                       <div v-if="isAicExposurePair(item.code)" class="aic-exposure-pair">
@@ -1272,20 +1300,12 @@ function showMeasurementHelp(field: FieldDefinition) {
 
               <section v-if="calculationItems.length" class="calculation-summary">
                 <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
-                <el-table :data="calculationItems" border>
-                  <el-table-column prop="itemCode" label="代码" width="84" />
-                  <el-table-column label="检测项目" min-width="170"><template #default="scope">{{ scope.row.itemCode==='RPD' ? '场所防护本底与校准' : scope.row.itemName }}</template></el-table-column>
-                  <el-table-column label="结果" min-width="120">
-                    <template #default="scope">{{ itemResultDisplay(scope.row) }}</template>
-                  </el-table-column>
-                  <el-table-column label="状态" width="120">
-                    <template #default="scope"><el-tag :type="calculationStatusType(scope.row)">{{ calculationStatus(scope.row) }}</el-tag></template>
-                  </el-table-column>
-                  <el-table-column label="判定" width="130" fixed="right">
-                    <template #default="scope"><el-button v-if="isProtectionRecord(scope.row)" link @click="workTab='points'">见防护点位</el-button><span v-else>{{ judgementText(scope.row.judgement) }}</span></template>
-                  </el-table-column>
-                  <el-table-column prop="ruleDescription" label="标准判定依据" min-width="320" />
-                  <el-table-column prop="message" label="提示" min-width="220" />
+                <el-table :data="evaluationRows" border>
+                  <el-table-column prop="itemName" label="检测项目" min-width="160" />
+                  <el-table-column prop="condition" label="检测条件" min-width="170" />
+                  <el-table-column label="检测结果" min-width="160"><template #default="scope">{{scope.row.result}}<small v-if="scope.row.message && ['INCOMPLETE','NOT_CONFIGURED','NEEDS_ASSESSMENT'].includes(scope.row.judgement)" class="evaluation-note">{{scope.row.message}}</small></template></el-table-column>
+                  <el-table-column prop="rule" label="标准要求" min-width="240" />
+                  <el-table-column label="评价" width="100" fixed="right"><template #default="scope"><strong v-if="scope.row.judgement==='UNQUALIFIED'" class="evaluation-failure">不符合</strong><span v-else>{{evaluationText(scope.row.judgement)}}</span></template></el-table-column>
                 </el-table>
               </section>
             </el-tab-pane>
@@ -1527,7 +1547,17 @@ function showMeasurementHelp(field: FieldDefinition) {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="previewVisible" title="检测报告逐页预览" width="94%" top="3vh" destroy-on-close><iframe v-if="previewPdfUrl" :src="previewPdfUrl" title="检测报告分页预览" style="width:100%;height:80vh;border:0" /><div v-else ref="previewContainer" class="report-preview-pages"></div></el-dialog>
+    <el-dialog v-model="batchVisible" title="多案例Excel批量导入" width="88%">
+      <p>每行填写一个原始字段，同一案例编号的数据合并建档。仅新增案例；已有编号或任意一行错误会阻止整批写入。导入后仍需补齐资料、计算和审核。</p>
+      <div class="section-toolbar"><el-button @click="downloadBlob('/api/radiology/batch-import-template','多案例批量模板.xlsx')">下载批量模板与字段目录</el-button><input type="file" accept=".xlsx,.xls" aria-label="选择多案例批量工作簿" @change="selectBatchFile"/><el-button :disabled="!batchFile" @click="importBatch(true)">批量预检</el-button><el-button type="primary" :disabled="!batchFile || !batchResult?.dryRun || batchResult.rows.some(r=>r.status==='ERROR')" @click="importBatch(false)">正式批量导入</el-button></div>
+      <el-alert v-if="batchResult" :closable="false" :type="batchResult.rows.some(r=>r.status==='ERROR')?'error':'success'" :title="`识别${batchResult.cases}个案例，${batchResult.dryRun?'预检未写入':`已导入${batchResult.appliedCases}个案例`}`" />
+      <el-table v-if="batchResult" :data="batchResult.rows" border max-height="500"><el-table-column prop="row" label="Excel行号" width="110"/><el-table-column prop="caseCode" label="案例编号" min-width="200"/><el-table-column label="结果" width="110"><template #default="scope">{{scope.row.status==='ERROR'?'错误':scope.row.status==='IMPORTED'?'已导入':'预检通过'}}</template></el-table-column><el-table-column prop="message" label="说明" min-width="300"/></el-table>
+    </el-dialog>
+    <el-dialog v-model="previewVisible" title="检测报告逐页预览" width="94%" top="3vh" destroy-on-close @opened="renderPreviewDocx">
+      <div class="section-toolbar"><span v-if="previewPages.length">共{{previewPages.length}}页</span><el-button v-if="previewPages.length && selectedCase" @click="downloadBlob(`/api/radiology/cases/${selectedCase.id}/report-preview?format=pdf`,'检测报告预览.pdf')">下载PDF</el-button></div>
+      <div v-if="previewPages.length" class="report-preview-pages"><figure v-for="(page,index) in previewPages" :key="index"><figcaption>第{{index+1}}页 / 共{{previewPages.length}}页</figcaption><img :src="page" :alt="`检测报告第${index+1}页`" /></figure></div>
+      <div v-else ref="previewContainer" class="report-preview-pages"></div>
+    </el-dialog>
     <el-dialog v-model="queryVisible" class="case-query-dialog" title="综合查询" width="92%">
       <el-form label-position="top"><el-row :gutter="12">
         <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测年份"><el-input-number v-model="query.year" :min="1900" :max="2200" style="width:100%" /></el-form-item></el-col>
@@ -1564,6 +1594,7 @@ function showMeasurementHelp(field: FieldDefinition) {
 </template>
 
 <style scoped>
+.report-preview-pages figure{margin:20px auto;text-align:center}.report-preview-pages img{width:100%;max-width:1000px;height:auto;display:block;margin:auto}.evaluation-note{display:block;color:#667}.evaluation-failure{font-weight:800;color:#a72c21}.ctdi-parts{padding:14px;border:1px solid #cddadf;margin:12px 0}
 .report-preview-pages { max-height:80vh;overflow:auto;background:#eceff3; }
 .report-preview-pages :deep(.docx-wrapper) { padding:20px; }
 .condition-subrows {display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0;}

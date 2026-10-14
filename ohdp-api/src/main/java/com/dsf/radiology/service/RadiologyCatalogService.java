@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RadiologyCatalogService {
 
-    public static final String CALCULATION_VERSION = "2026.10.13.2";
+    public static final String CALCULATION_VERSION = "2026.10.14.1";
 
     public record FieldDefinition(
             String code, String label, RadiologyFieldRole role, String unit, boolean required, int sortNo) {
@@ -50,6 +50,11 @@ public class RadiologyCatalogService {
     }
 
     public Optional<FieldDefinition> findField(RadiologyModality modality, String itemCode, String fieldCode) {
+        if(RadiologyMeasurementRows.ITEMS.contains(itemCode) && fieldCode.matches("R[1-9][0-9]{0,2}__.+")) {
+            int split=fieldCode.indexOf("__");String base=fieldCode.substring(split+2);
+            if(List.of("TVD","ETD").contains(itemCode) && !base.startsWith(itemCode+"1-") && !base.equals(itemCode+"-K1")) return Optional.empty();
+            return findField(modality,itemCode,base).map(f->new FieldDefinition(fieldCode,f.label(),f.role(),f.unit(),f.required(),f.sortNo()));
+        }
         return findItem(modality, itemCode).flatMap(item -> item.fields().stream()
                 .filter(field -> field.code().equalsIgnoreCase(fieldCode)).findFirst());
     }
@@ -204,6 +209,7 @@ public class RadiologyCatalogService {
     }
 
     private String unit(String code) {
+        if(code.matches("(?:TVD|ETD)-K[123]") || code.equals("ROA-K") || code.equals("ROQ-K") || code.equals("RPD-k2"))return "";
         if(code.matches("[HS][CDULR]D[123]")) return "mGy·cm";
         if (code.startsWith("RPD0-")) return "nSv/h";
         if (code.equals("a") || code.equals("k") || code.endsWith("-FACTOR")) return "";

@@ -150,7 +150,7 @@ public final class RadiologyDto {
     @Data
     public static class MeasurementBatchRequest {
         private Long expectedDataVersion;
-        @NotEmpty
+        @NotNull
         @Valid
         private List<MeasurementRequest> values;
         private java.util.Map<String,String> conditions;

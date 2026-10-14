@@ -38,7 +38,7 @@ public class RadiologyMeasurement extends BaseAuditEntity {
     @Column(name = "value_num", precision = 38, scale = 16)
     private BigDecimal valueNum;
 
-    @Column(name = "value_text", length = 1000)
+    @Column(name = "value_text", columnDefinition = "longtext")
     private String valueText;
 
     @Column(name = "unit", length = 100)

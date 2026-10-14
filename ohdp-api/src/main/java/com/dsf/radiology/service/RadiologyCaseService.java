@@ -53,6 +53,7 @@ public class RadiologyCaseService {
     private final RadiologyCalculationEngine calculationEngine;
     private final RadiologyStandardEvaluator standardEvaluator;
     private final RadiologyScopeService scopeService;
+    private final RadiologyMeasurementRows measurementRows;
     private final com.dsf.auth.service.rbac.RbacAccessService accessService;
     private final ObjectMapper objectMapper;
     private final com.dsf.radiology.config.RadiologyStorageProperties storageProperties;
@@ -154,9 +155,21 @@ public class RadiologyCaseService {
         RadiologyCase entity = requireCase(caseId);
         assertEditable(entity);
         checkVersion(entity, request.getExpectedDataVersion());
-        if (request.getConditions()!=null) entity.setItemConditionsJson(writeJson(request.getConditions()));
+        if (request.getConditions()!=null) {
+            for(String item:RadiologyMeasurementRows.ITEMS) measurementRows.ids(item,request.getConditions());
+            entity.setItemConditionsJson(writeJson(request.getConditions()));
+        }
         for (RadiologyDto.MeasurementRequest value : request.getValues()) {
             upsertRawMeasurement(entity, value.getItemCode(), value.getFieldCode(), value.getValueNum(), value.getValueText(), "MANUAL");
+        }
+        for(String code:RadiologyMeasurementRows.ITEMS) {
+            var ids=measurementRows.ids(code,itemConditions(entity));
+            if(ids.isEmpty()) continue;
+            for(var m:measurementRepository.findByCaseIdAndDeletedFalseOrderByItemCodeAscSortNoAsc(caseId)) {
+                if(!m.getItemCode().equals(code) || m.getFieldRole()!=RadiologyFieldRole.RAW) continue;
+                String f=m.getFieldCode();
+                if(!f.matches("R[1-9][0-9]{0,2}__.+") || !ids.contains(Integer.parseInt(f.substring(1,f.indexOf("__"))))) m.setDeleted(true);
+            }
         }
         saveAicExposurePairs(entity);
         invalidate(entity);
@@ -207,7 +220,7 @@ public class RadiologyCaseService {
             Map<String, BigDecimal> itemNumbers = numbersByItem.getOrDefault(item.code(), Map.of());
             Map<String, String> itemTexts = textsByItem.getOrDefault(item.code(), Map.of());
             boolean hasRpdBackground = itemNumbers.keySet().stream().anyMatch(code -> code.startsWith("RPD0-"));
-            String exclusion=scopeService.exclusion(entity, item.code(), itemNumbers);
+            String exclusion=scopeService.exclusion(entity, item.code(), measurementRows.ids(item.code(),itemConditions(entity)).isEmpty()?itemNumbers:Map.of());
             if(!groupSelected(entity,item.code())) exclusion="本次委托检测范围未包含此项目组";
             if (!exclusion.isEmpty()) {
                 markOldCalculatedFieldsDeleted(caseId,item.code());
@@ -216,6 +229,15 @@ public class RadiologyCaseService {
                 continue;
             }
             itemNumbers=new LinkedHashMap<>(itemNumbers);
+            if(item.code().equals("HCR") && RadiologyScopeService.type(entity.getDetectionCategory()).equals("STATE"))
+                itemNumbers.put("__STATE",BigDecimal.ONE);
+            if(item.code().equals("CTDI")) {
+                String parts=itemConditions(entity).getOrDefault("__ctdi.parts",RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE")?"HEAD,BODY":"HEAD");
+                if(!List.of("HEAD","BODY","HEAD,BODY","BODY,HEAD","").contains(parts)) throw new BusinessException("CTDI检测部位无效");
+                if(!RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE") && parts.contains("BODY")) throw new BusinessException("状态及稳定性检测不检测体部模体");
+                itemNumbers.put("__CTDI_HEAD",parts.contains("HEAD")?BigDecimal.ONE:BigDecimal.ZERO);
+                itemNumbers.put("__CTDI_BODY",parts.contains("BODY")?BigDecimal.ONE:BigDecimal.ZERO);
+            }
             if (item.code().equals("CTDI") && !RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE"))
                 itemNumbers.put("__HEAD_ONLY",BigDecimal.ONE);
             if (item.code().equals("LCR") && RadiologyScopeService.type(entity.getDetectionCategory()).equals("ACCEPTANCE"))
@@ -231,14 +253,16 @@ public class RadiologyCaseService {
             if(unitCondition!=null) try {String unit=objectMapper.readTree(unitCondition).path("doseUnit").asText();if(unit.equals("μGy"))itemNumbers.put("__MICROGY",BigDecimal.ONE);} catch(JsonProcessingException ex){throw new BusinessException("检测条件结构损坏");}
             RadiologyCalculationEngine.CalculationResult result = calculationEngine.calculate(
                     item.code(), itemNumbers, itemTexts, numbersByItem, textsByItem);
+            var rowResult=measurementRows.calculate(entity,item.code(),itemNumbers,itemTexts,numbersByItem,textsByItem,itemConditions(entity));
+            if(rowResult!=null) result=rowResult.calculation();
             markOldCalculatedFieldsDeleted(caseId, item.code());
-            if (result.complete()) {
+            if (result.complete() || rowResult!=null) {
                 int sort = 1000;
                 for (RadiologyCalculationEngine.CalculatedField field : result.fields()) {
                     upsertCalculatedMeasurement(entity, item, field, sort++);
                 }
             }
-            RadiologyStandardEvaluator.Evaluation judgment = standardEvaluator.evaluate(
+            RadiologyStandardEvaluator.Evaluation judgment = rowResult!=null ? rowResult.evaluation() : standardEvaluator.evaluate(
                     entity.getModality(), entity.getDetectionCategory(), item.code(), result.complete(),
                     result.resultValue(), result.resultText(), itemNumbers, result.fields());
             var custom=ruleRepository.findByDeletedFalseAndModalityOrderByItemCodeAsc(entity.getModality()).stream()
@@ -602,8 +626,11 @@ public class RadiologyCaseService {
         var results=itemResults(entity);
         for (var item:catalogService.getCatalog(entity.getModality())) {
             var result=results.stream().filter(r->r.itemCode().equals(item.code())).findFirst().orElse(null);
-            if (result!=null && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE && !item.code().equals("RPD")
-                    && !StringUtils.hasText(itemConditions(entity).get(item.code()))) issues.add(item.name()+"缺少检测条件");
+            if(result!=null && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE && !item.code().equals("RPD")) {
+                var ids=measurementRows.ids(item.code(),itemConditions(entity));
+                if(ids.isEmpty()) {if(!StringUtils.hasText(itemConditions(entity).get(item.code())))issues.add(item.name()+"缺少检测条件");}
+                else for(int id:ids) if(!StringUtils.hasText(itemConditions(entity).get(item.code()+".R"+id)) && !StringUtils.hasText(itemConditions(entity).get(item.code())))issues.add(item.name()+"第"+id+"行缺少检测条件");
+            }
             if (result==null) issues.add(item.name()+"尚未计算");
             else if (!result.complete()) issues.add(item.name()+"："+result.message());
             else if (result.judgement()==RadiologyJudgement.NOT_CONFIGURED || result.judgement()==RadiologyJudgement.NEEDS_ASSESSMENT
