@@ -124,3 +124,23 @@ test('STP optional per-level conditions preserve all other saved conditions',()=
  c.setCondition('voltage',2,'85');c.setCondition('ddi',2,'100.00')
  assert.equal(conditions['STP.voltage.3'],'85');assert.equal(conditions['STP.ddi.3'],'100.00');assert.equal(conditions.STP,'SID=100cm');assert.equal(conditions['__params.STP'],'{"voltage":"80"}')
 })
+
+test('CT uniformity displays the signed difference for each direction',()=>{
+ const fields=['U','D','L','R'].map(d=>({code:'HUU-'+d+'1'}))
+ const results=['U','D','L','R'].map((d,i)=>({fieldCode:'DEVIATION_'+d,output:String(i-2)})).concat({fieldCode:'RESULT',output:'2.0'})
+ const c=component('MeasurementTable.vue','layout,calculated',{props:{code:'HUU',fields,results}})
+ assert.deepEqual(c.layout.value.rows.map((r,i)=>c.calculated(r,i,false)),['-2','-1','0','1'])
+})
+test('CTDI part blocks retain each parameter exactly once and do not mix head and body',()=>{
+ const codes=['HCD1','SCD1','层数n1','层厚T1','刻度系数k1','层数n2','层厚T2','刻度系数k2','CTDI-HEAD-MANUFACTURER','CTDI-HEAD-BASELINE','CTDI-BODY-MANUFACTURER','CTDI-BODY-BASELINE']
+ const c=component('MeasurementTable.vue','ctdiParts,partParameters',{props:{code:'CTDI',fields:codes.map(code=>({code}))}})
+ const parameters=c.ctdiParts.value.map(p=>c.partParameters(p).map(f=>f.code))
+ assert.deepEqual(parameters[0],codes.filter(c=>c.endsWith('1')&&!c.startsWith('H')&&!c.startsWith('S')||c.startsWith('CTDI-HEAD')))
+ assert.equal(new Set(parameters.flat()).size,10);assert.equal(parameters.flat().length,10)
+})
+test('LCD contrast rows preserve legacy input separately and match computed diameters',()=>{
+ const codes=['LCD-COUNT-1','LCD-COUNT-05','LCD-COUNT-03','NUM1','mm1']
+ const c=component('MeasurementTable.vue','layout',{props:{code:'LCD',fields:codes.map(code=>({code}))}})
+ assert.deepEqual(c.layout.value.rows.map(r=>[r.label,r.fields[0].code]),[['1.0%','LCD-COUNT-1'],['0.5%','LCD-COUNT-05'],['0.3%','LCD-COUNT-03']])
+ assert.deepEqual(c.layout.value.extra.map(f=>f.code),['NUM1','mm1'])
+})
