@@ -3,7 +3,7 @@ import { reactive, ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 const props=defineProps<{token:string}>()
-const emit=defineEmits<{open:[{id:number;modality:'CT'|'DR'|'DOSE'}]}>()
+const emit=defineEmits<{open:[{id:number;modality:'CT'|'DR'|'DOSE';edit?:boolean}]}>()
 const blank=()=>({modalities:[] as string[],year:undefined as number|undefined,from:'',to:'',city:'',county:'',receipt:'',company:'',status:''})
 const filters=reactive(blank()), rows=ref<any[]>([]), page=ref(1), total=ref(0), busy=ref(false)
 const regions=ref<{id:number;parentId?:number;level:number;regionName:string}[]>([])
@@ -27,7 +27,7 @@ onMounted(async()=>{await load();try{const r=await axios.get('/api/ohdp/basic/re
     <el-form-item v-for="[key,label] in [['receipt','受理编号'],['company','受检单位名称']]" :key="key" :label="label"><el-input v-model="filters[key as 'receipt'|'company']" clearable @keyup.enter="load(true)"/></el-form-item>
   </el-form>
   <el-button type="primary" @click="load(true)">查询</el-button><el-button @click="reset">重置</el-button>
-  <el-table :data="rows" border style="margin-top:16px"><el-table-column type="index" label="序号" width="60"/><el-table-column prop="receipt" label="受理编号" min-width="165"/><el-table-column prop="unitName" label="受检单位名称" min-width="180"/><el-table-column label="设备类别" width="130"><template #default="{row}">{{row.modality==='DOSE'?'个人剂量监测':row.modality}}</template></el-table-column><el-table-column prop="equipmentName" label="设备名称" min-width="150"/><el-table-column prop="equipmentNo" label="设备编号" min-width="130"/><el-table-column prop="inspectionDate" label="检测时间" width="120"/><el-table-column prop="generatedAt" label="出具报告时间" width="190"/><el-table-column label="操作" width="100" fixed="right"><template #default="{row}"><el-button link type="primary" @click="emit('open',row)">查看</el-button></template></el-table-column></el-table>
+  <el-table :data="rows" border style="margin-top:16px"><el-table-column type="index" label="序号" width="60"/><el-table-column prop="receipt" label="受理编号" min-width="165"/><el-table-column prop="unitName" label="受检单位名称" min-width="180"/><el-table-column label="设备类别" width="130"><template #default="{row}">{{row.modality==='DOSE'?'个人剂量监测':row.modality}}</template></el-table-column><el-table-column prop="equipmentName" label="设备名称" min-width="150"/><el-table-column prop="equipmentNo" label="设备编号" min-width="130"/><el-table-column prop="inspectionDate" label="检测时间" width="120"/><el-table-column prop="generatedAt" label="出具报告时间" width="190"/><el-table-column label="操作" width="145" fixed="right"><template #default="{row}"><el-button link type="primary" @click="emit('open',row)">查看</el-button><el-button link type="primary" :disabled="!['DRAFT','DATA_ENTERED','CALCULATED'].includes(row.status)" @click="emit('open',{...row,edit:true})">修改</el-button></template></el-table-column></el-table>
   <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev,pager,next,total" @current-change="load()"/>
 </div>
 </template>

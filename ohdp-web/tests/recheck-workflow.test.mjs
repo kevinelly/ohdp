@@ -8,9 +8,9 @@ const dir=new URL('../src/components/radiology/',import.meta.url)
 const transpile=s=>ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText
 const support=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('radiologyDraftSupport.ts',dir),'utf8'))).toString('base64'))
 const doseSupport=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('personalDoseSupport.ts',dir),'utf8'))).toString('base64'))
-function component(name,expose,{get=async()=>({data:{content:[],totalElements:0,last:true}}),confirm=async()=>{},props={}}={}){
+function component(name,expose,{get=async()=>({data:{content:[],totalElements:0,last:true}}),confirm=async()=>{},post=async()=>({data:{}}),props={}}={}){
  const calls=[],emits=[],warnings=[]
- const api={interceptors:{request:{use(){}}},get:async(...args)=>{calls.push(args[0]);return get(...args)}}
+ const api={post,interceptors:{request:{use(){}}},get:async(...args)=>{calls.push(args[0]);return get(...args)}}
  const bindings={withDefaults:(props,defaults)=>({...defaults,...props}),ref,reactive,computed,watch(){},onMounted(){},onBeforeUnmount(){},defineProps:()=>({token:'test',username:'test',modality:'DR',...props}),defineEmits:()=>((...v)=>emits.push(v)),defineExpose(){},axios:{create:()=>api},ElMessage:{warning:m=>warnings.push(m),error:m=>warnings.push(m),success(){}},ElMessageBox:{confirm},...support,...doseSupport}
  const source=parse(fs.readFileSync(new URL(name,dir),'utf8')).descriptor.scriptSetup.content
  const ast=ts.createSourceFile('component.ts',source,ts.ScriptTarget.Latest,true)
@@ -89,3 +89,31 @@ test('refresh retries failed libraries and preserves current edited project',asy
  failed=false;await c.refresh();assert.equal(c.standards.value[0].id,9);assert.equal(c.devices.value[0].id,9);assert.equal(c.form.value.receipt,'UNSAVED')
 })
 
+
+test('equipment unit edits preserve legacy notes, ranges and mAs',()=>{
+ const text='额定电压 40～150 kV；最大电流 500 mA；100 mAs；备注：双焦点'
+ assert.equal(support.equipmentParameter(text,'kV'),'40～150')
+ assert.equal(support.equipmentParameter('100 mAs','mA'),'')
+ const updated=support.updateEquipmentParameter(text,'mA','600')
+ assert.equal(updated,'额定电压 40～150 kV；最大电流 600 mA；100 mAs；备注：双焦点')
+ assert.equal(support.updateEquipmentParameter('旧设备备注','kV','120'),'旧设备备注；120 kV')
+ assert.equal(support.updateEquipmentParameter('备注','kV',''),'备注')
+})
+test('dynamic results map by stable row id after deletion and preserve display precision',()=>{
+ const c=component('RadiologyMeasurementRows.vue','resultColumns,rowResult',{props:{code:'TVD',fields:[],values:{},conditions:{'__rows.TVD':'[1,3]'},disabled:false,results:[{fieldCode:'R1__MEAN_1',fieldLabel:'第1行 校正均值',output:'80.00 kV'},{fieldCode:'R3__MEAN_1',fieldLabel:'第3行 校正均值',output:'100.0 kV'}]}})
+ assert.equal(c.resultColumns.value.length,1);assert.equal(c.rowResult(3,'MEAN_1'),'100.0 kV');assert.equal(c.rowResult(2,'MEAN_1'),'—')
+})
+test('AEC group and RUE region results use their own calculated fields',()=>{
+ for(const [code,key,index] of [['ARS','DEVIATION_2',1],['AIC','LEFT_DEVIATION',1],['RUE','DOSE_4',3]]){
+ const c=component('MeasurementTable.vue','calculated',{props:{code,fields:[],results:[{fieldCode:key,output:'-2.0'}]}})
+ assert.equal(c.calculated({fields:[]},index,false),'-2.0')
+ }
+})
+
+test('personal dose preview sends the exact comment once and clears it for the next reviewer',async()=>{
+ const sent=[]
+ const c=component('PersonalDoseWorkbench.vue','form,action,previewVisible,previewComplete,previewComment,selected',{post:async(path,body)=>{sent.push({path,body});return {data:{id:7,version:2,status:'PENDING_REVIEW',personnel:[],readings:[]}}}})
+ c.form.value={id:7,version:1,status:'CALCULATED',personnel:[],readings:[]};c.previewVisible.value=true;c.previewComplete.value=true;c.previewComment.value='编写核对意见'
+ await c.action('submit','编写核对意见')
+ assert.equal(sent.length,1);assert.equal(sent[0].body.comment,'编写核对意见');assert.equal(c.selected.value.status,'PENDING_REVIEW');assert.equal(c.previewVisible.value,false);assert.equal(c.previewComment.value,'');assert.equal(c.previewComplete.value,false)
+})

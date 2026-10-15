@@ -12,6 +12,16 @@ class RadiologyCalculationEngineTest {
 
     private final RadiologyCalculationEngine engine = new RadiologyCalculationEngine();
 
+    @Test void aicExposesSignedChamberDeviationsWithoutChangingMaximum() {
+        var n=new LinkedHashMap<String,BigDecimal>();
+        for(int i=1;i<=3;i++){n.put("AIC-C"+i,new BigDecimal("90"));n.put("AIC-L"+i,new BigDecimal("100"));n.put("AIC-R"+i,new BigDecimal("110"));}
+        var result=engine.calculate("AIC",n,Map.of(),Map.of());
+        assertThat(result.complete()).isTrue();
+        assertThat(result.resultValue()).isEqualByComparingTo("10");
+        var fields=new LinkedHashMap<String,String>();result.fields().forEach(f->fields.put(f.code(),f.displayValue()));
+        assertThat(fields).containsEntry("CENTER_DEVIATION","-10.0").containsEntry("LEFT_DEVIATION","0.0").containsEntry("RIGHT_DEVIATION","10.0");
+    }
+
     @Test void averagesUseSignificantDigitsAcrossOrdersOfMagnitude() {
         var n=new LinkedHashMap<String,BigDecimal>();String[] readings={"9.9","9.9","9.9","99","99"};
         for(int i=0;i<5;i++)n.put("ARP"+(i+1),new BigDecimal(readings[i]));

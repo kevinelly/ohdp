@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import InspectionQuery from './InspectionQuery.vue'
 import InspectionFlow from './InspectionFlow.vue'
 import MeasurementTable from './MeasurementTable.vue'
+import EquipmentParameters from './EquipmentParameters.vue'
 import { sameDraft } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
@@ -276,6 +277,7 @@ const pendingQueryEdit=ref(false)
 const props = withDefaults(defineProps<{
   token: string
   openCaseId?: number
+  openEdit?: boolean
   modality: Modality
   canReview?: boolean
   canApprove?: boolean
@@ -421,9 +423,9 @@ async function confirmLeave():Promise<boolean> {
   try {await ElMessageBox.confirm('当前项目有未保存的修改。继续切换将放弃这些修改；如需保留，请取消并先保存。','未保存的内容',{confirmButtonText:'放弃修改并切换',cancelButtonText:'留在当前项目',type:'warning',closeOnClickModal:false});return true}catch{return false}
 }
 defineExpose({confirmLeave})
-async function openQueryResult(row:{id:number;modality:'CT'|'DR'|'DOSE'}) {
+async function openQueryResult(row:{id:number;modality:'CT'|'DR'|'DOSE';edit?:boolean}) {
   if(row.modality==='DOSE'){if(!await confirmLeave())return;queryVisible.value=false;emit('open-dose',row.id)}
-  else await selectQueryCase(row as CaseSummary)
+  else await selectQueryCase(row as CaseSummary,!!row.edit)
 }
 async function selectQueryCase(item: CaseSummary, edit=false) {
   if(!await confirmLeave())return
@@ -495,13 +497,13 @@ const editabilityReason = computed(() => {
   return ''
 })
 
-watch(() => props.modality, async (value) => {
+watch(() => [props.modality,props.openCaseId,props.openEdit] as const, async ([value]) => {
   selectedCase.value = null
   calculation.value = null
   query.modalities = [value]
   Object.assign(caseForm, blankCaseForm(value))
   await Promise.all([loadCatalog(), loadCases(), loadRules(), loadLibraries()])
-  if(props.openCaseId)await selectCase(props.openCaseId)
+  if(props.openCaseId){await selectCase(props.openCaseId);if(props.openEdit&&editable.value)openEditCase()}
   if(pendingQueryId.value){const id=pendingQueryId.value;pendingQueryId.value=undefined;await selectCase(id);if(pendingQueryEdit.value && editable.value) openEditCase();pendingQueryEdit.value=false}
 }, { immediate: true })
 
@@ -1017,6 +1019,7 @@ async function workflow(action: 'submit' | 'review' | 'approve' | 'return',provi
     syncCaseState()
     await loadCases()
     viewStage.value=action==='approve'?5:action==='return'?2:4
+    if(providedComment!==undefined){previewVisible.value=false;previewComplete.value=false;previewComment.value=''}
   }, `${names[action]}完成`)
 }
 
@@ -1331,7 +1334,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                         <template v-if="rawFieldUnit(item.code, field)" #append>{{ rawFieldUnit(item.code, field) }}</template>
                       </el-input>
                   </template></MeasurementTable>
-                  <RadiologyMeasurementRows v-if="repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :disabled="!editable" />
+                  <RadiologyMeasurementRows v-if="repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,fieldLabel:v.fieldLabel,output:displayCalculated(v)}))" :disabled="!editable" />
                   <details v-if="computedFields(item.code).length" class="ppt-help"><summary>完整计算结果</summary><div class="computed-panel">
                     <div v-for="value in computedFields(item.code)" :key="value.id" :class="['computed-value', value.fieldRole.toLowerCase()]">
                       <span>{{ value.fieldLabel }}</span>
@@ -1496,7 +1499,7 @@ function showMeasurementHelp(field: FieldDefinition) {
             <el-col :xs="24" :sm="12"><el-form-item label="受检设备型号"><el-input v-model="caseForm.equipmentModel" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="受检设备编号"><el-input v-model="caseForm.equipmentNo" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="生产厂家"><el-input v-model="caseForm.manufacturer" /></el-form-item></el-col>
-            <el-col :span="24"><el-form-item label="设备参数"><el-input v-model="caseForm.profile.equipmentParameters" type="textarea" /></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="设备参数"><EquipmentParameters v-model="caseForm.profile.equipmentParameters"/></el-form-item></el-col>
             <el-col v-if="modality==='CT'" :span="12"><el-form-item label="出厂日期"><el-date-picker v-model="caseForm.profile.manufacturedDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
             <template v-if="modality === 'CT'">
               <el-col :xs="24" :sm="12"><el-form-item><template #label>模体名称 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomName" /></el-form-item></el-col>
@@ -1531,19 +1534,20 @@ function showMeasurementHelp(field: FieldDefinition) {
           <div class="case-section-title"><div><span>第 4 步</span><h3>{{ editingCaseId ? '确认修改内容' : '确认并创建' }}</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
           <el-alert type="info" :closable="false" title="请核对关键字段。创建后仍可在草稿、已录入或已计算状态下修改案例信息。" show-icon />
           <dl class="case-review-grid">
-            <div><dt>案例编号</dt><dd>{{ caseForm.caseCode || '未填写' }}</dd></div>
             <div><dt>受理编号</dt><dd>{{ caseForm.sampleAcceptanceNo || '未填写' }}</dd></div>
             <div><dt>检测类别</dt><dd>{{ caseForm.detectionCategory || '未填写' }}</dd></div>
             <div><dt>受检单位</dt><dd>{{ caseForm.inspectedUnitName || '未填写' }}</dd></div>
             <div><dt>检测地点</dt><dd>{{ caseForm.detectionLocation || '未填写' }}</dd></div>
             <div><dt>设备</dt><dd>{{ [caseForm.manufacturer, caseForm.equipmentName, caseForm.equipmentModel].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
-            <div v-if="modality === 'CT'"><dt>检测模体</dt><dd>{{ [caseForm.phantomManufacturer, caseForm.phantomName, caseForm.phantomModel].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
             <div><dt>检测起止日期</dt><dd>{{ caseForm.inspectionDate || '未填写' }} 至 {{ caseForm.inspectionEndDate || '未填写' }}</dd></div>
+            <div class="wide"><dt>检测依据</dt><dd>{{ caseForm.standardBasis || '未填写' }}</dd></div>
+          </dl>
+<details class="ppt-help"><summary>补充信息</summary><dl class="case-review-grid">            <div><dt>案例编号</dt><dd>{{ caseForm.caseCode || '未填写' }}</dd></div>
+            <div v-if="modality === 'CT'"><dt>检测模体</dt><dd>{{ [caseForm.phantomManufacturer, caseForm.phantomName, caseForm.phantomModel].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
             <div><dt>所在地</dt><dd>{{ [caseForm.city,caseForm.county].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
             <div><dt>本次检测范围</dt><dd>{{ (caseForm.profile.selectedGroups || []).map(detectionGroupLabel).join('、') }}</dd></div>
             <div><dt>编写 / 审核 / 批准</dt><dd>{{ [caseForm.writerName, caseForm.reviewerName, caseForm.approverName].map(value => value || '待指定').join(' / ') }}</dd></div>
-            <div class="wide"><dt>检测依据</dt><dd>{{ caseForm.standardBasis || '未填写' }}</dd></div>
-          </dl>
+</dl></details>
         </section>
       </el-form>
 

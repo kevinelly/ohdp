@@ -213,6 +213,9 @@ public class RadiologyCalculationEngine {
                 CalculatedField.number("LEFT_MEAN", "左电离室平均值", left, 1, ""),
                 CalculatedField.number("RIGHT_MEAN", "右电离室平均值", right, 1, ""),
                 CalculatedField.number("OVERALL_MEAN", "总平均值", overall, 1, ""),
+                CalculatedField.number("CENTER_DEVIATION", "中央电离室相对偏差", ec, 1, "%"),
+                CalculatedField.number("LEFT_DEVIATION", "左电离室相对偏差", el, 1, "%"),
+                CalculatedField.number("RIGHT_DEVIATION", "右电离室相对偏差", er, 1, "%"),
                 CalculatedField.number("RESULT", "最大偏差", result, 1, "%")));
     }
 

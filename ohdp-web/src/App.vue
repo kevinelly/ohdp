@@ -447,9 +447,10 @@ const actionBusy = reactive({
   uploadReferenceDocument: false,
 })
 const inspectionOpenId=ref<number>()
+const inspectionOpenEdit=ref(false)
 const radiologyWorkbench=ref<{confirmLeave:()=>Promise<boolean>}>()
 const personalDoseWorkbench=ref<{confirmLeave:()=>Promise<boolean>}>()
-function openInspection(row:{id:number;modality:'CT'|'DR'|'DOSE'}){inspectionOpenId.value=row.id;if(row.modality==='DOSE'){activeTab.value='personalDose';selectedMenuKey.value='radiology.dose'}else{radiologyChildMenu.value=row.modality;activeTab.value='radiology';selectedMenuKey.value=row.modality==='CT'?'radiology.ct':'radiology.dr'}}
+function openInspection(row:{id:number;modality:'CT'|'DR'|'DOSE';edit?:boolean}){inspectionOpenEdit.value=!!row.edit;inspectionOpenId.value=row.id;if(row.modality==='DOSE'){activeTab.value='personalDose';selectedMenuKey.value='radiology.dose'}else{radiologyChildMenu.value=row.modality;activeTab.value='radiology';selectedMenuKey.value=row.modality==='CT'?'radiology.ct':'radiology.dr'}}
 const pptMode=ref(true)
 async function openInformationQuery(){if(activeTab.value==='radiology' && radiologyWorkbench.value && !await radiologyWorkbench.value.confirmLeave())return
   if(activeTab.value==='personalDose' && personalDoseWorkbench.value && !await personalDoseWorkbench.value.confirmLeave())return;activeTab.value='inspectionQuery'}
@@ -4795,12 +4796,12 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
       </section>
 
       <section v-else-if="activeTab === 'inspectionQuery'" class="ppt-query-page"><h2>信息查询</h2><InspectionQuery :token="token" @open="openInspection" /></section>
-      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench ref="personalDoseWorkbench" :token="token" :username="currentUsername" :open-case-id="inspectionOpenId" @open-inspection="openInspection" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
+      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench ref="personalDoseWorkbench" :token="token" :username="currentUsername" :open-case-id="inspectionOpenId" :open-edit="inspectionOpenEdit" @open-inspection="openInspection" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
 
       <section v-else-if="activeTab === 'radiology'" class="radiology-module">
         <RadiologyWorkbench
           ref="radiologyWorkbench"
-          :open-case-id="inspectionOpenId"
+          :open-case-id="inspectionOpenId" :open-edit="inspectionOpenEdit"
           @open-dose="id=>openInspection({id,modality:'DOSE'})"
           :token="token"
           :modality="radiologyChildMenu"
