@@ -774,7 +774,8 @@ const evaluationRows=computed<EvaluationRow[]>(()=>{
   const base={itemName:item.itemCode==='RPD'?'场所防护本底与校准':item.itemName,condition:selectedCase.value?.itemConditions?.[item.itemCode]||'—',result:itemResultDisplay(item),judgement:item.judgement,rule:item.ruleDescription,message:item.message}
   const sub:Record<string,string[]>={TVD:['DISPLAY_1','DISPLAY_2','DISPLAY_3'],ETD:['DEVIATION_MS_1','DEVIATION_MS_2','DEVIATION_MS_3'],LRD:['RESULT_A1','RESULT_A2','RESULT_B1','RESULT_B2'],REA:['HORIZONTAL','VERTICAL'],TPA:['FORWARD','BACKWARD']}
   const codes=sub[item.itemCode];if(!codes||!item.complete||item.judgement==='NOT_APPLICABLE')return [base]
-  return codes.flatMap((code,index)=>{const field=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode&&m.fieldCode===code&&m.fieldRole!=='RAW');return field?[{...base,condition:selectedCase.value?.itemConditions?.[item.itemCode+'.'+(index+1)]||base.condition+' / '+(conditionRows(item.itemCode)[index]||'第'+(index+1)+'组'),result:resultDisplay(field)}]:[]})
+  const expanded=codes.flatMap((code,index)=>{const field=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode&&m.fieldCode===code&&m.fieldRole!=='RAW');return field?[{...base,condition:selectedCase.value?.itemConditions?.[item.itemCode+'.'+(index+1)]||base.condition+' / '+(conditionRows(item.itemCode)[index]||'第'+(index+1)+'组'),result:resultDisplay(field)}]:[]})
+  return expanded.length===codes.length?expanded:[base]
  })
  for(const point of selectedCase.value?.protectionPoints||[])rows.push({itemName:'防护检测',condition:[point.pointName,point.locationDescription].filter(Boolean).join(' / '),result:(point.resultDisplay??point.resultValue??'—')+' μSv/h',judgement:point.judgement||'INCOMPLETE',rule:point.controlLimit!=null?'≤'+point.controlLimit+' μSv/h':'—',message:''})
  return rows

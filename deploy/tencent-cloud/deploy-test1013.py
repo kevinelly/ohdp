@@ -11,7 +11,7 @@ if len(sys.argv)!=2 or not re.fullmatch(r'release-\d{8}-test1013-\d{6}',sys.argv
 NAME=sys.argv[1]
 RELEASE=ROOT/'releases'/NAME
 BACKUP=ROOT/'backups'/('before-'+NAME)
-EXPECTED_PREVIOUS=ROOT/'releases/release-20261015-test1013-094758'
+EXPECTED_PREVIOUS=ROOT/'releases/release-20261015-test1013-163940'
 TAG=NAME.removeprefix('release-')
 
 def run(args,**kwargs): return subprocess.run(args,check=True,**kwargs)

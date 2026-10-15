@@ -66,6 +66,14 @@ test('material, position and signal tables include every input once',()=>{
   assert.deepEqual(rendered.toSorted(),codes.toSorted());assert.equal(new Set(rendered).size,codes.length)
  }
 })
+
+test('legacy and partial calculated groups retain the complete aggregate result',()=>{
+ for(const measurements of [[],[{itemCode:'TVD',fieldCode:'DISPLAY_1',fieldRole:'INTERMEDIATE',displayValue:'1.0',unit:'kV'}]]){
+  const c=component('RadiologyWorkbench.vue','selectedCase,evaluationRows')
+  c.selectedCase.value={id:1,modality:'DR',status:'REPORTED',measurements,protectionPoints:[],itemResults:[{itemCode:'TVD',itemName:'管电压指示的偏离',complete:true,resultText:'第1组1.0 kV；第2组2.0 kV；第3组3.0%',judgement:'QUALIFIED',ruleDescription:'原判定依据'}]}
+  assert.equal(c.evaluationRows.value.length,1);assert.equal(c.evaluationRows.value[0].itemName,'管电压指示的偏离');assert.match(c.evaluationRows.value[0].result,/第3组/)
+ }
+})
 test('conditions, report profile, and protection point edits all block cancelled navigation',async()=>{
  for(const edit of [c=>c.conditionValues.SID='100',c=>c.profileDraft.overallConclusion='changed',c=>c.pointDrafts.value.push({name:'new'})]){
  const c=radiology(async()=>{throw 'close'});edit(c);assert.equal(await c.confirmLeave(),false)
