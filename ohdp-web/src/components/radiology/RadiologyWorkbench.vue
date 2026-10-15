@@ -4,6 +4,8 @@ import { renderAsync } from 'docx-preview'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import InspectionQuery from './InspectionQuery.vue'
+import InspectionFlow from './InspectionFlow.vue'
+import MeasurementTable from './MeasurementTable.vue'
 import { sameDraft } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
@@ -218,8 +220,9 @@ interface ReportProfile {
 const blankProfile = (modality: Modality): ReportProfile => ({ sampleName: '', submittingUnit: '', commissionedUnit: '', equipmentParameters: '',
   detectorName: '', backgroundLocation: '', backgroundOperation: '未曝光', calibrationMode: 'INSTRUMENT', protectionConditions: '', overallConclusion: '',
   selectedGroups: modality === 'DR' ? ['GENERAL','SPECIAL','PROTECTION'] : ['QC','PROTECTION'], instruments: [] })
+function normalizedProfile(c:InspectionCase){const profile={...blankProfile(c.modality),...c.profile};if(!Array.isArray(profile.selectedGroups))profile.selectedGroups=blankProfile(c.modality).selectedGroups;return profile}
 function detectionGroupLabel(group: string) {
-  const labels: Record<string,string> = {GENERAL:'通用质控',SPECIAL:'DR专用质控',QC:'CT质量控制',PROTECTION:'场所防护'}
+  const labels: Record<string,string> = {GENERAL:'X射线摄影设备通用检测项目',SPECIAL:'数字X射线摄影（DR）设备专用检测项目',QC:'CT质量控制检测项目',PROTECTION:'放射工作场所卫生防护检测'}
   return labels[group] || group
 }
 function calibrationLabel(mode?: string) {
@@ -300,6 +303,9 @@ const rules = ref<Rule[]>([])
 const calculation = ref<CalculationResponse | null>(null)
 type WorkbenchTab = 'base' | 'data' | 'points' | 'attachments' | 'report' | 'rules'
 const workTab = ref<WorkbenchTab>('base')
+const viewStage=ref(1), evaluationTab=ref('results'), showCompleteness=ref(false), activeQuality=ref('')
+const inspectionRange=computed<[string,string]>({get:()=>[caseForm.inspectionDate||'',caseForm.inspectionEndDate||''] as [string,string],set:(v:[string,string])=>{caseForm.inspectionDate=v?.[0]||'';caseForm.inspectionEndDate=v?.[1]||''}})
+function goStage(stage:number){viewStage.value=stage;if(stage===1)workTab.value='base';if(stage===2 && !['base','data','points','attachments'].includes(workTab.value))workTab.value='data'}
 const query = reactive({ keyword: '', status: '' as '' | CaseStatus, page: 0, size: 20, year: undefined as number | undefined,
   from: '', to: '', city: '', county: '', receipt: '', company: '', modalities: [props.modality] as Modality[] })
 const batchVisible=ref(false)
@@ -311,7 +317,7 @@ async function importBatch(dryRun:boolean) {
   await run(async()=>{const form=new FormData();form.append('file',batchFile.value!);batchResult.value=(await api.post('/api/radiology/batch-import',form,{params:{dryRun}})).data;if(!dryRun)await loadCases()})
 }
 const queryVisible = ref(false)
-const previewVisible = ref(false)
+const previewVisible = ref(false), previewSection=ref('cover'), previewComplete=ref(false), previewComment=ref('')
 const previewPages=ref<string[]>([])
 const previewDocx=ref<Blob>()
 const previewContainer = ref<HTMLElement>()
@@ -346,7 +352,7 @@ function addInstrument() {
 async function previewReport() {
   if(!selectedCase.value)return
   await run(async()=>{
-    previewPages.value=[];previewDocx.value=undefined
+    previewPages.value=[];previewDocx.value=undefined;previewSection.value='cover';previewComplete.value=false;previewComment.value=''
     const caps=await api.get('/api/radiology/preview-capabilities')
     if(caps.data.pdf) previewPages.value=(await api.get<string[]>(`/api/radiology/cases/${selectedCase.value!.id}/report-preview-pages`)).data
     else previewDocx.value=(await api.get(`/api/radiology/cases/${selectedCase.value!.id}/report-preview`,{responseType:'blob'})).data
@@ -364,8 +370,8 @@ async function replaceAttachment(id: number,event: Event) {
 async function saveReportProfile() {
   if(!selectedCase.value)return
   await run(async()=>{
-    const c=selectedCase.value!;const payload={...blankCaseForm(c.modality),...c,profile:JSON.parse(JSON.stringify(profileDraft)),expectedDataVersion:c.dataVersion}
-    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;syncCaseState()
+    const c=selectedCase.value!;const payload={...blankCaseForm(c.modality),...c,...featureDraft,notes:noteDraft.value,profile:JSON.parse(JSON.stringify(profileDraft)),expectedDataVersion:c.dataVersion}
+    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;Object.assign(profileDraft,blankProfile(c.modality),JSON.parse(JSON.stringify(data.profile || {})))
   },'总体评价和防护条件已保存，请重新计算后提交')
 }
 async function generateNonconformities() {
@@ -373,9 +379,24 @@ async function generateNonconformities() {
   const {data}=await api.get(`/api/radiology/cases/${selectedCase.value.id}/suggested-conclusion`);profileDraft.overallConclusion=data.text
 }
 
+const featureDraft=reactive({hasAec:true,hasRawImages:true,featureReason:''})
+const noteDraft=ref('')
 const conditionValues = reactive<Record<string,string>>({})
 const measurementValues = reactive<Record<string, string | number>>({})
+const measurementsPending=computed(()=>{
+ const c=selectedCase.value;if(!c)return false
+ const old=Object.fromEntries(c.measurements.filter(v=>v.fieldRole==='RAW'&&String(v.valueText??v.valueNum??'')!=='').map(v=>[`${v.itemCode}::${v.fieldCode}`,String(v.valueText??v.valueNum??'')]))
+ const now=Object.fromEntries(Object.entries(measurementValues).filter(([,v])=>String(v)!=='').map(([k,v])=>[k,String(v)]))
+ return !sameDraft(old,now)||!sameDraft(conditionValues,c.itemConditions||{})
+})
+function displayCalculated(v:Measurement){return measurementsPending.value||!selectedCase.value?.calculationFresh?'待重算':resultDisplay(v)}
 const pointDrafts = ref<Array<ProtectionPoint & { readingsText: string }>>([])
+const selectedPointRows=ref<ProtectionPoint[]>([])
+const pointReadCount=computed(()=>Math.max(5,...pointDrafts.value.map(p=>p.readingsText.split(/[，,\s]+/).filter(Boolean).length)))
+function pointRead(point:{readingsText:string},index:number){return point.readingsText.split(/[，,\s]+/)[index]||''}
+function setPointRead(point:{readingsText:string},index:number,value:string){const values=point.readingsText.split(/[，,\s]+/);while(values.length<=index)values.push('');values[index]=value;point.readingsText=values.join(',')}
+function removeSelectedPoints(){pointDrafts.value=pointDrafts.value.filter(p=>!selectedPointRows.value.includes(p));selectedPointRows.value=[]}
+
 const caseDialogVisible = ref(false)
 const editingCaseId = ref<number | null>(null)
 const caseDialogStep = ref(0)
@@ -395,7 +416,7 @@ async function confirmLeave():Promise<boolean> {
   const storedValues=Object.fromEntries(c.measurements.filter(v=>v.fieldRole==='RAW').map(v=>[`${v.itemCode}::${v.fieldCode}`,String(v.valueText ?? v.valueNum ?? '')]))
   const currentValues=Object.fromEntries(Object.entries(measurementValues).filter(([,v])=>String(v)!=='' ).map(([k,v])=>[k,String(v)]))
   for(const key of Object.keys(storedValues))if(storedValues[key]==='')delete storedValues[key]
-  const pending=!sameDraft(currentValues,storedValues) || !sameDraft(conditionValues,c.itemConditions || {}) || !sameDraft(profileDraft,{...blankProfile(c.modality),...c.profile}) || !sameDraft(pointDrafts.value,c.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')}))) || (caseDialogVisible.value && caseFormDirty.value)
+  const pending=noteDraft.value!==(c.notes||'') || !sameDraft(featureDraft,{hasAec:c.hasAec!==false,hasRawImages:c.hasRawImages!==false,featureReason:c.featureReason||''}) || !sameDraft(currentValues,storedValues) || !sameDraft(conditionValues,c.itemConditions || {}) || !sameDraft(profileDraft,normalizedProfile(c)) || !sameDraft(pointDrafts.value,c.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')}))) || (caseDialogVisible.value && caseFormDirty.value)
   if(!pending)return true
   try {await ElMessageBox.confirm('当前项目有未保存的修改。继续切换将放弃这些修改；如需保留，请取消并先保存。','未保存的内容',{confirmButtonText:'放弃修改并切换',cancelButtonText:'留在当前项目',type:'warning',closeOnClickModal:false});return true}catch{return false}
 }
@@ -461,7 +482,7 @@ const nextQcAction = computed(() => {
   if (status === 'REVIEWED') return '由批准人员确认结论并完成批准。'
   return '生成或下载受控报告，必要时创建修订版。'
 })
-const caseStepTitles = ['受检单位与案例信息', '设备与模体信息', '检测与人员信息', '确认并创建']
+const caseStepTitles = ['受检单位信息', '受检设备信息', '检测机构信息', '确认并创建']
 const caseDraftKey = computed(() => `bhfyzx:radiology-case-draft:${props.modality}`)
 const caseDraftStatus = computed(() => {
   if (editingCaseId.value) return caseFormDirty.value ? '有尚未保存的修改' : '当前修改已保存'
@@ -541,6 +562,7 @@ async function selectCase(id: number) {
     selectedCase.value = response.data
     calculation.value = null
     syncCaseState()
+    viewStage.value=qcFlowStage.value
   })
 }
 
@@ -550,7 +572,10 @@ function syncCaseState() {
   for (const name of Object.keys(conditionValues)) delete conditionValues[name]
   Object.assign(conditionValues,current?.itemConditions || {})
   if (!current) return
+  noteDraft.value=current.notes||''
+  Object.assign(featureDraft,{hasAec:current.hasAec!==false,hasRawImages:current.hasRawImages!==false,featureReason:current.featureReason||''})
   Object.assign(profileDraft,blankProfile(current.modality),JSON.parse(JSON.stringify(current.profile || {})))
+  if(!Array.isArray(profileDraft.selectedGroups))profileDraft.selectedGroups=blankProfile(current.modality).selectedGroups
   for (const value of current.measurements.filter(item => item.fieldRole === 'RAW')) {
     measurementValues[`${value.itemCode}::${value.fieldCode}`] = value.fieldRole === 'RAW' ? (value.valueText ?? value.valueNum ?? '') : (value.valueNum ?? value.valueText ?? '')
   }
@@ -615,8 +640,6 @@ function openCreateCase() {
 
 function openEditCase() {
   const current = selectedCase.value
-  for (const name of Object.keys(conditionValues)) delete conditionValues[name]
-  Object.assign(conditionValues,current?.itemConditions || {})
   if (!current) return
   caseFormHydrating.value = true
   resetCaseDialogState()
@@ -719,6 +742,7 @@ async function saveCase() {
     caseFormDirty.value = false
     if (!wasEditing) clearCaseDraft()
     caseDialogVisible.value = false
+    viewStage.value=2;workTab.value="base"
     await loadCases()
   }, editingCaseId.value ? '案例信息已更新' : '检测案例已创建')
 }
@@ -743,11 +767,25 @@ function editableFields(item:ItemDefinition):FieldDefinition[] {
 function ctdiParts():string[] {return (conditionValues['__ctdi.parts'] ?? (selectedCase.value?.detectionCategory?.includes('验收')?'HEAD,BODY':'HEAD')).split(',').filter(Boolean)}
 function setCtdiParts(parts:Array<string|number|boolean>) {conditionValues['__ctdi.parts']=parts.join(',')}
 interface EvaluationRow {itemName:string;condition:string;result:string;judgement:string;rule:string;message?:string}
-const evaluationRows=computed<EvaluationRow[]>(()=>calculationItems.value.flatMap(item=>{
-  const raw=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode && m.fieldCode==='ROWS_JSON')?.valueText
-  if(raw && item.judgement!=='NOT_APPLICABLE') return (JSON.parse(raw) as Array<{rowId:number;condition:string;result:string;judgement:string;rule:string;message:string}>).map(r=>({...r,itemName:`${item.itemName}（第${r.rowId}行）`,...(item.judgement==='NOT_CONFIGURED'?{judgement:item.judgement,rule:item.ruleDescription}:{})}))
-  return [{itemName:item.itemCode==='RPD'?'场所防护本底与校准':item.itemName,condition:selectedCase.value?.itemConditions?.[item.itemCode] || '—',result:itemResultDisplay(item),judgement:item.judgement,rule:item.ruleDescription,message:item.message}]
-}))
+const evaluationRows=computed<EvaluationRow[]>(()=>{
+ const rows=calculationItems.value.flatMap(item=>{
+  const raw=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode&&m.fieldCode==='ROWS_JSON')?.valueText
+  if(raw&&item.judgement!=='NOT_APPLICABLE')return (JSON.parse(raw) as Array<{condition:string;result:string;judgement:string;rule:string;message:string}>).map(r=>({...r,itemName:item.itemName,...(item.judgement==='NOT_CONFIGURED'?{judgement:item.judgement,rule:item.ruleDescription}:{})}))
+  const base={itemName:item.itemCode==='RPD'?'场所防护本底与校准':item.itemName,condition:selectedCase.value?.itemConditions?.[item.itemCode]||'—',result:itemResultDisplay(item),judgement:item.judgement,rule:item.ruleDescription,message:item.message}
+  const sub:Record<string,string[]>={TVD:['DISPLAY_1','DISPLAY_2','DISPLAY_3'],ETD:['DEVIATION_MS_1','DEVIATION_MS_2','DEVIATION_MS_3'],LRD:['RESULT_A1','RESULT_A2','RESULT_B1','RESULT_B2'],REA:['HORIZONTAL','VERTICAL'],TPA:['FORWARD','BACKWARD']}
+  const codes=sub[item.itemCode];if(!codes||!item.complete||item.judgement==='NOT_APPLICABLE')return [base]
+  return codes.flatMap((code,index)=>{const field=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode&&m.fieldCode===code&&m.fieldRole!=='RAW');return field?[{...base,condition:selectedCase.value?.itemConditions?.[item.itemCode+'.'+(index+1)]||base.condition+' / '+(conditionRows(item.itemCode)[index]||'第'+(index+1)+'组'),result:resultDisplay(field)}]:[]})
+ })
+ for(const point of selectedCase.value?.protectionPoints||[])rows.push({itemName:'防护检测',condition:[point.pointName,point.locationDescription].filter(Boolean).join(' / '),result:(point.resultDisplay??point.resultValue??'—')+' μSv/h',judgement:point.judgement||'INCOMPLETE',rule:point.controlLimit!=null?'≤'+point.controlLimit+' μSv/h':'—',message:''})
+ return rows
+})
+function evaluationSpan({rowIndex,columnIndex}:{rowIndex:number;columnIndex:number}) {
+  if(![0,3,4].includes(columnIndex))return [1,1]
+  const field=columnIndex===0?'itemName':columnIndex===3?'rule':'judgement';const rows=evaluationRows.value;const row=rows[rowIndex]!
+  const same=(other:EvaluationRow|undefined)=>other?.itemName===row.itemName&&other?.[field]===row[field]
+  if(rowIndex>0&&same(rows[rowIndex-1]))return [0,0]
+  let count=1;while(same(rows[rowIndex+count]))count++;return [count,1]
+}
 function evaluationText(j:string) {return j==='QUALIFIED'?'符合':j==='UNQUALIFIED'?'不符合':'—'}
 function visibleFields(item: ItemDefinition) {
   return item.fields.filter(f=>{
@@ -839,13 +877,18 @@ async function saveMeasurements() {
   await run(async () => {
     const response = await api.put<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/measurements`, { values, conditions: conditionValues, expectedDataVersion: selectedCase.value?.dataVersion })
     selectedCase.value = response.data
-    syncCaseState()
     await loadCases()
   }, `已保存 ${values.length} 个测量值`)
 }
 
 async function calculateCase() {
   if (!selectedCase.value) return
+  const pointsPending=()=>!sameDraft(pointDrafts.value,selectedCase.value!.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')})))
+  if(pointsPending()){await saveProtectionPoints();if(pointsPending())return}
+  if(noteDraft.value!==(selectedCase.value.notes||'') || !sameDraft(profileDraft,normalizedProfile(selectedCase.value)) || !sameDraft(featureDraft,{hasAec:selectedCase.value.hasAec!==false,hasRawImages:selectedCase.value.hasRawImages!==false,featureReason:selectedCase.value.featureReason||''})) {
+    await saveReportProfile()
+    if(!sameDraft(profileDraft,normalizedProfile(selectedCase.value)))return
+  }
   const conditionsPending = JSON.stringify(conditionValues) !== JSON.stringify(selectedCase.value.itemConditions || {})
   const pending = conditionsPending || catalog.value.some(item => editableFields(item).some(field => {
     const current = measurementValues[key(item.code, field.code)] ?? ''
@@ -865,7 +908,7 @@ async function calculateCase() {
     await selectCase(selectedCase.value!.id)
     calculation.value = response.data
     await loadCases()
-    workTab.value = 'data'
+    workTab.value = 'data';viewStage.value=3
   }, '计算完成')
 }
 
@@ -932,20 +975,11 @@ async function saveProtectionPoints() {
   await run(async () => {
     const response = await api.put<ProtectionPoint[]>(`/api/radiology/cases/${selectedCase.value?.id}/protection-points`, { points, expectedDataVersion: selectedCase.value?.dataVersion })
     pointDrafts.value = response.data.map(point => ({ ...point, readingsText: point.readings.join(', ') }))
-    await selectCase(selectedCase.value!.id)
+    selectedCase.value=(await api.get<InspectionCase>(`/api/radiology/cases/${selectedCase.value!.id}`)).data
   }, '防护点位已保存并计算')
 }
 
-async function removePoint(point: ProtectionPoint & { readingsText: string }, index: number) {
-  if (!selectedCase.value || !point.id) {
-    pointDrafts.value.splice(index, 1)
-    return
-  }
-  await run(async () => {
-    await api.delete(`/api/radiology/cases/${selectedCase.value?.id}/protection-points/${point.id}`)
-    pointDrafts.value.splice(index, 1)
-  }, '点位已删除')
-}
+
 
 async function uploadAttachment(event: Event) {
   const input = event.target as HTMLInputElement
@@ -970,16 +1004,18 @@ async function removeAttachment(item: Attachment) {
   }, '附件已删除')
 }
 
-async function workflow(action: 'submit' | 'review' | 'approve' | 'return') {
+async function workflow(action: 'submit' | 'review' | 'approve' | 'return',providedComment?:string) {
   if (!selectedCase.value) return
+  if(action==='submit'&&(measurementsPending.value||!sameDraft(profileDraft,normalizedProfile(selectedCase.value))||noteDraft.value!==(selectedCase.value.notes||'')||!sameDraft(featureDraft,{hasAec:selectedCase.value.hasAec!==false,hasRawImages:selectedCase.value.hasRawImages!==false,featureReason:selectedCase.value.featureReason||''})||!sameDraft(pointDrafts.value,selectedCase.value.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')}))))){ElMessage.warning('请先保存修改并重新计算，再发送审核');return}
   const names = { submit: '提交审核', review: '审核通过', approve: '批准', return: '退回修改' }
-  const input = await ElMessageBox.prompt(`请输入${names[action]}意见（可留空）`, names[action], { inputType: 'textarea' }).catch(() => null)
+  const input = providedComment===undefined?await ElMessageBox.prompt(`请输入${names[action]}意见（可留空）`, names[action], { inputType: 'textarea' }).catch(() => null):{value:providedComment}
   if (!input) return
   await run(async () => {
     const response = await api.post<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/workflow/${action}`, { comment: input.value, expectedDataVersion: selectedCase.value?.dataVersion })
     selectedCase.value = response.data
     syncCaseState()
     await loadCases()
+    viewStage.value=action==='approve'?5:action==='return'?2:4
   }, `${names[action]}完成`)
 }
 
@@ -991,6 +1027,7 @@ async function createRevision() {
     selectedCase.value = response.data
     syncCaseState()
     await loadCases()
+    viewStage.value=2;workTab.value='base'
   }, '修订版已创建')
 }
 
@@ -1092,40 +1129,29 @@ function showMeasurementHelp(field: FieldDefinition) {
 
 <template>
   <div class="radiology-workbench" v-loading="busy">
-    <div class="comparison-banner">
-      <strong>10月14日补齐版 · 测量行和批量导入</strong>
-      <span>原始数据修改后重新计算；报告采用批准快照</span>
-      <a href="/test1013-changes.html" target="_blank" rel="noopener">查看改动对照</a>
-    </div>
-    <header class="qc-hero">
+<header class="qc-hero">
       <div>
-        <span class="modality-mark">{{ modality }}</span>
+
         <div>
-          <h2>{{ modality }} 设备质量控制检测 <HelpMark anchor-id="radiology.case" /></h2>
-          <p>{{ modality === 'DR' ? 'WS 76-2020' : 'WS 519-2019' }} · GBZ 130-2020 · 计算规则 2026.10.14</p>
+          <h2>{{ modality }} 质量控制与场所防护<span v-if="selectedCase">--{{selectedCase.sampleAcceptanceNo}}</span></h2>
+
         </div>
       </div>
       <div class="hero-actions">
-        <el-button @click="loadCases">刷新</el-button><el-button @click="batchVisible=true">多案例批量导入</el-button>
-        <el-button type="primary" @click="openCreateCase">新建 {{ modality }} 案例</el-button>
+        <el-button @click="loadCases">刷新</el-button><el-button @click="downloadBlob('/api/radiology/batch-import-template','多案例批量模板.xlsx')">模板下载</el-button><el-button v-if="selectedCase" type="primary" @click="showCompleteness=!showCompleteness">检测完整性</el-button>
       </div>
     </header>
 
-    <nav class="qc-flow" aria-label="放射检测流转阶段">
-      <div v-for="(item, index) in ['案例建档','检测录入','自动计算','审核批准','报告归档']" :key="item" :class="{ active: qcFlowStage === index + 1, done: qcFlowStage > index + 1 }">
-        <span>{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ item }}</strong>
-      </div>
-      <HelpMark class="qc-flow-help" anchor-id="workflow.stages" />
-    </nav>
+<InspectionFlow :model-value="viewStage" :selected="!!selectedCase" @update:model-value="goStage" />
 
-    <div class="qc-layout">
-      <aside class="case-rail">
+    <div class="qc-layout" :class="{recording:selectedCase && viewStage>1}">
+      <aside v-if="!selectedCase || viewStage===1" class="case-rail">
         <div class="rail-filter">
-          <el-input v-model="query.keyword" clearable placeholder="编号、单位、设备编号" @keyup.enter="loadCases" />
+          <el-input v-model="query.keyword" clearable placeholder="受理编号" @keyup.enter="loadCases" />
           <el-select v-model="query.status" clearable placeholder="全部状态" @change="loadCases">
             <el-option v-for="status in ['DRAFT','DATA_ENTERED','CALCULATED','PENDING_REVIEW','REVIEWED','APPROVED','REPORTED']" :key="status" :label="statusText(status as CaseStatus)" :value="status" />
           </el-select>
-          <el-button @click="loadCases">查询</el-button><el-button @click="queryVisible=true">综合查询</el-button>
+          <el-button @click="loadCases">查询</el-button>
         </div>
         <div class="case-count">共 {{ totalCases }} 个案例</div>
         <div v-if="!cases.length" class="rail-empty">暂无 {{ modality }} 案例</div>
@@ -1159,12 +1185,11 @@ function showMeasurementHelp(field: FieldDefinition) {
         <div v-if="!selectedCase" class="select-hint">
           <div class="hint-mark">{{ modality }}</div>
           <h3>选择左侧案例开始录入</h3>
-          <p>支持逐项录入、Excel 批量导入、自动计算、防护点位、审核批准和报告生成。</p>
-          <el-button type="primary" @click="openCreateCase">创建第一个案例</el-button>
+          <p>或</p><el-button type="primary" @click="openCreateCase">创建新的项目</el-button><el-button type="primary" @click="batchVisible=true">Excel批量导入</el-button>
         </div>
 
         <template v-else>
-          <section class="case-heading">
+          <section class="case-heading" v-if="viewStage>=4">
             <div>
               <div class="heading-line">
                 <h3>{{ selectedCase.caseCode }}</h3>
@@ -1174,20 +1199,20 @@ function showMeasurementHelp(field: FieldDefinition) {
               <p>{{ selectedCase.inspectedUnitName }} · {{ selectedCase.equipmentName }} {{ selectedCase.equipmentModel || '' }}</p>
             </div>
             <div class="workflow-actions">
-              <el-button v-if="editable" @click="openEditCase">编辑信息</el-button>
-              <el-button v-if="editable" type="primary" plain @click="saveMeasurements">保存数据</el-button>
-              <el-button v-if="editable" type="primary" @click="calculateCase">自动计算</el-button><HelpMark v-if="editable" anchor-id="radiology.calculation" />
-              <el-button v-if="selectedCase.status === 'CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="warning" @click="workflow('submit')">提交审核</el-button><HelpMark v-if="selectedCase.status === 'CALCULATED'" anchor-id="radiology.review" />
-              <el-button v-if="selectedCase.status === 'PENDING_REVIEW' && props.canReview" type="warning" @click="workflow('review')">审核通过</el-button><HelpMark v-if="selectedCase.status === 'PENDING_REVIEW' && props.canReview" anchor-id="radiology.review" />
-              <el-button v-if="selectedCase.status === 'REVIEWED' && props.canApprove" type="success" @click="workflow('approve')">批准</el-button><HelpMark v-if="selectedCase.status === 'REVIEWED' && props.canApprove" anchor-id="radiology.approve" />
-              <el-button v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" type="success" @click="generateReport">生成报告</el-button><HelpMark v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" anchor-id="radiology.report" />
+
+
+
+              <el-button v-if="viewStage===4 && selectedCase.status === 'CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="warning" @click="workflow('submit')">发送</el-button><HelpMark v-if="viewStage===4 && selectedCase.status === 'CALCULATED'" anchor-id="radiology.review" />
+              <el-button v-if="viewStage===4 && selectedCase.status === 'PENDING_REVIEW' && props.canReview" type="warning" @click="workflow('review')">复核通过</el-button><HelpMark v-if="viewStage===4 && selectedCase.status === 'PENDING_REVIEW' && props.canReview" anchor-id="radiology.review" />
+              <el-button v-if="viewStage===4 && selectedCase.status === 'REVIEWED' && props.canApprove" type="success" @click="workflow('approve')">签发</el-button><HelpMark v-if="viewStage===4 && selectedCase.status === 'REVIEWED' && props.canApprove" anchor-id="radiology.approve" />
+              <el-button v-if="viewStage===5 && ['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" type="success" @click="generateReport">生成检测报告</el-button><HelpMark v-if="viewStage===5 && ['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" anchor-id="radiology.report" />
               <el-button v-if="(selectedCase.status === 'PENDING_REVIEW' && props.canReview) || (selectedCase.status === 'REVIEWED' && props.canApprove)" type="danger" plain @click="workflow('return')">退回修改</el-button>
-              <el-button v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" @click="createRevision">创建修订版</el-button>
+              <el-button v-if="viewStage===5 && ['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" @click="createRevision">创建修订版</el-button>
             </div>
           </section>
 
           <el-alert v-if="(selectedCase.profile?.selectedGroups || blankProfile(modality).selectedGroups || []).includes('PROTECTION') && !selectedCase.attachments.some(a=>a.category==='POINT_MAP')" title="本次包含放射工作场所卫生防护检测，必须上传点位图；当前缺图，请在附件中补充。" type="warning" :closable="false" show-icon />
-          <section v-if="editable" class="submission-check">
+          <section v-if="showCompleteness" class="submission-check"><p>检测完整性：{{completenessText}} · {{completenessHint}}</p><p>{{nextQcAction}}</p><p v-if="editabilityReason">{{editabilityReason}}</p>
             <strong>{{ selectedCase.calculationFresh ? '计算与当前数据一致' : '需要重新计算' }}</strong>
             <span>数据版本 {{ selectedCase.dataVersion }} · 计算版本 {{ selectedCase.calculatedDataVersion ?? '未计算' }}</span>
             <details v-if="selectedCase.submissionIssues?.length">
@@ -1195,11 +1220,12 @@ function showMeasurementHelp(field: FieldDefinition) {
               <ul><li v-for="issue in selectedCase.submissionIssues" :key="issue">{{ issue }}</li></ul>
             </details>
           </section>
-          <el-tabs v-model="workTab" class="qc-tabs">
+          <div v-if="viewStage<=2" class="ppt-page-actions"><el-button v-if="workTab==='base'" :disabled="!editable" @click="openEditCase">编辑信息</el-button><el-button v-else :disabled="!editable" @click="workTab==='points'?saveProtectionPoints():saveMeasurements()">保存</el-button><el-button v-if="workTab==='data'||workTab==='points'" :disabled="!editable" @click="calculateCase">计算</el-button><el-button type="primary" @click="viewStage===1?goStage(2):workTab==='base'?workTab='data':workTab==='data'?workTab='points':workTab==='points'?workTab='attachments':goStage(3)">下一步</el-button></div>
+          <el-tabs v-if="viewStage<=2" v-model="workTab" class="qc-tabs">
             <el-tab-pane label="基本信息" name="base">
               <div class="info-grid">
                 <div><span>受理编号</span><strong>{{ selectedCase.sampleAcceptanceNo || '-' }}</strong></div>
-                <div><span>检测类别</span><strong>{{ selectedCase.detectionCategory || '-' }}</strong></div>
+                <div><span>受检单位名称</span><strong>{{ selectedCase.inspectedUnitName }}</strong></div><div><span>设备名称</span><strong>{{ selectedCase.equipmentName }}</strong></div><div><span>设备型号</span><strong>{{ selectedCase.equipmentModel || "—" }}</strong></div><div><span>检测类别</span><strong>{{ selectedCase.detectionCategory || '-' }}</strong></div>
                 <div><span>样品名称</span><strong>{{ selectedCase.profile?.sampleName || '-' }}</strong></div>
                 <div><span>送检单位</span><strong>{{ selectedCase.profile?.submittingUnit || '-' }}</strong></div>
                 <div><span>委托单位</span><strong>{{ selectedCase.profile?.commissionedUnit || '-' }}</strong></div>
@@ -1228,8 +1254,8 @@ function showMeasurementHelp(field: FieldDefinition) {
               </el-table>
             </el-tab-pane>
 
-            <el-tab-pane label="检测数据与计算" name="data">
-              <div class="import-strip">
+            <el-tab-pane label="质量控制项目" name="data">
+              <details class="ppt-help"><summary>Excel批量导入 / 模板下载</summary><div class="import-strip">
                 <div>
                   <strong>Excel 批量导入 <HelpMark anchor-id="radiology.excel-import" /></strong>
                   <p>先预检字段和数值，通过后再正式写入。</p>
@@ -1244,7 +1270,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-button link @click="downloadTemplate('PERFORMANCE')">性能模板</el-button>
                 <el-button link @click="downloadTemplate('PROTECTION')">防护模板</el-button>
               </div>
-              <el-alert
+</details>              <el-alert
                 v-if="importPreview"
                 :type="importPreview.errors.length ? 'error' : 'success'"
                 :closable="false"
@@ -1257,27 +1283,24 @@ function showMeasurementHelp(field: FieldDefinition) {
                 </template>
               </el-alert>
 
-              <el-collapse class="item-collapse">
-                <el-collapse-item v-for="item in catalog" :key="item.code" :name="item.code">
-                  <template #title>
+                          <details class="ppt-help"><summary>检测项目范围</summary><el-form-item label="本次检测范围"><el-checkbox-group v-model="profileDraft.selectedGroups" :disabled="!editable"><template v-if="modality==='DR'"><el-checkbox value="GENERAL">X射线摄影设备通用检测项目</el-checkbox><el-checkbox value="SPECIAL">数字X射线摄影（DR）设备专用检测项目</el-checkbox></template><el-checkbox v-else value="QC">CT质量控制检测项目</el-checkbox><el-checkbox value="PROTECTION">放射工作场所卫生防护检测</el-checkbox></el-checkbox-group></el-form-item><el-button :disabled="!editable" @click="saveReportProfile">保存检测项目</el-button></details><div v-if="modality==='DR'" class="equipment-features"><details><summary>AEC功能与未处理图像</summary><el-radio-group v-model="featureDraft.hasAec" :disabled="!editable"><el-radio :value="false">该受检设备不具备AEC功能，该三项不检测</el-radio><el-radio :value="true">该受检设备具备AEC功能，跳转至录入界面</el-radio></el-radio-group><el-radio-group v-model="featureDraft.hasRawImages" :disabled="!editable"><el-radio :value="true">可获取未处理图像</el-radio><el-radio :value="false">无法获取未处理图像</el-radio></el-radio-group><el-input v-if="!featureDraft.hasAec||!featureDraft.hasRawImages" v-model="featureDraft.featureReason" :disabled="!editable" placeholder="设备功能与不检测理由"/><el-button :disabled="!editable" @click="saveReportProfile">保存设备功能</el-button></details></div><div class="quality-navigation"><el-select v-model="activeQuality" placeholder="选择检测项目" clearable><el-option v-for="item in catalog" :key="item.code" :value="item.code" :label="item.name" /></el-select></div><div class="quality-projects">
+                <section v-for="item in catalog.filter(i=>i.code===(activeQuality || catalog[0]?.code))" :key="item.code" class="quality-project">
+                  <header>
                     <div class="item-title">
                       <span class="item-code">{{ item.code }}</span>
                     <strong>{{ item.code==='RPD' ? '场所防护本底与校准' : item.name }}</strong>
                       <small>{{ item.standardCode }}</small>
-                      <el-tag v-if="computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
+                      <el-tag v-if="!measurementsPending && selectedCase.calculationFresh && computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
                     </div>
-                  </template>
+                  </header>
                   <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
                   <RadiologyConditionEditor v-if="item.code!=='RPD'" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable" />
-                  <div v-if="conditionRows(item.code).length && !rowIds(item.code).length" class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div>
+                  <details v-if="conditionRows(item.code).length && !rowIds(item.code).length" class="ppt-help"><summary>分组检测条件</summary><div class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div></details>
                   <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体法" value="PHANTOM" /><el-option label="倾角仪法" value="INCLINOMETER" /></el-select>
                   <div v-if="item.code==='CTDI'" class="ctdi-parts"><strong>检测部位</strong><el-checkbox-group :model-value="ctdiParts()" :disabled="!editable" @update:model-value="setCtdiParts"><el-checkbox value="HEAD">头部模体</el-checkbox><el-checkbox value="BODY" :disabled="!selectedCase?.detectionCategory?.includes('验收')">体部模体</el-checkbox></el-checkbox-group><small>验收检测可多选；状态及稳定性检测仅头部模体。</small></div>
-                  <RadiologyMeasurementRows v-if="repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :disabled="!editable" />
-                  <div v-if="!rowIds(item.code).length" class="field-grid">
-                    <label v-for="field in visibleFields(item)" :key="field.code" class="field-card">
-                      <span>{{ field.label }} <em v-if="field.required">*</em> <HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" /></span>
+                  <MeasurementTable v-if="!rowIds(item.code).length" :code="item.code" :fields="visibleFields(item)" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))"><template #default="{field}"><HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" />
                       <div v-if="isAicExposurePair(item.code)" class="aic-exposure-pair">
                         <el-input :model-value="aicExposurePair(field.code).current" type="number" :disabled="!editable" placeholder="电流" @update:model-value="updateAicExposurePair(field.code,'current',$event)"><template #append>mA</template></el-input>
                         <el-input :model-value="aicExposurePair(field.code).time" type="number" :disabled="!editable" placeholder="曝光时间" @update:model-value="updateAicExposurePair(field.code,'time',$event)"><template #append>s</template></el-input>
@@ -1306,47 +1329,38 @@ function showMeasurementHelp(field: FieldDefinition) {
                       >
                         <template v-if="rawFieldUnit(item.code, field)" #append>{{ rawFieldUnit(item.code, field) }}</template>
                       </el-input>
-                    </label>
-                  </div>
-                  <div v-if="computedFields(item.code).length" class="computed-panel">
+                  </template></MeasurementTable>
+                  <RadiologyMeasurementRows v-if="repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :disabled="!editable" />
+                  <details v-if="computedFields(item.code).length" class="ppt-help"><summary>完整计算结果</summary><div class="computed-panel">
                     <div v-for="value in computedFields(item.code)" :key="value.id" :class="['computed-value', value.fieldRole.toLowerCase()]">
                       <span>{{ value.fieldLabel }}</span>
                       <strong>{{ resultDisplay(value) }}</strong>
                     </div>
-                  </div>
-                </el-collapse-item>
-              </el-collapse>
+                  </div></details>
+                </section>
+              </div>
 
-              <section v-if="calculationItems.length" class="calculation-summary">
-                <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
-                <el-table :data="evaluationRows" border>
-                  <el-table-column prop="itemName" label="检测项目" min-width="160" />
-                  <el-table-column prop="condition" label="检测条件" min-width="170" />
-                  <el-table-column label="检测结果" min-width="160"><template #default="scope">{{scope.row.result}}<small v-if="scope.row.message && ['INCOMPLETE','NOT_CONFIGURED','NEEDS_ASSESSMENT'].includes(scope.row.judgement)" class="evaluation-note">{{scope.row.message}}</small></template></el-table-column>
-                  <el-table-column prop="rule" label="标准要求" min-width="240" />
-                  <el-table-column label="评价" width="100" fixed="right"><template #default="scope"><strong v-if="scope.row.judgement==='UNQUALIFIED'" class="evaluation-failure">不符合</strong><span v-else>{{evaluationText(scope.row.judgement)}}</span></template></el-table-column>
-                </el-table>
-              </section>
+
             </el-tab-pane>
 
-            <el-tab-pane label="防护点位" name="points">
+            <el-tab-pane label="场所防护" name="points">
               <div class="section-toolbar">
                 <div><h4>场所卫生防护点位 <HelpMark anchor-id="radiology.protection-point" /></h4><p>DR 超过 25 μSv/h 后，系统按年工作负荷、居留因子和使用因子继续计算年有效剂量，并按 0.25 mSv/a 判定；CT 按 2.5 μSv/h 判定。</p></div>
                 <el-button :disabled="!editable" @click="addProtectionPoint">增加点位</el-button>
                 <el-button type="primary" :disabled="!editable || !pointDrafts.length" @click="saveProtectionPoints">保存并计算</el-button>
               </div>
-              <div class="protection-context">
+              <h4>本底值与校准因子</h4><template v-for="item in catalog.filter(i=>i.code==='RPD')" :key="item.code"><MeasurementTable code="RPD" :fields="visibleFields(item)"><template #default="{field}"><el-input v-model="measurementValues[key('RPD',field.code)]" type="number" :disabled="!editable||field.code==='a'"><template v-if="rawFieldUnit('RPD',field)" #append>{{rawFieldUnit('RPD',field)}}</template></el-input></template></MeasurementTable></template><el-button :disabled="!editable" @click="saveMeasurements">保存本底与校准</el-button><div class="computed-panel"><div v-for="v in computedFields('RPD')" :key="v.id" class="computed-value"><span>{{v.fieldLabel}}</span><strong>{{resultDisplay(v)}}</strong></div></div><div class="protection-context">
                 <el-input v-model="profileDraft.protectionConditions" :disabled="!editable" placeholder="防护检测条件：kV、mA、s/mAs、模体、扫描方式等" />
                 <el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" placeholder="本底测量地点" />
                 <el-input v-model="profileDraft.backgroundOperation" :disabled="!editable" placeholder="本底运行情况（未曝光）" />
                 <el-input v-model="profileDraft.instrumentResponseTime" :disabled="!editable" placeholder="仪器响应时间（含单位）" />
                 <el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button>
               </div>
-              <el-table :data="pointDrafts" border>
+              <el-table :data="pointDrafts" border @selection-change="(v:ProtectionPoint[])=>selectedPointRows=v"><el-table-column type="selection" width="38"/>
                 <el-table-column label="点位代码" width="120"><template #default="scope"><el-input v-model="scope.row.pointCode" :disabled="!editable" /></template></el-table-column>
-                <el-table-column label="点位名称" width="150"><template #default="scope"><el-input v-model="scope.row.pointName" :disabled="!editable" /></template></el-table-column>
-                <el-table-column label="位置描述" min-width="180"><template #default="scope"><el-input v-model="scope.row.locationDescription" :disabled="!editable" /></template></el-table-column>
-                <el-table-column label="读数（逗号分隔）" min-width="250"><template #default="scope"><el-input v-model="scope.row.readingsText" :disabled="!editable" placeholder="88, 99, 98, 87, 86" /></template></el-table-column>
+                <el-table-column label="检测点位" width="150"><template #default="scope"><el-input v-model="scope.row.pointName" :disabled="!editable" /></template></el-table-column>
+                <el-table-column label="检测点位置" min-width="180"><template #default="scope"><el-input v-model="scope.row.locationDescription" :disabled="!editable" /></template></el-table-column>
+                <el-table-column v-for="n in pointReadCount" :key="n" :label="`读数${n}（${selectedCase.rpdUnit || 'nSv/h'}）`" min-width="135"><template #default="scope"><el-input :model-value="pointRead(scope.row,n-1)" type="number" :disabled="!editable" @update:model-value="setPointRead(scope.row,n-1,$event)"/></template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" width="150"><template #header>年工作负荷 <HelpMark anchor-id="radiology.annual-workload" /></template><template #default="scope"><el-input v-model.number="scope.row.annualWorkloadMas" type="number" :disabled="!editable" placeholder="mAs/a" /></template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" width="120"><template #header>居留因子 T <HelpMark anchor-id="radiology.occupancy-factor" /></template><template #default="scope"><el-input v-model.number="scope.row.occupancyFactor" type="number" :disabled="!editable" /></template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" width="120"><template #header>使用因子 U <HelpMark anchor-id="radiology.use-factor" /></template><template #default="scope"><el-input v-model.number="scope.row.useFactor" type="number" :disabled="!editable" /></template></el-table-column>
@@ -1354,11 +1368,11 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-table-column label="结果" width="130"><template #default="scope">{{ scope.row.resultDisplay || '-' }} μSv/h</template></el-table-column>
                 <el-table-column v-if="modality === 'DR'" label="年有效剂量" width="150"><template #default="scope">{{ scope.row.annualEffectiveDose ?? '-' }} mSv/a</template></el-table-column>
                 <el-table-column label="结论" width="110"><template #default="scope">{{ judgementText(scope.row.judgement) }}</template></el-table-column>
-                <el-table-column label="操作" width="80"><template #default="scope"><el-button link type="danger" :disabled="!editable" @click="removePoint(scope.row, scope.$index)">删除</el-button></template></el-table-column>
-              </el-table>
+
+              </el-table><div class="row-actions"><el-button :disabled="!editable" @click="addProtectionPoint">增加行</el-button><el-button :disabled="!editable||!selectedPointRows.length" @click="removeSelectedPoints">删除行</el-button></div>
             </el-tab-pane>
 
-            <el-tab-pane label="附件与点位图" name="attachments">
+            <el-tab-pane label="附件及点位图" name="attachments">
               <div class="upload-zone">
                 <el-select v-model="attachmentCategory" style="width: 160px" :disabled="!editable">
                   <el-option label="检测点位图" value="POINT_MAP" />
@@ -1375,39 +1389,13 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-table-column label="大小" width="100"><template #default="scope">{{ Math.ceil(scope.row.fileSize / 1024) }} KB</template></el-table-column>
                 <el-table-column prop="sha256" label="SHA-256" min-width="220" show-overflow-tooltip />
                 <el-table-column prop="uploadedAt" label="上传时间" width="180" />
-                <el-table-column label="操作" width="150"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/attachments/${scope.row.id}/download`, scope.row.originalName)">下载</el-button><label v-if="editable" class="replace-attachment">更换<input type="file" accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx" @change="replaceAttachment(scope.row.id,$event)" /></label><el-button link type="danger" :disabled="!editable" @click="removeAttachment(scope.row)">删除</el-button></template></el-table-column>
+                <el-table-column label="操作" width="150"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/attachments/${scope.row.id}/download`, scope.row.originalName)">下载</el-button><label v-if="editable" class="replace-attachment">更改<input type="file" accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx" @change="replaceAttachment(scope.row.id,$event)" /></label><el-button link type="danger" :disabled="!editable" @click="removeAttachment(scope.row)">删除</el-button></template></el-table-column>
               </el-table>
             </el-tab-pane>
 
-            <el-tab-pane label="审核与报告" name="report">
-              <div class="section-toolbar"><el-button type="primary" @click="previewReport">逐页预览报告</el-button><el-button :disabled="!editable" @click="generateNonconformities">生成不符合项</el-button></div>
-              <el-input v-model="profileDraft.overallConclusion" :disabled="!editable" type="textarea" :rows="4" placeholder="根据检测范围撰写总体评价；留空时按质控与防护分别生成评价" />
-              <el-button :disabled="!editable" @click="saveReportProfile">保存总体评价</el-button>
-              <div class="approval-grid">
-                <div><span>编写人</span><strong>{{ selectedCase.writerName || '-' }}</strong></div>
-                <div><span>审核人 <HelpMark anchor-id="radiology.review" /></span><strong>{{ selectedCase.reviewerName || '-' }}</strong><p>{{ selectedCase.reviewComment || '' }}</p></div>
-                <div><span>批准人 <HelpMark anchor-id="radiology.approve" /></span><strong>{{ selectedCase.approverName || '-' }}</strong><p>{{ selectedCase.approvalComment || '' }}</p></div>
-              </div>
-              <div class="report-rule-heading">报告生成规则 <HelpMark anchor-id="radiology.report" /></div>
-              <el-alert type="info" :closable="false" description="仅已批准案例可生成报告；每次生成均固化案例、测量值、点位、附件哈希和审批信息快照，历史报告不会覆盖。" />
-              <el-table :data="selectedCase.workflowHistory || []" border style="margin:16px 0">
-                <el-table-column prop="at" label="时间" min-width="180" />
-                <el-table-column label="操作" width="100"><template #default="scope">{{ ({SUBMIT:'提交',REVIEW:'复核通过',APPROVE:'批准',RETURN:'退回'} as Record<string,string>)[scope.row.action] || scope.row.action }}</template></el-table-column>
-                <el-table-column prop="operator" label="操作人" width="120" />
-                <el-table-column prop="comment" label="意见" min-width="200" />
-                <el-table-column prop="dataVersion" label="数据版本" width="100" />
-              </el-table>
-              <el-table :data="selectedCase.reports" border class="report-table">
-                <el-table-column prop="reportNo" label="报告编号" min-width="180" />
-                <el-table-column prop="fileName" label="文件名" min-width="260" />
-                <el-table-column prop="generatedBy" label="生成人" width="110" />
-                <el-table-column prop="generatedAt" label="生成时间" width="180" />
-                <el-table-column prop="sha256" label="SHA-256" min-width="180" show-overflow-tooltip />
-                <el-table-column label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
-              </el-table>
-            </el-tab-pane>
 
-            <el-tab-pane v-if="props.canManageRules" label="判定规则" name="rules">
+
+            <el-tab-pane v-if="props.canManageRules && showCompleteness" label="判定规则" name="rules">
               <div class="section-toolbar"><div><h4>版本化判定规则</h4><p>需求表未给出的限值不作猜测；在此按标准版本配置后自动判定。</p></div><el-button type="primary" @click="openCreateRule">新增规则</el-button></div>
               <el-table :data="rules" border>
                 <el-table-column prop="itemCode" label="项目" width="90" />
@@ -1420,33 +1408,47 @@ function showMeasurementHelp(field: FieldDefinition) {
               </el-table>
             </el-tab-pane>
           </el-tabs>
+<section v-if="viewStage===3"><el-tabs v-model="evaluationTab"><el-tab-pane label="自动评价" name="results">              <section  class="calculation-summary ppt-evaluation">
+                <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
+                <el-table :data="evaluationRows" :span-method="evaluationSpan" border>
+                  <el-table-column prop="itemName" label="检测项目" min-width="160" />
+                  <el-table-column prop="condition" label="检测条件" min-width="170" />
+                  <el-table-column label="检测结果" min-width="160"><template #default="scope">{{scope.row.result}}<small v-if="scope.row.message && ['INCOMPLETE','NOT_CONFIGURED','NEEDS_ASSESSMENT'].includes(scope.row.judgement)" class="evaluation-note">{{scope.row.message}}</small></template></el-table-column>
+                  <el-table-column prop="rule" label="标准要求" min-width="240" />
+                  <el-table-column label="评价" width="100" fixed="right"><template #default="scope"><strong v-if="scope.row.judgement==='UNQUALIFIED'" class="evaluation-failure">不符合</strong><span v-else>{{evaluationText(scope.row.judgement)}}</span></template></el-table-column>
+                </el-table>
+              <el-input v-model="noteDraft" :disabled="!editable" type="textarea" placeholder="备注" :rows="2"/></section></el-tab-pane><el-tab-pane label="总体评价" name="overall"><div class="info-grid"><div><span>受理编号</span><strong>{{selectedCase.sampleAcceptanceNo}}</strong></div><div><span>受检单位名称</span><strong>{{selectedCase.inspectedUnitName}}</strong></div><div><span>检测标准</span><strong>{{selectedCase.standardBasis}}</strong></div></div>
+              <div class="section-toolbar"><el-button :disabled="!editable" @click="generateNonconformities">点击生成不符合项</el-button></div>
+              <el-input v-model="profileDraft.overallConclusion" :disabled="!editable" type="textarea" :rows="4" placeholder="根据检测范围撰写总体评价；留空时按质控与防护分别生成评价" />
+</el-tab-pane></el-tabs><div class="ppt-page-actions"><el-button @click="goStage(2)">修改</el-button><el-button :disabled="!editable" @click="saveReportProfile">保存</el-button><el-button type="primary" @click="evaluationTab==='results'?evaluationTab='overall':goStage(4)">下一步</el-button></div></section>
+<section v-if="viewStage===4"><h3>{{selectedCase.status==='PENDING_REVIEW'?'复核':selectedCase.status==='REVIEWED'?'签发':'编写人自核'}}</h3><div class="ppt-page-actions"><el-button @click="previewReport">报告预览</el-button><el-button @click="goStage(3)">返回修改</el-button><el-button @click="goStage(5)">下一步</el-button></div>              <div class="approval-grid">
+                <div><span>编写人</span><strong>{{ selectedCase.writerName || '-' }}</strong></div>
+                <div><span>复核人 <HelpMark anchor-id="radiology.review" /></span><strong>{{ selectedCase.reviewerName || '-' }}</strong><p>{{ selectedCase.reviewComment || '' }}</p></div>
+                <div><span>授权签字人 <HelpMark anchor-id="radiology.approve" /></span><strong>{{ selectedCase.approverName || '-' }}</strong><p>{{ selectedCase.approvalComment || '' }}</p></div>
+              </div>
+              <div class="report-rule-heading">报告生成规则 <HelpMark anchor-id="radiology.report" /></div>
+              <el-alert type="info" :closable="false" description="仅已批准案例可生成报告；每次生成均固化案例、测量值、点位、附件哈希和审批信息快照，历史报告不会覆盖。" />
+              <el-table :data="selectedCase.workflowHistory || []" border style="margin:16px 0">
+                <el-table-column prop="at" label="时间" min-width="180" />
+                <el-table-column label="操作" width="100"><template #default="scope">{{ ({SUBMIT:'提交',REVIEW:'复核通过',APPROVE:'批准',RETURN:'退回'} as Record<string,string>)[scope.row.action] || scope.row.action }}</template></el-table-column>
+                <el-table-column prop="operator" label="操作人" width="120" />
+                <el-table-column prop="comment" label="意见" min-width="200" />
+                <el-table-column prop="dataVersion" label="数据版本" width="100" />
+              </el-table>
+
+            </section>
+<section v-if="viewStage===5"><h3>报告归档</h3>              <el-table :data="selectedCase.reports" border class="report-table">
+                <el-table-column prop="reportNo" label="报告编号" min-width="180" />
+                <el-table-column prop="fileName" label="文件名" min-width="260" />
+                <el-table-column prop="generatedBy" label="生成人" width="110" />
+                <el-table-column prop="generatedAt" label="生成时间" width="180" />
+
+                <el-table-column label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
+              </el-table></section>
         </template>
       </main>
 
-      <aside v-if="selectedCase" class="qc-status-rail">
-        <section>
-          <h3>检测完整性 <HelpMark anchor-id="radiology.calculation" /></h3>
-          <div class="completion-value">{{ completenessText }}</div>
-          <p>{{ completenessHint }}</p>
-        </section>
-        <section>
-          <h3>责任与审批 <HelpMark anchor-id="radiology.review" /></h3>
-          <dl>
-            <div><dt>编写人</dt><dd>{{ selectedCase.writerName || '待指定' }}</dd></div>
-            <div><dt>审核人</dt><dd>{{ selectedCase.reviewerName || '待指定' }}</dd></div>
-            <div><dt>批准人</dt><dd>{{ selectedCase.approverName || '待指定' }}</dd></div>
-            <div><dt>当前状态</dt><dd>{{ statusText(selectedCase.status) }}</dd></div>
-          </dl>
-        </section>
-        <section class="qc-next-action">
-          <h3>下一步操作 <HelpMark anchor-id="workflow.stages" /></h3>
-          <p>{{ nextQcAction }}</p>
-          <p v-if="editabilityReason" class="action-constraint"><strong>当前限制：</strong>{{ editabilityReason }} <HelpMark anchor-id="form.disabled-reason" /></p>
-          <el-button v-if="editable" type="primary" @click="saveMeasurements">保存当前数据</el-button>
-          <el-button v-if="selectedCase.status === 'CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="warning" @click="workflow('submit')">提交审核</el-button>
-          <el-button v-if="['APPROVED','REPORTED'].includes(selectedCase.status) && props.canGenerateReport" type="success" @click="generateReport">生成检测报告</el-button>
-        </section>
-      </aside>
+
     </div>
 
     <el-dialog
@@ -1471,32 +1473,28 @@ function showMeasurementHelp(field: FieldDefinition) {
 
       <el-form label-position="top" class="case-step-form">
         <section v-if="caseDialogStep === 0" class="case-form-section">
-          <div class="case-section-title"><div><span>第 1 步</span><h3>受检单位与案例信息</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="案例编号 *"><el-input v-model="caseForm.caseCode" placeholder="例如 CT-20260828-01" /></el-form-item></el-col>
+          <div class="case-section-title"><div><span>第 1 步</span><h3>受检单位信息</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
+<el-row :gutter="16">
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="受理编号 *"><el-input v-model="caseForm.sampleAcceptanceNo" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测类别 *"><el-select v-model="caseForm.detectionCategory" style="width:100%"><el-option label="验收检测" value="验收检测" /><el-option label="状态检测" value="状态检测" /><el-option label="稳定性检测" value="稳定性检测" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="受检单位 *"><el-input v-model="caseForm.inspectedUnitName" placeholder="填写单位完整名称" /></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="单位地址"><el-input v-model="caseForm.inspectedUnitAddress" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="样品名称"><el-input v-model="caseForm.profile.sampleName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="委托单位"><el-input v-model="caseForm.profile.commissionedUnit" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="受检单位名称 *"><el-input v-model="caseForm.inspectedUnitName" placeholder="填写单位完整名称" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="受检单位地址"><el-input v-model="caseForm.inspectedUnitAddress" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测地点"><el-input v-model="caseForm.detectionLocation" /></el-form-item></el-col></el-row><details class="ppt-help"><summary>报告及查询补充信息</summary><el-row :gutter="16">            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="案例编号 *"><el-input v-model="caseForm.caseCode" placeholder="例如 CT-20260828-01" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="样品名称"><el-input v-model="caseForm.profile.sampleName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="送检单位"><el-input v-model="caseForm.profile.submittingUnit" /></el-form-item></el-col>
             <el-col :xs="24" :sm="6"><el-form-item label="所在地市"><el-select v-model="caseForm.city" filterable allow-create><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
             <el-col :xs="24" :sm="6"><el-form-item label="所在县区"><el-select v-model="caseForm.county" filterable allow-create><el-option v-for="r in regionsLibrary.filter(r=>r.level>=3)" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
-            <el-col :span="24"><el-form-item label="本次检测范围"><el-checkbox-group v-model="caseForm.profile.selectedGroups"><template v-if="modality==='DR'"><el-checkbox value="GENERAL">通用质控</el-checkbox><el-checkbox value="SPECIAL">DR专用质控</el-checkbox></template><el-checkbox v-else value="QC">CT质量控制</el-checkbox><el-checkbox value="PROTECTION">场所防护</el-checkbox></el-checkbox-group></el-form-item></el-col>
             <el-col :xs="24" :sm="12" :md="8"><el-form-item label="联系人"><el-input v-model="caseForm.contactName" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="联系电话"><el-input v-model="caseForm.contactPhone" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测地点"><el-input v-model="caseForm.detectionLocation" /></el-form-item></el-col>
-          </el-row>
-        </section>
-
+            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="联系电话"><el-input v-model="caseForm.contactPhone" /></el-form-item></el-col></el-row></details>
+</section>
         <section v-else-if="caseDialogStep === 1" class="case-form-section">
-          <div class="case-section-title"><div><span>第 2 步</span><h3>设备与模体信息</h3></div><HelpMark anchor-id="radiology.equipment" /></div>
+          <div class="case-section-title"><div><span>第 2 步</span><h3>受检设备信息</h3></div><HelpMark anchor-id="radiology.equipment" /></div>
           <el-row :gutter="16">
-            <el-col :xs="24" :sm="12"><el-form-item><template #label>设备名称 * <HelpMark anchor-id="radiology.equipment" /></template><el-input v-model="caseForm.equipmentName" placeholder="填写设备铭牌名称" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item><template #label>受检设备名称 * <HelpMark anchor-id="radiology.equipment" /></template><el-input v-model="caseForm.equipmentName" placeholder="填写设备铭牌名称" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="受检设备型号"><el-input v-model="caseForm.equipmentModel" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="受检设备编号"><el-input v-model="caseForm.equipmentNo" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="生产厂家"><el-input v-model="caseForm.manufacturer" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="设备型号"><el-input v-model="caseForm.equipmentModel" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="设备编号"><el-input v-model="caseForm.equipmentNo" /></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="设备参数"><el-input v-model="caseForm.profile.equipmentParameters" type="textarea" /></el-form-item></el-col>
             <el-col v-if="modality==='CT'" :span="12"><el-form-item label="出厂日期"><el-date-picker v-model="caseForm.profile.manufacturedDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
             <template v-if="modality === 'CT'">
@@ -1510,32 +1508,26 @@ function showMeasurementHelp(field: FieldDefinition) {
         </section>
 
         <section v-else-if="caseDialogStep === 2" class="case-form-section">
-          <div class="case-section-title"><div><span>第 3 步</span><h3>检测与人员信息</h3></div><HelpMark anchor-id="radiology.instrument" /></div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12"><el-form-item label="检测开始日期 *"><el-date-picker v-model="caseForm.inspectionDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="检测结束日期 *"><el-date-picker v-model="caseForm.inspectionEndDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
+          <div class="case-section-title"><div><span>第 3 步</span><h3>检测机构信息</h3></div><HelpMark anchor-id="radiology.instrument" /></div>
+<el-row :gutter="16">            <el-col :span="24"><el-form-item label="检测起止日期 *"><el-date-picker v-model="inspectionRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="报告日期"><el-date-picker v-model="caseForm.reportDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="检测机构名称"><el-input v-model="caseForm.agencyName" /></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="从标准库导入"><el-select v-model="selectedStandardIds" multiple filterable style="width:80%"><el-option v-for="s in standardsLibrary" :key="s.id" :value="s.id" :label="s.standardCode+' '+s.standardName" /></el-select><el-button @click="importStandards">导入依据</el-button></el-form-item></el-col>
+            <el-col :span="24"><el-form-item><template #label>检测依据 <HelpMark anchor-id="basic.reference" /></template><el-input v-model="caseForm.standardBasis" type="textarea" :rows="2" /></el-form-item></el-col>
+            <el-col :span="24"><el-form-item label="从检测设备库选择"><el-select v-model="selectedInstrumentId" filterable style="width:80%"><el-option v-for="d in instrumentsLibrary" :key="d.id" :value="d.id" :label="d.deviceName+' '+(d.deviceNo || '')" /></el-select><el-button @click="addInstrument">添加仪器</el-button></el-form-item></el-col>
+            <el-col :span="24"><el-table :data="caseForm.profile.instruments" border><el-table-column label="仪器" min-width="150"><template #default="s">{{s.row.name}} {{s.row.model}} / {{s.row.deviceNo}}</template></el-table-column><el-table-column label="证书编号" min-width="130"><template #default="s"><el-input v-model="s.row.certificateNo" /></template></el-table-column><el-table-column label="有效期起" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validFrom" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column label="有效期止" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validTo" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column width="70"><template #default="s"><el-button link @click="caseForm.profile.instruments?.splice(s.$index,1)">移除</el-button></template></el-table-column></el-table></el-col>
+            <el-col :span="24"><el-form-item><template #label>检测设备及证书 <HelpMark anchor-id="radiology.instrument" /></template><el-input v-model="caseForm.instrumentDescription" type="textarea" :rows="2" placeholder="填写仪器名称、型号、编号和证书有效期" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="检测人"><el-select v-model="caseForm.profile.detectorName" filterable allow-create default-first-option><el-option v-for="s in staffLibrary" :key="s.id" :value="s.staffName || s.name || String(s.id)" :label="s.staffName || s.name || String(s.id)" /></el-select></el-form-item></el-col></el-row><details class="ppt-help"><summary>报告补充信息及防护参数</summary><el-row :gutter="16">            <el-col :xs="24" :sm="12"><el-form-item label="检测机构名称"><el-input v-model="caseForm.agencyName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="地区"><el-input v-model="caseForm.region" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="防护原始读数单位"><el-select v-model="caseForm.rpdUnit" style="width:100%"><el-option v-for="unit in ['nSv/h','μSv/h','mSv/h']" :key="unit" :value="unit" :label="unit" /></el-select></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="校准因子使用"><el-select v-model="caseForm.profile.calibrationMode" style="width:100%"><el-option label="结果无需修正" value="NONE" /><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT" /><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH" /><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME" /></el-select></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /></el-select></el-form-item></el-col>
             <el-col :span="24" v-if="modality === 'DR'"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
-            <el-col :span="24"><el-form-item label="从标准库导入"><el-select v-model="selectedStandardIds" multiple filterable style="width:80%"><el-option v-for="s in standardsLibrary" :key="s.id" :value="s.id" :label="s.standardCode+' '+s.standardName" /></el-select><el-button @click="importStandards">导入依据</el-button></el-form-item></el-col>
-            <el-col :span="24"><el-form-item label="从检测设备库选择"><el-select v-model="selectedInstrumentId" filterable style="width:80%"><el-option v-for="d in instrumentsLibrary" :key="d.id" :value="d.id" :label="d.deviceName+' '+(d.deviceNo || '')" /></el-select><el-button @click="addInstrument">添加仪器</el-button></el-form-item></el-col>
-            <el-col :span="24"><el-table :data="caseForm.profile.instruments" border><el-table-column label="仪器" min-width="150"><template #default="s">{{s.row.name}} {{s.row.model}} / {{s.row.deviceNo}}</template></el-table-column><el-table-column label="证书编号" min-width="130"><template #default="s"><el-input v-model="s.row.certificateNo" /></template></el-table-column><el-table-column label="有效期起" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validFrom" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column label="有效期止" min-width="150"><template #default="s"><el-date-picker v-model="s.row.validTo" value-format="YYYY-MM-DD" style="width:140px" /></template></el-table-column><el-table-column width="70"><template #default="s"><el-button link @click="caseForm.profile.instruments?.splice(s.$index,1)">移除</el-button></template></el-table-column></el-table></el-col>
-            <el-col :span="12"><el-form-item label="检测人"><el-select v-model="caseForm.profile.detectorName" filterable allow-create default-first-option><el-option v-for="s in staffLibrary" :key="s.id" :value="s.staffName || s.name || String(s.id)" :label="s.staffName || s.name || String(s.id)" /></el-select></el-form-item></el-col>
-            <el-col :span="24"><el-form-item><template #label>检测依据 <HelpMark anchor-id="basic.reference" /></template><el-input v-model="caseForm.standardBasis" type="textarea" :rows="2" /></el-form-item></el-col>
-            <el-col :span="24"><el-form-item><template #label>检测仪器及证书 <HelpMark anchor-id="radiology.instrument" /></template><el-input v-model="caseForm.instrumentDescription" type="textarea" :rows="2" placeholder="填写仪器名称、型号、编号和证书有效期" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item label="编写人"><el-input v-model="caseForm.writerName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item><template #label>预设审核人 <HelpMark anchor-id="radiology.review" /></template><el-input v-model="caseForm.reviewerName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item><template #label>预设批准人 <HelpMark anchor-id="radiology.approve" /></template><el-input v-model="caseForm.approverName" /></el-form-item></el-col>
-            <el-col :span="24"><el-form-item label="备注"><el-input v-model="caseForm.notes" type="textarea" :rows="2" /></el-form-item></el-col>
-          </el-row>
-        </section>
-
+            <el-col :span="24"><el-form-item label="备注"><el-input v-model="caseForm.notes" type="textarea" :rows="2" /></el-form-item></el-col></el-row></details></section>
         <section v-else class="case-form-section case-review-section">
-          <div class="case-section-title"><div><span>第 4 步</span><h3>{{ editingCaseId ? '确认修改内容' : '确认并创建案例' }}</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
+          <div class="case-section-title"><div><span>第 4 步</span><h3>{{ editingCaseId ? '确认修改内容' : '确认并创建' }}</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
           <el-alert type="info" :closable="false" title="请核对关键字段。创建后仍可在草稿、已录入或已计算状态下修改案例信息。" show-icon />
           <dl class="case-review-grid">
             <div><dt>案例编号</dt><dd>{{ caseForm.caseCode || '未填写' }}</dd></div>
@@ -1560,7 +1552,7 @@ function showMeasurementHelp(field: FieldDefinition) {
           <div>
             <el-button v-if="caseDialogStep > 0" @click="previousCaseStep">上一步</el-button>
             <el-button v-if="caseDialogStep < caseStepTitles.length - 1" type="primary" @click="nextCaseStep">下一步</el-button>
-            <el-button v-else type="primary" @click="saveCase">{{ editingCaseId ? '保存修改' : '创建案例' }}</el-button>
+            <el-button v-else type="primary" @click="saveCase">{{ editingCaseId ? '保存修改' : '确定创建' }}</el-button>
           </div>
         </div>
       </template>
@@ -1572,10 +1564,10 @@ function showMeasurementHelp(field: FieldDefinition) {
       <el-alert v-if="batchResult" :closable="false" :type="batchResult.rows.some(r=>r.status==='ERROR')?'error':'success'" :title="`识别${batchResult.cases}个案例，${batchResult.dryRun?'预检未写入':`已导入${batchResult.appliedCases}个案例`}`" />
       <el-table v-if="batchResult" :data="batchResult.rows" border max-height="500"><el-table-column prop="row" label="Excel行号" width="110"/><el-table-column prop="caseCode" label="案例编号" min-width="200"/><el-table-column label="结果" width="110"><template #default="scope">{{scope.row.status==='ERROR'?'错误':scope.row.status==='IMPORTED'?'已导入':'预检通过'}}</template></el-table-column><el-table-column prop="message" label="说明" min-width="300"/></el-table>
     </el-dialog>
-    <el-dialog v-model="previewVisible" title="检测报告逐页预览" width="94%" top="3vh" destroy-on-close @opened="renderPreviewDocx">
-      <div class="section-toolbar"><span v-if="previewPages.length">共{{previewPages.length}}页</span><el-button v-if="previewPages.length && selectedCase" @click="downloadBlob(`/api/radiology/cases/${selectedCase.id}/report-preview?format=pdf`,'检测报告预览.pdf')">下载PDF</el-button></div>
-      <div v-if="previewPages.length" class="report-preview-pages"><figure v-for="(page,index) in previewPages" :key="index"><figcaption>第{{index+1}}页 / 共{{previewPages.length}}页</figcaption><img :src="page" :alt="`检测报告第${index+1}页`" /></figure></div>
-      <div v-else ref="previewContainer" class="report-preview-pages"></div>
+    <el-dialog v-model="previewVisible" :title="`报告预览-${previewSection==='cover'?'封面':previewSection==='notice'?'封二':'正文'}`" width="94%" top="3vh" destroy-on-close @opened="renderPreviewDocx">
+      <el-radio-group v-if="previewPages.length" v-model="previewSection"><el-radio-button value="cover">封面</el-radio-button><el-radio-button value="notice">封二</el-radio-button><el-radio-button value="body">正文</el-radio-button></el-radio-group><div class="section-toolbar"><span v-if="previewPages.length">共{{previewPages.length}}页</span><el-button v-if="previewPages.length && selectedCase" @click="downloadBlob(`/api/radiology/cases/${selectedCase.id}/report-preview?format=pdf`,'检测报告预览.pdf')">下载PDF</el-button></div>
+      <div v-if="previewPages.length" class="report-preview-pages"><figure v-for="(page,index) in previewPages" :key="index" v-show="previewSection==='cover'?index===0:previewSection==='notice'?index===1:index>=2"><figcaption>第{{index+1}}页 / 共{{previewPages.length}}页</figcaption><img :src="page" :alt="`检测报告第${index+1}页`" /></figure></div>
+      <div v-else ref="previewContainer" class="report-preview-pages"></div><template #footer><el-button @click="previewVisible=false">退出</el-button><el-button @click="previewComplete=true">完成</el-button><template v-if="previewComplete && selectedCase"><el-form label-position="top" style="text-align:left"><el-form-item :label="selectedCase.status==='PENDING_REVIEW'?'复核意见':selectedCase.status==='REVIEWED'?'签发意见':'编写记录'"><el-input v-model="previewComment" type="textarea" placeholder="可留空"/></el-form-item></el-form><p>编写人：{{selectedCase.writerName || '—'}}　复核人：{{selectedCase.reviewerName || '—'}}　授权签字人：{{selectedCase.approverName || '—'}}（签名按客户答复线下完成）</p><el-button v-if="selectedCase.status==='CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="primary" @click="workflow('submit',previewComment)">发送</el-button><el-button v-if="selectedCase.status==='PENDING_REVIEW'&&canReview" type="primary" @click="workflow('review',previewComment)">发送</el-button><el-button v-if="selectedCase.status==='REVIEWED'&&canApprove" type="primary" @click="workflow('approve',previewComment)">发送</el-button></template></template>
     </el-dialog>
     <el-dialog v-model="queryVisible" title="综合查询（CT / DR / 个人剂量）" width="94%" destroy-on-close><InspectionQuery :token="token" @open="openQueryResult"/></el-dialog>
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">
@@ -1781,3 +1773,10 @@ function showMeasurementHelp(field: FieldDefinition) {
   .case-dialog-footer > div { justify-content:flex-end; }
 }
 </style>
+
+<style scoped>
+.qc-layout{grid-template-columns:220px minmax(0,1fr)!important}.qc-status-rail{display:none}.qc-hero{background:white;color:#111;box-shadow:none;padding:18px 22px;border:0}.qc-hero h2{color:#111;font-size:25px}.case-main{background:white;padding:18px;border-radius:12px;min-width:0}.case-rail{background:white;border:0;border-radius:24px;box-shadow:none}.rail-filter{display:grid;grid-template-columns:1fr 1fr;gap:6px}.rail-filter>.el-button{grid-column:1/-1;margin:0}.select-hint{min-height:470px;display:flex;flex-direction:column;align-items:center;justify-content:center}.select-hint .el-button{margin:8px 0;min-width:180px}.workflow-actions{justify-content:flex-end}.case-heading{box-shadow:none;border:0}.calculation-summary{padding:0;border:0}.case-main :deep(.el-tabs__header){background:white}.qc-hero :deep(.help-mark),.info-grid :deep(.help-mark){display:none}.ppt-evaluation :deep(th.el-table__cell){background:#000;color:white}.ppt-evaluation :deep(td:last-child){background:#ccc}.evaluation-failure{color:#111}.submission-check{margin:12px 0}.field-grid{grid-template-columns:repeat(3,minmax(140px,1fr))}.computed-panel{background:#ddd}.info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:900px){.qc-layout{grid-template-columns:180px minmax(0,1fr)!important}.qc-hero h2{font-size:20px}}
+</style>
+<style scoped>.quality-navigation{margin:18px 0}.quality-navigation .el-select{width:min(100%,460px)}.quality-project header{padding:12px 0;border-bottom:1px solid #ddd}.computed-panel{display:flex;flex-wrap:wrap;background:#ddd}.computed-value{border:1px solid #aaa;min-width:140px;background:#ddd}.item-code{display:none}.quality-project .item-title strong{font-size:18px}</style>
+
+<style scoped>.qc-layout.recording{grid-template-columns:minmax(0,1fr)!important}.quality-project :deep(.measurement-table td){min-width:90px}.equipment-features{margin:10px 0}.equipment-features .el-radio-group{display:flex;flex-wrap:wrap}.row-actions{margin:16px 0}</style>

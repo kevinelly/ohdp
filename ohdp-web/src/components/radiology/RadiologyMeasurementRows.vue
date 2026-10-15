@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 interface Field { code: string; label: string; unit: string; required: boolean }
 const props=defineProps<{code:string;fields:Field[];values:Record<string,string|number>;conditions:Record<string,string>;disabled:boolean}>()
 const rows=computed<number[]>(()=>JSON.parse(props.conditions['__rows.'+props.code] || '[]'))
@@ -24,6 +24,9 @@ function enable() {
   }
   props.conditions['__rows.'+props.code]=JSON.stringify(ids)
 }
+const selected=ref<number[]>([])
+function addRow(){if(!rows.value.length)enable();add()}
+function deleteRows(){if(!rows.value.length){enable();remove(rows.value[rows.value.length-1]!);return}for(const id of selected.value)if(rows.value.length>1)remove(id);selected.value=[]}
 function add() {props.conditions['__rows.'+props.code]=JSON.stringify([...rows.value,Math.max(...rows.value)+1])}
 function remove(id:number) {
   props.conditions['__rows.'+props.code]=JSON.stringify(rows.value.filter(r=>r!==id))
@@ -32,21 +35,9 @@ function remove(id:number) {
 }
 </script>
 <template>
-  <div class="measurement-rows">
-    <el-button v-if="!rows.length" :disabled="disabled" @click="enable">按行录入及增删测量行</el-button>
-    <template v-else>
-      <div class="rows-toolbar"><strong>测量条件行</strong><span>每行独立计算和评价，最多30行</span><el-button :disabled="disabled || rows.length>=30 || Math.max(...rows)>=999" @click="add">增加行</el-button></div>
-      <section v-for="id in rows" :key="id" class="measurement-row">
-        <header><strong>第{{id}}行</strong><el-button type="danger" link :disabled="disabled || rows.length===1" @click="remove(id)">删除第{{id}}行</el-button></header>
-        <el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="本行检测条件，留空使用上方共有条件" />
-        <div class="row-fields"><label v-for="f in fields" :key="f.code"><span>{{label(f)}} <em v-if="f.required">*</em></span>
-          <el-select v-if="f.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,f.code)]" :disabled="disabled" :aria-label="`${code}第${id}行${f.label}`"><el-option value="个" label="个"/></el-select>
-          <el-input v-else v-model="values[key(id,f.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${f.label}`"><template v-if="f.unit" #append>{{f.unit}}</template></el-input>
-        </label></div>
-      </section>
-    </template>
-  </div>
+ <div class="measurement-rows">
+  <div v-if="rows.length" class="rows-scroll"><table><thead><tr><th></th><th>检测条件</th><th v-for="f in fields" :key="f.code">{{label(f)}}</th></tr></thead><tbody><tr v-for="id in rows" :key="id"><td><input type="checkbox" v-model="selected" :value="id" :disabled="disabled" :aria-label="`选择第${id}行`"/></td><td><el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="使用共有条件"/></td><td v-for="f in fields" :key="f.code"><el-select v-if="f.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,f.code)]" :disabled="disabled"><el-option value="个" label="个"/></el-select><el-input v-else v-model="values[key(id,f.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${f.label}`"><template v-if="f.unit" #append>{{f.unit}}</template></el-input></td></tr></tbody></table></div>
+  <div class="row-actions"><el-button :disabled="disabled||rows.length>=30" @click="addRow">增加行</el-button><el-button :disabled="disabled||rows.length===1||(rows.length>0&&!selected.length)" @click="deleteRows">删除行</el-button></div>
+ </div>
 </template>
-<style scoped>
-.measurement-rows{margin:16px 0}.rows-toolbar,.measurement-row header{display:flex;align-items:center;gap:16px;margin-bottom:12px}.rows-toolbar span{font-size:13px;color:#667}.measurement-row{padding:16px;border:1px solid #cddadf;border-radius:6px;margin:12px 0}.measurement-row header{justify-content:space-between}.row-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px}.row-fields label span{display:block;margin-bottom:6px;font-size:13px}.row-fields em{color:#ba3027}
-</style>
+<style scoped>.rows-scroll{overflow:auto;margin:16px 0}table{border-collapse:collapse;min-width:100%}th,td{border:1px solid #aaa;padding:8px;min-width:120px}th{background:#d4d4d4;font-weight:500}td:first-child,th:first-child{min-width:28px}.row-actions{margin:16px 0}</style>

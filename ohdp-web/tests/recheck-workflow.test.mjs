@@ -36,6 +36,36 @@ test('confirmed discard can open personal dose; clean values do not prompt',asyn
  c.measurementValues['ETD::ETD1-1']='12.34';await c.openQueryResult({id:4,modality:'DOSE'})
  assert.equal(prompts,1);assert.deepEqual(c.emits,[['open-dose',4]])
 })
+
+test('stage navigation does not issue requests or discard measurements',()=>{
+ const c=component('RadiologyWorkbench.vue','goStage,viewStage,measurementValues,conditionValues')
+ c.measurementValues['TVD::TVD1-1']='80.25';c.conditionValues.TVD='SID=100cm'
+ for(const stage of [2,3,4,5,1]){c.goStage(stage);assert.equal(c.viewStage.value,stage)}
+ assert.equal(c.measurementValues['TVD::TVD1-1'],'80.25');assert.equal(c.conditionValues.TVD,'SID=100cm');assert.deepEqual(c.calls,[])
+})
+
+test('personal dose stage navigation retains people, readings and conclusion',()=>{
+ const c=component('PersonalDoseWorkbench.vue','goStage,viewStage,form,tab')
+ c.form.value.personnel=[{name:'测试甲'}];c.form.value.readings=[{values:['1.00']}];c.form.value.conclusion='人工评价'
+ for(const stage of [3,4,5,2])c.goStage(stage)
+ assert.equal(c.viewStage.value,2);assert.equal(c.tab.value,'base');assert.equal(c.form.value.conclusion,'人工评价');assert.equal(c.form.value.readings[0].values[0],'1.00');assert.equal(c.form.value.personnel[0].name,'测试甲');assert.deepEqual(c.calls,[])
+})
+
+test('enabling dynamic measurement rows preserves old readings and conditions',()=>{
+ const fields=[{code:'TVD1-0',label:'预设值'},{code:'TVD1-1',label:'读数1'},{code:'TVD-K1',label:'校准因子'}]
+ const values=reactive({'TVD::TVD1-0':'60','TVD::TVD1-1':'60.10','TVD::TVD2-1':'80.20','TVD::TVD3-1':'100.30'}),conditions=reactive({'TVD.1':'条件一'})
+ const c=component('RadiologyMeasurementRows.vue','addRow,rows',{props:{code:'TVD',fields,values,conditions,disabled:false}})
+ c.addRow();assert.deepEqual(c.rows.value,[1,2,3,4]);assert.equal(values['TVD::R1__TVD1-1'],'60.10');assert.equal(values['TVD::R2__TVD1-1'],'80.20');assert.equal(values['TVD::R3__TVD1-1'],'100.30');assert.equal(conditions['TVD.R1'],'条件一')
+})
+
+test('material, position and signal tables include every input once',()=>{
+ for(const [code,codes] of [['HUL',['Air-HU1','Air-HU2','Air-HU3','Air-REF','LDPE-HU1']],['CTDI',['HCD1','HCD2','HCD3','HUD1','层数n1','CTDI-HEAD-MANUFACTURER']],['STP',['STP-K1','STP-R1','STP-K2','STP-R2','STP-MODEL']],['TVD',['TVD1-0','TVD1-1','TVD2-0','TVD2-1','TVD-K1','TVD-K2']]]){
+  const fields=codes.map(code=>({code,label:code,unit:'',required:true,role:'RAW',sortNo:1}))
+  const c=component('MeasurementTable.vue','layout',{props:{code,fields}})
+  const rendered=c.layout.value.rows.flatMap(r=>r.fields).concat(c.layout.value.extra).map(f=>f.code)
+  assert.deepEqual(rendered.toSorted(),codes.toSorted());assert.equal(new Set(rendered).size,codes.length)
+ }
+})
 test('conditions, report profile, and protection point edits all block cancelled navigation',async()=>{
  for(const edit of [c=>c.conditionValues.SID='100',c=>c.profileDraft.overallConclusion='changed',c=>c.pointDrafts.value.push({name:'new'})]){
  const c=radiology(async()=>{throw 'close'});edit(c);assert.equal(await c.confirmLeave(),false)

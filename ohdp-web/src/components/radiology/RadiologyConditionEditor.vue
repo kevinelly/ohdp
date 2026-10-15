@@ -24,8 +24,10 @@ function update() {
     <label v-if="['ROA','ROQ','ARP','ARS','AIC'].includes(itemCode)">读数单位<el-select v-model="fields.doseUnit" :disabled="disabled" @change="update"><template v-if="['ROA','ROQ'].includes(itemCode)"><el-option label="mGy" value="mGy" /><el-option label="μGy" value="μGy" /></template><template v-else-if="itemCode==='ARS'"><el-option label="μGy" value="μGy" /></template><template v-else><el-option v-if="itemCode==='AIC'" label="电流 mA、时间 s" value="mA,s" /><el-option label="mAs" value="mAs" /><el-option label="DDI" value="DDI" /></template></el-select></label>
     <label class="extra">其他检测条件<el-input v-model="fields.extra" :disabled="disabled" placeholder="扫描方式、层厚、模体、滤过、参考剂量等" @change="update" /></label>
   </div>
-  <el-input :model-value="modelValue" :disabled="disabled" type="textarea" :rows="2" placeholder="检测条件，可核对并补充" @update:model-value="emit('update:modelValue',$event)" />
+  <details class="condition-detail"><summary>完整检测条件</summary><el-input :model-value="modelValue" :disabled="disabled" type="textarea" :rows="2" placeholder="检测条件，可核对并补充" @update:model-value="emit('update:modelValue',$event)" /></details>
 </template>
 <style scoped>
 .condition-fields{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;margin:10px 0}.condition-fields label{font-size:12px;color:#526278}.extra{grid-column:span 2}@media(max-width:900px){.condition-fields{grid-template-columns:repeat(2,minmax(120px,1fr))}}
 </style>
+
+<style scoped>.condition-fields{grid-template-columns:repeat(4,minmax(100px,1fr))}.condition-detail{font-size:13px;margin:8px 0}.condition-detail summary{cursor:pointer}.extra{grid-column:span 2}</style>

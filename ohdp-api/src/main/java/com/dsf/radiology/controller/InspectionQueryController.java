@@ -20,7 +20,7 @@ public class InspectionQueryController {
     private final RadiologyCaseRepository radiology;
     private final RadiologyReportRepository reports;
     private final PersonalDoseRepository dose;
-    public record Row(Long id,String modality,String receipt,String unitName,String equipmentNo,
+    public record Row(Long id,String modality,String receipt,String unitName,String equipmentName,String equipmentNo,
             LocalDate inspectionDate,String status,String city,String county,LocalDateTime generatedAt,LocalDateTime updatedAt) {}
     @GetMapping @Transactional(readOnly=true)
     public Page<Row> query(@RequestParam(required=false) List<String> modalities,
@@ -44,17 +44,17 @@ public class InspectionQueryController {
         if(!machineTypes.isEmpty()) {
             Specification<RadiologyCase> spec=(root,q,b)->{var p=filters(root,b,year,from,to,city,county,receipt,company,"sampleAcceptanceNo","inspectedUnitName",true);p.add(root.get("modality").in(machineTypes));if(selectedState!=null)p.add(b.equal(root.get("status"),selectedState));return b.and(p.toArray(Predicate[]::new));};
             var result=radiology.findAll(spec,first);total+=result.getTotalElements();
-            for(var e:result)merged.add(new Row(e.getId(),e.getModality().name(),e.getSampleAcceptanceNo(),e.getInspectedUnitName(),e.getEquipmentNo(),e.getInspectionDate(),e.getStatus().name(),e.getCity(),e.getCounty(),null,e.getUpdatedAt()));
+            for(var e:result)merged.add(new Row(e.getId(),e.getModality().name(),e.getSampleAcceptanceNo(),e.getInspectedUnitName(),e.getEquipmentName(),e.getEquipmentNo(),e.getInspectionDate(),e.getStatus().name(),e.getCity(),e.getCounty(),null,e.getUpdatedAt()));
         }
         if(types.contains("DOSE")) {
             Specification<PersonalDoseCase> spec=(root,q,b)->{var p=filters(root,b,year,from,to,city,county,receipt,company,"receipt","unitName",false);if(selectedState!=null)p.add(b.equal(root.get("status"),selectedState.name()));return b.and(p.toArray(Predicate[]::new));};
             var result=dose.findAll(spec,first);total+=result.getTotalElements();
-            for(var e:result)merged.add(new Row(e.getId(),"DOSE",e.getReceipt(),e.getUnitName(),null,e.getInspectionDate(),e.getStatus(),e.getCity(),e.getCounty(),e.getGeneratedAt(),e.getUpdatedAt()));
+            for(var e:result)merged.add(new Row(e.getId(),"DOSE",e.getReceipt(),e.getUnitName(),null,null,e.getInspectionDate(),e.getStatus(),e.getCity(),e.getCounty(),e.getGeneratedAt(),e.getUpdatedAt()));
         }
         merged.sort(Comparator.comparing(Row::updatedAt).reversed().thenComparing(Row::id,Comparator.reverseOrder()).thenComparing(Row::modality));
         var content=new ArrayList<Row>();
         for(var row:merged.subList(Math.min(page*size,merged.size()),Math.min(top,merged.size()))) {
-            if(!row.modality().equals("DOSE")){var at=reports.findFirstByCaseIdAndDeletedFalseOrderByGeneratedAtDesc(row.id()).map(com.dsf.radiology.entity.RadiologyReport::getGeneratedAt).orElse(null);row=new Row(row.id(),row.modality(),row.receipt(),row.unitName(),row.equipmentNo(),row.inspectionDate(),row.status(),row.city(),row.county(),at,row.updatedAt());}
+            if(!row.modality().equals("DOSE")){var at=reports.findFirstByCaseIdAndDeletedFalseOrderByGeneratedAtDesc(row.id()).map(com.dsf.radiology.entity.RadiologyReport::getGeneratedAt).orElse(null);row=new Row(row.id(),row.modality(),row.receipt(),row.unitName(),row.equipmentName(),row.equipmentNo(),row.inspectionDate(),row.status(),row.city(),row.county(),at,row.updatedAt());}
             content.add(row);
         }
         return new PageImpl<>(content,requested,total);

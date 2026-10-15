@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import axios from 'axios'
+import InspectionQuery from './components/radiology/InspectionQuery.vue'
+import './styles/ppt-workspace.css'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { codeLabel, formatFileSize, regionLevelLabel } from './codeLabels'
 import { findHelpAnchor, findHelpTopic, helpTopicByMenuKey, type HelpTopicId } from './helpContent'
@@ -446,8 +448,12 @@ const actionBusy = reactive({
 })
 const inspectionOpenId=ref<number>()
 const radiologyWorkbench=ref<{confirmLeave:()=>Promise<boolean>}>()
+const personalDoseWorkbench=ref<{confirmLeave:()=>Promise<boolean>}>()
 function openInspection(row:{id:number;modality:'CT'|'DR'|'DOSE'}){inspectionOpenId.value=row.id;if(row.modality==='DOSE'){activeTab.value='personalDose';selectedMenuKey.value='radiology.dose'}else{radiologyChildMenu.value=row.modality;activeTab.value='radiology';selectedMenuKey.value=row.modality==='CT'?'radiology.ct':'radiology.dr'}}
-const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'personalDose' | 'feedback' | 'help'>('project')
+const pptMode=ref(true)
+async function openInformationQuery(){if(activeTab.value==='radiology' && radiologyWorkbench.value && !await radiologyWorkbench.value.confirmLeave())return
+  if(activeTab.value==='personalDose' && personalDoseWorkbench.value && !await personalDoseWorkbench.value.confirmLeave())return;activeTab.value='inspectionQuery'}
+const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'personalDose' | 'feedback' | 'help' | 'inspectionQuery'>('radiology')
 const projectChildMenu = ref<'workspace' | 'report'>('workspace')
 const projectWorkTab = ref<'base' | 'supplement' | 'position' | 'result'>('base')
 const maintenanceChildMenu = ref<'company' | 'position' | 'factor' | 'dict' | 'staff' | 'reportText'>('company')
@@ -591,6 +597,7 @@ function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' | 'dept' 
 
 async function selectMenu(key: MenuKey) {
   if(activeTab.value==='radiology' && radiologyWorkbench.value && !await radiologyWorkbench.value.confirmLeave())return
+  if(activeTab.value==='personalDose' && personalDoseWorkbench.value && !await personalDoseWorkbench.value.confirmLeave())return
   if ((key === 'system' || key.startsWith('system.')) && !isAdmin.value) {
     setMessage('当前账号没有系统管理权限', 'error')
     return
@@ -3225,16 +3232,16 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{'ppt-workspace':pptMode}">
     <header class="topbar" :class="{ 'topbar-login': !isLoggedIn }">
       <div class="brand-lockup">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
         <div>
-          <h1>职业危害与放射诊疗检测数据平台</h1>
-          <p>10月14日补齐版 · <a href="/test1013-changes.html" target="_blank" rel="noopener" style="color:inherit">查看改动记录</a></p>
+          <h1>放射性职业病危害因素检测数据管理平台</h1>
+
         </div>
       </div>
-      <div v-if="isLoggedIn" class="topbar-context">
+      <div v-if="isLoggedIn && !pptMode" class="topbar-context">
         <div><span>当前模块</span><strong>{{ menuMeta.title }}</strong></div>
         <div>
           <span>{{ activeTab === 'project' ? '当前项目' : '工作对象' }}</span>
@@ -3296,10 +3303,21 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 
     <section v-else class="admin-layout">
       <aside class="card menu-tree pro-menu">
-        <div class="menu-header">
+        <div v-if="!pptMode" class="menu-header">
           <div><span>业务导航</span><h2>样品全流程 <HelpMark anchor-id="navigation.structure" tone="inverse" /></h2></div>
         </div>
-        <el-menu
+<nav v-if="pptMode" class="ppt-menu" aria-label="工作台导航">
+<button @click="selectMenu('radiology.dr')">工作台</button><details open><summary>数据录入</summary>
+<button :class="{active:activeTab==='radiology'&&radiologyChildMenu==='DR'}" @click="selectMenu('radiology.dr')">DR设备</button>
+<button :class="{active:activeTab==='radiology'&&radiologyChildMenu==='CT'}" @click="selectMenu('radiology.ct')">CT设备</button>
+<button v-for="name in ['牙科机','DSA','乳腺DR','工业探伤']" :key="name" disabled :title="name+'：本期预留'">{{name}}</button>
+<button :class="{active:activeTab==='personalDose'}" @click="selectMenu('radiology.dose')">个人剂量监测</button></details>
+<button :class="{active:activeTab==='inspectionQuery'}" @click="openInformationQuery">信息查询</button>
+<button @click="selectMenu('basicData.device')">检测设备库</button><button @click="selectMenu('basicData.standard')">检测标准库</button>
+<details v-if="isAdmin"><summary>系统管理</summary><button @click="selectMenu('system.user')">用户管理</button><button @click="selectMenu('system.role')">角色管理</button><button @click="selectMenu('system.permission')">权限管理</button></details>
+<details class="ppt-extra"><summary>其他业务</summary><button @click="pptMode=false">进入其他业务模块</button></details></nav>
+<button v-else class="ppt-return" @click="pptMode=true;selectMenu('radiology.dr')">放射性检测工作台</button>
+        <el-menu v-if="!pptMode"
           :key="sideMenuRenderKey"
           :default-active="selectedMenuKey"
           class="el-side-menu"
@@ -3378,11 +3396,11 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <span>帮助中心</span>
           </el-menu-item>
         </el-menu>
-        <ManualDownloads compact />
+        <ManualDownloads v-if="!pptMode" compact />
       </aside>
 
       <div class="admin-content">
-        <section class="workspace-heading">
+        <section v-if="!pptMode || !['radiology','personalDose','inspectionQuery'].includes(activeTab)" class="workspace-heading">
           <div>
             <div class="workspace-title-row">
               <h2>{{ menuMeta.title }}</h2>
@@ -4776,7 +4794,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
         </section>
       </section>
 
-      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench :token="token" :username="currentUsername" :open-case-id="inspectionOpenId" @open-inspection="openInspection" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
+      <section v-else-if="activeTab === 'inspectionQuery'" class="ppt-query-page"><h2>信息查询</h2><InspectionQuery :token="token" @open="openInspection" /></section>
+      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench ref="personalDoseWorkbench" :token="token" :username="currentUsername" :open-case-id="inspectionOpenId" @open-inspection="openInspection" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
 
       <section v-else-if="activeTab === 'radiology'" class="radiology-module">
         <RadiologyWorkbench
