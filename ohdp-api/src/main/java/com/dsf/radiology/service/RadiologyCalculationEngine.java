@@ -459,6 +459,11 @@ public class RadiologyCalculationEngine {
         out.add(CalculatedField.number(name + "_CENTER", name + " 中心 CTDI100", center100, 2, "mGy"));
         out.add(CalculatedField.number(name + "_PERIPHERAL", name + " 周边 CTDI100", peripheral100, 2, "mGy"));
         out.add(CalculatedField.number(name + "_CTDIW", name + " CTDIw", weighted, 1, "mGy"));
+        BigDecimal manufacturer = n.get("CTDI-" + name + "-MANUFACTURER");
+        if (manufacturer != null && manufacturer.signum() > 0) {
+            double relative = (weighted - manufacturer.doubleValue()) / manufacturer.doubleValue() * 100;
+            out.add(CalculatedField.number(name + "_MANUFACTURER_DEVIATION", "与厂家值相对偏差", relative, 1, "%"));
+        }
         return weighted;
     }
 

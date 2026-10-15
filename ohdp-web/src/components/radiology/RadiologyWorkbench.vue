@@ -7,7 +7,7 @@ import InspectionQuery from './InspectionQuery.vue'
 import InspectionFlow from './InspectionFlow.vue'
 import MeasurementTable from './MeasurementTable.vue'
 import EquipmentParameters from './EquipmentParameters.vue'
-import { sameDraft } from './radiologyDraftSupport'
+import { sameDraft, pptItemName } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
@@ -1224,9 +1224,9 @@ function showMeasurementHelp(field: FieldDefinition) {
               <ul><li v-for="issue in selectedCase.submissionIssues" :key="issue">{{ issue }}</li></ul>
             </details>
           </section>
-          <div v-if="viewStage<=2" class="ppt-page-actions"><el-button v-if="workTab==='base'" :disabled="!editable" @click="openEditCase">编辑信息</el-button><el-button v-else :disabled="!editable" @click="workTab==='points'?saveProtectionPoints():saveMeasurements()">保存</el-button><el-button v-if="workTab==='data'||workTab==='points'" :disabled="!editable" @click="calculateCase">计算</el-button><el-button type="primary" @click="viewStage===1?goStage(2):workTab==='base'?workTab='data':workTab==='data'?workTab='points':workTab==='points'?workTab='attachments':goStage(3)">下一步</el-button></div>
+
           <el-tabs v-if="viewStage<=2" v-model="workTab" class="qc-tabs">
-            <el-tab-pane label="基本信息" name="base">
+            <el-tab-pane label="基本信息" name="base"><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="openEditCase">编辑信息</el-button></div>
               <div class="info-grid">
                 <div><span>受理编号</span><strong>{{ selectedCase.sampleAcceptanceNo || '-' }}</strong></div>
                 <div><span>受检单位名称</span><strong>{{ selectedCase.inspectedUnitName }}</strong></div><div><span>设备名称</span><strong>{{ selectedCase.equipmentName }}</strong></div><div><span>设备型号</span><strong>{{ selectedCase.equipmentModel || "—" }}</strong></div><div><span>检测类别</span><strong>{{ selectedCase.detectionCategory || '-' }}</strong></div>
@@ -1288,21 +1288,21 @@ function showMeasurementHelp(field: FieldDefinition) {
                 </template>
               </el-alert>
 
-                          <details class="ppt-help"><summary>检测项目范围</summary><el-form-item label="本次检测范围"><el-checkbox-group v-model="profileDraft.selectedGroups" :disabled="!editable"><template v-if="modality==='DR'"><el-checkbox value="GENERAL">X射线摄影设备通用检测项目</el-checkbox><el-checkbox value="SPECIAL">数字X射线摄影（DR）设备专用检测项目</el-checkbox></template><el-checkbox v-else value="QC">CT质量控制检测项目</el-checkbox><el-checkbox value="PROTECTION">放射工作场所卫生防护检测</el-checkbox></el-checkbox-group></el-form-item><el-button :disabled="!editable" @click="saveReportProfile">保存检测项目</el-button></details><div v-if="modality==='DR'" class="equipment-features"><details><summary>AEC功能与未处理图像</summary><el-radio-group v-model="featureDraft.hasAec" :disabled="!editable"><el-radio :value="false">该受检设备不具备AEC功能，该三项不检测</el-radio><el-radio :value="true">该受检设备具备AEC功能，跳转至录入界面</el-radio></el-radio-group><el-radio-group v-model="featureDraft.hasRawImages" :disabled="!editable"><el-radio :value="true">可获取未处理图像</el-radio><el-radio :value="false">无法获取未处理图像</el-radio></el-radio-group><el-input v-if="!featureDraft.hasAec||!featureDraft.hasRawImages" v-model="featureDraft.featureReason" :disabled="!editable" placeholder="设备功能与不检测理由"/><el-button :disabled="!editable" @click="saveReportProfile">保存设备功能</el-button></details></div></details><div class="quality-navigation"><el-select v-model="activeQuality" placeholder="选择检测项目" clearable><el-option v-for="item in catalog" :key="item.code" :value="item.code" :label="item.name" /></el-select></div><div class="quality-projects">
+                          <details class="ppt-help"><summary>检测项目范围</summary><el-form-item label="本次检测范围"><el-checkbox-group v-model="profileDraft.selectedGroups" :disabled="!editable"><template v-if="modality==='DR'"><el-checkbox value="GENERAL">X射线摄影设备通用检测项目</el-checkbox><el-checkbox value="SPECIAL">数字X射线摄影（DR）设备专用检测项目</el-checkbox></template><el-checkbox v-else value="QC">CT质量控制检测项目</el-checkbox><el-checkbox value="PROTECTION">放射工作场所卫生防护检测</el-checkbox></el-checkbox-group></el-form-item><el-button :disabled="!editable" @click="saveReportProfile">保存检测项目</el-button></details><div v-if="modality==='DR'" class="equipment-features"><details><summary>AEC功能与未处理图像</summary><el-radio-group v-model="featureDraft.hasAec" :disabled="!editable"><el-radio :value="false">该受检设备不具备AEC功能，该三项不检测</el-radio><el-radio :value="true">该受检设备具备AEC功能，跳转至录入界面</el-radio></el-radio-group><el-radio-group v-model="featureDraft.hasRawImages" :disabled="!editable"><el-radio :value="true">可获取未处理图像</el-radio><el-radio :value="false">无法获取未处理图像</el-radio></el-radio-group><el-input v-if="!featureDraft.hasAec||!featureDraft.hasRawImages" v-model="featureDraft.featureReason" :disabled="!editable" placeholder="设备功能与不检测理由"/><el-button :disabled="!editable" @click="saveReportProfile">保存设备功能</el-button></details></div></details><div class="quality-navigation"><el-select v-model="activeQuality" placeholder="选择检测项目" clearable><el-option v-for="item in catalog" :key="item.code" :value="item.code" :label="pptItemName(item.code,item.name)" /></el-select></div><div class="quality-projects">
                 <section v-for="item in catalog.filter(i=>i.code===(activeQuality || catalog[0]?.code))" :key="item.code" class="quality-project">
                   <header>
                     <div class="item-title">
                       <span class="item-code">{{ item.code }}</span>
-                    <strong>{{ item.code==='RPD' ? '场所防护本底与校准' : item.name }}</strong>
+                    <strong>{{ pptItemName(item.code,item.name) }}</strong>
                       <small>{{ item.standardCode }}</small>
                       <el-tag v-if="!measurementsPending && selectedCase.calculationFresh && computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
                     </div>
-                  </header>
+                  <div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveMeasurements">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='base'">上一步</el-button></div></header>
                   <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
-                  <RadiologyConditionEditor v-if="item.code!=='RPD'" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable" />
-                  <details v-if="conditionRows(item.code).length && !rowIds(item.code).length" class="ppt-help"><summary>分组检测条件</summary><div class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div></details>
+                  <RadiologyConditionEditor v-if="!['RPD','CTDI'].includes(item.code)" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"><template v-if="item.code==='RUE'" #response-model><label>拟合关系<el-select v-model="measurementValues[key('STP','STP-MODEL')]" :disabled="!editable" placeholder="选择拟合关系"><el-option label="线性响应" value="LINEAR"/><el-option label="对数相关" value="LOG"/><el-option label="幂相关" value="POWER"/><el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT"/></el-select></label></template></RadiologyConditionEditor>
+                  <details v-if="item.code!=='CTDI' && conditionRows(item.code).length && !rowIds(item.code).length" class="ppt-help"><summary>分组检测条件</summary><div class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div></details>
                   <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体法" value="PHANTOM" /><el-option label="倾角仪法" value="INCLINOMETER" /></el-select>
                   <div v-if="item.code==='CTDI'" class="ctdi-parts"><strong>检测部位</strong><el-checkbox-group :model-value="ctdiParts()" :disabled="!editable" @update:model-value="setCtdiParts"><el-checkbox value="HEAD">头部模体</el-checkbox><el-checkbox value="BODY" :disabled="!selectedCase?.detectionCategory?.includes('验收')">体部模体</el-checkbox></el-checkbox-group><small>验收检测可多选；状态及稳定性检测仅头部模体。</small></div>
                   <MeasurementTable v-if="!rowIds(item.code).length" :code="item.code" :fields="visibleFields(item)" :conditions="conditionValues" :disabled="!editable" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))"><template #default="{field}"><HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" />
@@ -1320,9 +1320,9 @@ function showMeasurementHelp(field: FieldDefinition) {
                         placeholder="选择设备信号响应模型"
                         style="width:100%"
                       >
-                        <el-option label="线性 PV=aK+c" value="LINEAR" />
-                        <el-option label="对数 PV=a·ln(K)+c" value="LOG" />
-                        <el-option label="幂函数 PV=a·K^b" value="POWER" />
+                        <el-option label="线性响应 PV=aK+b" value="LINEAR" />
+                        <el-option label="对数相关 PV=a·ln(K)+b" value="LOG" />
+                        <el-option label="幂相关 PV=a·K^b（c=0）" value="POWER" />
                         <el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT" />
                       </el-select>
                       <el-input
@@ -1348,7 +1348,7 @@ function showMeasurementHelp(field: FieldDefinition) {
 
             </el-tab-pane>
 
-            <el-tab-pane label="场所防护" name="points">
+            <el-tab-pane label="场所防护" name="points"><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveProtectionPoints">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='data'">上一步</el-button></div>
               <div class="section-toolbar">
                 <div><h4>场所卫生防护点位 <HelpMark anchor-id="radiology.protection-point" /></h4><p>DR 超过 25 μSv/h 后，系统按年工作负荷、居留因子和使用因子继续计算年有效剂量，并按 0.25 mSv/a 判定；CT 按 2.5 μSv/h 判定。</p></div>
                 <el-button :disabled="!editable" @click="addProtectionPoint">增加点位</el-button>
@@ -1377,7 +1377,7 @@ function showMeasurementHelp(field: FieldDefinition) {
               </el-table><div class="row-actions"><el-button :disabled="!editable" @click="addProtectionPoint">增加行</el-button><el-button :disabled="!editable||!selectedPointRows.length" @click="removeSelectedPoints">删除行</el-button></div>
             </el-tab-pane>
 
-            <el-tab-pane label="附件及点位图" name="attachments">
+            <el-tab-pane label="附件及点位图" name="attachments"><div class="ppt-page-actions ppt-entry-actions"><el-button @click="workTab='points'">上一步</el-button></div>
               <div class="upload-zone">
                 <el-select v-model="attachmentCategory" style="width: 160px" :disabled="!editable">
                   <el-option label="检测点位图" value="POINT_MAP" />
@@ -1413,6 +1413,7 @@ function showMeasurementHelp(field: FieldDefinition) {
               </el-table>
             </el-tab-pane>
           </el-tabs>
+          <div v-if="viewStage<=2" class="ppt-page-actions"><el-button type="primary" @click="viewStage===1?goStage(2):workTab==='base'?workTab='data':workTab==='data'?workTab='points':workTab==='points'?workTab='attachments':goStage(3)">下一步</el-button></div>
 <section v-if="viewStage===3"><el-tabs v-model="evaluationTab"><el-tab-pane label="自动评价" name="results">              <section  class="calculation-summary ppt-evaluation">
                 <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
                 <el-table :data="evaluationRows" :span-method="evaluationSpan" border>
@@ -1786,3 +1787,5 @@ function showMeasurementHelp(field: FieldDefinition) {
 <style scoped>.quality-navigation{margin:18px 0}.quality-navigation .el-select{width:min(100%,460px)}.quality-project header{padding:12px 0;border-bottom:1px solid #ddd}.computed-panel{display:flex;flex-wrap:wrap;background:#ddd}.computed-value{border:1px solid #aaa;min-width:140px;background:#ddd}.item-code{display:none}.quality-project .item-title strong{font-size:18px}</style>
 
 <style scoped>.qc-layout.recording{grid-template-columns:minmax(0,1fr)!important}.quality-project :deep(.measurement-table td){min-width:90px}.equipment-features{margin:10px 0}.equipment-features .el-radio-group{display:flex;flex-wrap:wrap}.row-actions{margin:16px 0}</style>
+
+<style scoped>.quality-project header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.quality-project header .ppt-entry-actions{margin:0}.quality-project header .item-title{flex:1;min-width:180px}</style>

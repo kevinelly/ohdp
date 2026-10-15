@@ -144,3 +144,30 @@ test('LCD contrast rows preserve legacy input separately and match computed diam
  assert.deepEqual(c.layout.value.rows.map(r=>[r.label,r.fields[0].code]),[['1.0%','LCD-COUNT-1'],['0.5%','LCD-COUNT-05'],['0.3%','LCD-COUNT-03']])
  assert.deepEqual(c.layout.value.extra.map(f=>f.code),['NUM1','mm1'])
 })
+
+test('CTDI block edits isolate head and body and preserve shared legacy conditions',()=>{
+ const conditions=reactive({'CTDI':'legacy shared','__params.CTDI':'{"voltage":"120"}'})
+ const c=component('MeasurementTable.vue','setPartCondition',{props:{code:'CTDI',fields:[],conditions}})
+ c.setPartCondition(['HEAD','头部','H','1'],'head 100kV');c.setPartCondition(['BODY','体部','S','2'],'body 120kV');c.setPartCondition(['HEAD','头部','H','1'],'{"voltage":"100"}',true)
+ assert.equal(conditions['CTDI.1'],'head 100kV');assert.equal(conditions['CTDI.2'],'body 120kV');assert.equal(conditions['__params.CTDI.1'],'{"voltage":"100"}');assert.equal(conditions.CTDI,'legacy shared');assert.equal(conditions['__params.CTDI'],'{"voltage":"120"}')
+})
+test('RUE reference dose and CT scan parameters serialize immediately without losing legacy text',()=>{
+ const c=component('RadiologyConditionEditor.vue','fields,update',{props:{itemCode:'RUE'}})
+ Object.assign(c.fields,{sid:'100',voltage:'80',referenceDose:'2.5',extra:'原始条件'});c.update()
+ assert.equal(JSON.parse(c.emits[0][1]).referenceDose,'2.5');assert.equal(c.emits[1][1],'SID=100cm，80kV，参考剂量=2.5μSv，原始条件')
+ const ct=component('RadiologyConditionEditor.vue','fields,update',{props:{itemCode:'CTDI'}})
+ Object.assign(ct.fields,{voltage:'120',current:'200',time:'1',extra:'头部'});ct.update()
+ assert.equal(ct.emits[1][1],'120kV，200mA，1s，头部')
+})
+
+test('clearing all structured conditions clears the saved condition summary',()=>{
+ const c=component('RadiologyConditionEditor.vue','fields,update',{props:{itemCode:'RUE',modelValue:'old 80kV'}})
+ c.update();assert.deepEqual(c.emits[1],['update:modelValue',''])
+})
+
+test('simple-average projects show the computed average instead of an empty MEAN field',()=>{
+ for(const code of ['HUA','HVL']){
+  const c=component('MeasurementTable.vue','calculated',{props:{code,fields:[],results:[{fieldCode:'RESULT',output:'0.3 HU'}]}})
+  assert.equal(c.calculated({fields:[]},0,true),'0.3 HU')
+ }
+})

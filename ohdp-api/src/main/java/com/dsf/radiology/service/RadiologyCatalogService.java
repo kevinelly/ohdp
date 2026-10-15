@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RadiologyCatalogService {
 
-    public static final String CALCULATION_VERSION = "2026.10.15.2";
+    public static final String CALCULATION_VERSION = "2026.10.15.3";
 
     public record FieldDefinition(
             String code, String label, RadiologyFieldRole role, String unit, boolean required, int sortNo) {

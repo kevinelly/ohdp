@@ -12,3 +12,5 @@ export function updateEquipmentParameter(text:string,unit:'kV'|'mA',value:string
  if(match) return text.slice(0,match.index)+(value.trim()?value.trim()+' '+unit:'')+text.slice(match.index+match[0].length)
  return value.trim()?text+(text.trim()?'；':'')+value.trim()+' '+unit:text
 }
+
+export function pptItemName(code:string,name:string){return ({HUA:"水的CT值",HUU:"水的均匀性",RPD:"场所防护本底与校准"} as Record<string,string>)[code] || name}

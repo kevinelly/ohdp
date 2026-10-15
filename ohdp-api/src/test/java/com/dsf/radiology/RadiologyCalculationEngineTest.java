@@ -156,6 +156,23 @@ class RadiologyCalculationEngineTest {
                 .allSatisfy(value -> assertThat(value).isEqualByComparingTo("-2.00"));
     }
 
+    @Test
+    void ctdiManufacturerComparisonIsOptionalSignedAndPartSpecific() {
+        var values = numbers("层数n1","1","层厚T1","10","刻度系数k1","1", "层数n2","1","层厚T2","10","刻度系数k2","1");
+        for (String prefix : new String[]{"HC","HU","HD","HL","HR","SC","SU","SD","SL","SR"})
+            for (int i=1;i<=3;i++) values.put(prefix+"D"+i, new BigDecimal("10"));
+        var absent=engine.calculate("CTDI",values,Map.of(),Map.of());
+        assertThat(absent.fields()).noneMatch(f->f.code().endsWith("_MANUFACTURER_DEVIATION"));
+        values.put("CTDI-HEAD-MANUFACTURER",new BigDecimal("20"));
+        values.put("CTDI-BODY-MANUFACTURER",new BigDecimal("8"));
+        var result=engine.calculate("CTDI",values,Map.of(),Map.of());
+        assertThat(result.fields()).filteredOn(f->f.code().equals("HEAD_MANUFACTURER_DEVIATION")).singleElement().satisfies(f->{assertThat(f.valueNum()).isEqualByComparingTo("-50");assertThat(f.unit()).isEqualTo("%");});
+        assertThat(result.fields()).filteredOn(f->f.code().equals("BODY_MANUFACTURER_DEVIATION")).singleElement().satisfies(f->assertThat(f.valueNum()).isEqualByComparingTo("25"));
+        assertThat(result.resultValue()).isEqualByComparingTo(absent.resultValue());
+        values.put("CTDI-HEAD-MANUFACTURER",BigDecimal.ZERO);
+        assertThat(engine.calculate("CTDI",values,Map.of(),Map.of()).fields()).noneMatch(f->f.code().equals("HEAD_MANUFACTURER_DEVIATION"));
+    }
+
     private Map<String, BigDecimal> numbers(String... values) {
         Map<String, BigDecimal> result = new LinkedHashMap<>();
         for (int i = 0; i < values.length; i += 2) result.put(values[i], new BigDecimal(values[i + 1]));
