@@ -23,6 +23,9 @@ public class PersonalDoseCalculator {
     public void validate(ObjectNode data,boolean complete){
         for(String key:List.of("receipt","unitName","detectionCategory","sampleName"))require(!text(data,key).isBlank(),"请填写受理编号、受检单位、检测类别和样品名称");
         require(text(data,"receipt").length()<=100 && text(data,"unitName").length()<=255,"受理编号或单位名称过长");
+        for(String key:List.of("city","county"))require(text(data,key).length()<=100,"地市/县区名称过长");
+        for(String key:List.of("inspectionDate","reportDate","receivedDate","distributionStart","distributionEnd","monitoringStart","monitoringEnd"))if(!text(data,key).isBlank())date(text(data,key),key);
+        if(!text(data,"distributionStart").isBlank()&&!text(data,"distributionEnd").isBlank())require(!date(text(data,"distributionEnd"),"发放结束日期").isBefore(date(text(data,"distributionStart"),"发放开始日期")),"发放结束日期不能早于开始日期");
         require(data.toString().length()<1500000,"单个项目数据过大，请分批建立项目");
         require(data.path("personnel").isArray() && data.path("readings").isArray(),"人员和测量数据格式错误");
         require(data.path("personnel").size()<=1000 && data.path("readings").size()<=2000,"单个项目最多1000人、2000条测量记录");

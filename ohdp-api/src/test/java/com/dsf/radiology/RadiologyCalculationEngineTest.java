@@ -12,6 +12,17 @@ class RadiologyCalculationEngineTest {
 
     private final RadiologyCalculationEngine engine = new RadiologyCalculationEngine();
 
+    @Test void averagesUseSignificantDigitsAcrossOrdersOfMagnitude() {
+        var n=new LinkedHashMap<String,BigDecimal>();String[] readings={"9.9","9.9","9.9","99","99"};
+        for(int i=0;i<5;i++)n.put("ARP"+(i+1),new BigDecimal(readings[i]));
+        var result=engine.calculate("ARP",n,Map.of(),Map.of());
+        assertThat(result.fields().stream().filter(f->f.code().equals("MEAN")).findFirst().orElseThrow().displayValue()).isEqualTo("46");
+        for(int i=0;i<5;i++)n.put("ARP"+(i+1),new BigDecimal("1.00"));
+        assertThat(engine.calculate("ARP",n,Map.of(),Map.of()).fields().get(0).displayValue()).isEqualTo("1.00");
+        n.put("ARP-K",new BigDecimal("1000"));
+        assertThat(engine.calculate("ARP",n,Map.of(),Map.of()).fields().get(0).displayValue()).isEqualTo("1000");
+    }
+
     @Test
     void confirmedPowerModelHasNoOffsetAndInverseRecoversDose() {
         Map<String, BigDecimal> raw=new LinkedHashMap<>(), pixels=new LinkedHashMap<>();

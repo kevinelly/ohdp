@@ -16,5 +16,12 @@ public class PersonalDoseCase extends BaseAuditEntity {
     @Lob @Column(columnDefinition="longblob") private byte[] report;
     private String reportSha256;
     private Long sourceCaseId;
+    private java.time.LocalDate inspectionDate;
+    @Column(length=100) private String city;
+    @Column(length=100) private String county;
+    private Boolean queryIndexed;
+    @Column(length=1000) private String reportFileName;
+    private java.time.LocalDateTime generatedAt;
+    private String generatedBy;
     @Version private Long version;
 }

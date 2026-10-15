@@ -130,13 +130,16 @@ public class RadiologyCalculationEngine {
         double average = mean(values) * factor;
         double cv = sampleStdDev(values) / mean(values) * 100;
         return complete(code, cv, null, "%", List.of(
-                CalculatedField.number("MEAN", "校正平均值", average, code.equals("ROA") ? 4 : rawScale(n,code), code.equals("ROA") ? (value(n,"__MICROGY",0)==1?"μGy":"mGy"):""),
+                CalculatedField.number("MEAN", "校正平均值", average, code.equals("ROA") ? 4 : significantScale(n,code,average), code.equals("ROA") ? (value(n,"__MICROGY",0)==1?"μGy":"mGy"):""),
                 CalculatedField.number("RESULT", "变异系数", cv, 1, "%")));
     }
 
-    private int rawScale(Map<String,BigDecimal> n,String prefix) {
-        return n.entrySet().stream().filter(e->e.getKey().startsWith(prefix) && e.getValue()!=null && !e.getKey().contains("-K"))
-            .mapToInt(e->Math.max(0,e.getValue().scale())).max().orElse(1);
+    private int significantScale(Map<String,BigDecimal> n,String prefix,double result) {
+        var readings=n.entrySet().stream().filter(e->e.getKey().startsWith(prefix) && e.getValue()!=null && !e.getKey().contains("-K")).map(Map.Entry::getValue).toList();
+        int digits=readings.stream().mapToInt(BigDecimal::precision).min().orElse(1);
+        if(result==0) return readings.stream().mapToInt(BigDecimal::scale).max().orElse(0);
+        BigDecimal rounded=BigDecimal.valueOf(result).round(new java.math.MathContext(digits,RoundingMode.HALF_EVEN));
+        return digits-(rounded.precision()-rounded.scale());
     }
 
     private CalculationResult roq(Map<String, BigDecimal> n) {
@@ -171,7 +174,7 @@ public class RadiologyCalculationEngine {
             double corrected = average * value(n, "ETD-K" + group, 1);
             double deviation = corrected - nominal;
             double relative = 100 * deviation / nominal;
-            out.add(CalculatedField.number("MEAN_" + group, "第" + group + "组校正均值", corrected, rawScale(n,"ETD"+group+"-"), "ms"));
+            out.add(CalculatedField.number("MEAN_" + group, "第" + group + "组校正均值", corrected, significantScale(n,"ETD"+group+"-",corrected), "ms"));
             out.add(CalculatedField.number("DEVIATION_MS_" + group, "第" + group + "组绝对偏离", deviation, 1, "ms"));
             out.add(CalculatedField.number("DEVIATION_PERCENT_" + group, "第" + group + "组相对偏离", relative, 1, "%"));
             summaries.add("第" + group + "组 " + round(deviation, 1).toPlainString() + " ms（"
@@ -188,9 +191,9 @@ public class RadiologyCalculationEngine {
         double e2 = 100 * (m2 - overall) / overall;
         double result = Math.max(Math.abs(e1), Math.abs(e2));
         return complete("ARS", result, null, "%", List.of(
-                CalculatedField.number("MEAN_1", "第一组平均值", m1, rawScale(n,"ARS"), ""),
-                CalculatedField.number("MEAN_2", "第二组平均值", m2, rawScale(n,"ARS"), ""),
-                CalculatedField.number("OVERALL_MEAN", "总平均值", overall, rawScale(n,"ARS"), ""),
+                CalculatedField.number("MEAN_1", "第一组平均值", m1, significantScale(n,"ARS",m1), ""),
+                CalculatedField.number("MEAN_2", "第二组平均值", m2, significantScale(n,"ARS",m2), ""),
+                CalculatedField.number("OVERALL_MEAN", "总平均值", overall, significantScale(n,"ARS",overall), ""),
                 CalculatedField.number("DEVIATION_1", "第一组相对偏差", e1, 1, "%"),
                 CalculatedField.number("DEVIATION_2", "第二组相对偏差", e2, 1, "%"),
                 CalculatedField.number("RESULT", "最大相对偏差", result, 1, "%")));
@@ -299,12 +302,12 @@ public class RadiologyCalculationEngine {
             double dose = selected.inverse(req(n, "RUE" + i));
             if (!Double.isFinite(dose)) throw new IncompleteException("STP 逆变换结果无效");
             doses.add(dose);
-            out.add(CalculatedField.number("DOSE_" + i, "区域" + i + "剂量值", dose, rawScale(n,"RUE"), ""));
+            out.add(CalculatedField.number("DOSE_" + i, "区域" + i + "剂量值", dose, significantScale(n,"RUE",dose), ""));
         }
         double average = mean(doses);
         double cv = sampleStdDev(doses) / average * 100;
         out.add(CalculatedField.text("MODEL", "采用拟合模型", selected.model));
-        out.add(CalculatedField.number("MEAN", "剂量平均值", average, rawScale(n,"RUE"), ""));
+        out.add(CalculatedField.number("MEAN", "剂量平均值", average, significantScale(n,"RUE",average), ""));
         out.add(CalculatedField.number("RESULT", "响应均匀性", cv, 1, "%"));
         return complete("RUE", cv, null, "%", out);
     }
@@ -444,10 +447,10 @@ public class RadiologyCalculationEngine {
         double peripheral100 = mean(peripheral) * scale;
         double weighted = center100 / 3 + peripheral100 * 2 / 3;
         String name = prefix.equals("H") ? "HEAD" : "BODY";
-        out.add(CalculatedField.number(name+"_MEAN_CD", "中心原始读数平均值", center, rawScale(n,prefix+"CD"), "mGy·cm"));
+        out.add(CalculatedField.number(name+"_MEAN_CD", "中心原始读数平均值", center, significantScale(n,prefix+"CD",center), "mGy·cm"));
         for(int i=0;i<4;i++) {
             String direction=List.of("U","D","L","R").get(i);
-            out.add(CalculatedField.number(name+"_MEAN_"+direction+"D", "周边"+List.of("上","下","左","右").get(i)+"原始读数平均值", peripheral.get(i), rawScale(n,prefix+direction+"D"), "mGy·cm"));
+            out.add(CalculatedField.number(name+"_MEAN_"+direction+"D", "周边"+List.of("上","下","左","右").get(i)+"原始读数平均值", peripheral.get(i), significantScale(n,prefix+direction+"D",peripheral.get(i)), "mGy·cm"));
             out.add(CalculatedField.number(name+"_"+direction+"_CTDI100", "周边"+List.of("上","下","左","右").get(i)+" CTDI100", peripheral.get(i)*scale, 2, "mGy"));
         }
         out.add(CalculatedField.number(name + "_CENTER", name + " 中心 CTDI100", center100, 2, "mGy"));

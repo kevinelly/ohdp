@@ -14,6 +14,7 @@ public class PersonalDoseReportComposer {
     public byte[] compose(JsonNode d,boolean draft){
         try(var doc=new XWPFDocument(new ClassPathResource("templates/radiology/PERSONAL-DOSE-v20261014.docx").getInputStream());var out=new ByteArrayOutputStream()){
             Map<String,String> slots=new LinkedHashMap<>();
+            slots.put("BHCDC/QBG24-206-5", "BHCDC/QBG24-206-3");
             slots.put("{{REPORT_NO}}",text(d,"receipt"));slots.put("{{AGENCY}}","北海市疾病预防控制中心（北海市卫生监督所）");slots.put("{{SAMPLE}}",text(d,"sampleName"));slots.put("{{UNIT}}",text(d,"unitName"));slots.put("{{ADDRESS}}",text(d,"unitAddress"));slots.put("{{SUBMITTING}}",text(d,"submittingUnit"));slots.put("{{COMMISSIONED}}",text(d,"commissioningUnit"));slots.put("{{CATEGORY}}",text(d,"detectionCategory"));slots.put("{{AGENCY_ADDRESS}}","北海市海城区云南南路18号（邮编：536000）");slots.put("{{AGENCY_PHONE}}","0779-3902606，3909359");
             for(var p:doc.getParagraphs())replace(p,slots);for(var t:doc.getTables())for(var r:t.getRows())for(var c:r.getTableCells())for(var p:c.getParagraphs())replace(p,slots);for(var h:doc.getHeaderList())for(var p:h.getParagraphs())replace(p,slots);
             if(draft)p(doc,"预览稿——仅供编制与复核，未经批准及线下签章。",true);
@@ -33,7 +34,7 @@ public class PersonalDoseReportComposer {
             doc.write(out);return out.toByteArray();
         }catch(Exception e){throw new BusinessException("个人剂量报告生成失败："+e.getMessage());}
     }
-    private void replace(XWPFParagraph p,Map<String,String> slots){for(var run:p.getRuns()){String s=run.getText(0);if(s!=null){for(var e:slots.entrySet())s=s.replace(e.getKey(),e.getValue());run.setText(s,0);}}}
+    private void replace(XWPFParagraph p,Map<String,String> slots){for(var run:p.getRuns()){String s=run.getText(0);if(s!=null){if(s.contains("{{REPORT_NO}}")&&slots.get("{{REPORT_NO}}").length()>18)run.setFontSize(10);for(var e:slots.entrySet())s=s.replace(e.getKey(),e.getValue());run.setText(s,0);}}}
     private void p(XWPFDocument d,String s,boolean bold){var p=d.createParagraph();layout(p);p.setSpacingAfter(80);if(bold)p.setKeepNext(true);write(p,s,11,bold);}
     private XWPFTable table(XWPFDocument d,String... headers){var t=d.createTable(1,headers.length);t.setWidth("100%");
         int[] widths=switch(headers.length){case 7->new int[]{1100,1100,600,1100,2600,1100,2350};case 2->new int[]{4500,5450};default->new int[]{3316,3317,3317};};

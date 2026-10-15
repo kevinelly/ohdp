@@ -444,6 +444,8 @@ const actionBusy = reactive({
   reportCenter: false,
   uploadReferenceDocument: false,
 })
+const inspectionOpenId=ref<number>()
+function openInspection(row:{id:number;modality:'CT'|'DR'|'DOSE'}){inspectionOpenId.value=row.id;if(row.modality==='DOSE'){activeTab.value='personalDose';selectedMenuKey.value='radiology.dose'}else{radiologyChildMenu.value=row.modality;activeTab.value='radiology';selectedMenuKey.value=row.modality==='CT'?'radiology.ct':'radiology.dr'}}
 const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'personalDose' | 'feedback' | 'help'>('project')
 const projectChildMenu = ref<'workspace' | 'report'>('workspace')
 const projectWorkTab = ref<'base' | 'supplement' | 'position' | 'result'>('base')
@@ -655,6 +657,7 @@ function selectMenu(key: MenuKey) {
   if (key === 'configCenter.detectType') { activeTab.value = 'configCenter'; configChildMenu.value = 'detectType'; selectedMenuKey.value = 'configCenter.detectType'; return }
   if (key === 'labManage' || key === 'labManage.task') { activeTab.value = 'labManage'; labChildMenu.value = 'task'; selectedMenuKey.value = 'labManage.task'; return }
   if (key === 'labManage.result') { activeTab.value = 'labManage'; labChildMenu.value = 'result'; selectedMenuKey.value = 'labManage.result'; return }
+  if (key.startsWith('radiology')) inspectionOpenId.value=undefined
   if (key === 'radiology' || key === 'radiology.dr') { activeTab.value = 'radiology'; radiologyChildMenu.value = 'DR'; selectedMenuKey.value = 'radiology.dr'; return }
   if (key === 'radiology.dose') { activeTab.value = 'personalDose'; selectedMenuKey.value = 'radiology.dose'; return }
   if (key === 'radiology.ct') { activeTab.value = 'radiology'; radiologyChildMenu.value = 'CT'; selectedMenuKey.value = 'radiology.ct'; return }
@@ -4771,13 +4774,15 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
         </section>
       </section>
 
-      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench :token="token" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
+      <section v-else-if="activeTab === 'personalDose'" class="radiology-module"><PersonalDoseWorkbench :token="token" :username="currentUsername" :open-case-id="inspectionOpenId" @open-inspection="openInspection" :can-review="canReviewRadiology" :can-approve="canApproveRadiology" :can-generate-report="canGenerateRadiologyReport" /></section>
 
       <section v-else-if="activeTab === 'radiology'" class="radiology-module">
         <RadiologyWorkbench
+          :open-case-id="inspectionOpenId"
+          @open-dose="id=>openInspection({id,modality:'DOSE'})"
           :token="token"
           :modality="radiologyChildMenu"
-          @select-modality="(m) => { radiologyChildMenu=m;selectedMenuKey= m==='CT' ? 'radiology.ct':'radiology.dr' }"
+          @select-modality="(m) => { inspectionOpenId=undefined;radiologyChildMenu=m;selectedMenuKey= m==='CT' ? 'radiology.ct':'radiology.dr' }"
           :can-review="canReviewRadiology"
           :can-approve="canApproveRadiology"
           :can-generate-report="canGenerateRadiologyReport"

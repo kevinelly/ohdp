@@ -3,6 +3,7 @@ import axios from 'axios'
 import { renderAsync } from 'docx-preview'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import InspectionQuery from './InspectionQuery.vue'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
@@ -265,11 +266,12 @@ interface CaseForm {
   profile: ReportProfile
 }
 
-const emit=defineEmits<{ 'select-modality':[Modality] }>()
+const emit=defineEmits<{ 'select-modality':[Modality]; 'open-dose':[number] }>()
 const pendingQueryId=ref<number>()
 const pendingQueryEdit=ref(false)
 const props = withDefaults(defineProps<{
   token: string
+  openCaseId?: number
   modality: Modality
   canReview?: boolean
   canApprove?: boolean
@@ -340,7 +342,6 @@ function addInstrument() {
   if(caseForm.profile.instruments.some(i=>i.deviceId===d.id)) return
   caseForm.profile.instruments.push({deviceId:d.id,name:d.deviceName,model:d.deviceModel || '',deviceNo:d.deviceNo || '',certificateNo:d.certificateNo || '',validFrom:d.calibrationDate,validTo:d.calibrationExpiry})
 }
-function resetQuery() { Object.assign(query,{keyword:'',status:'',year:undefined,from:'',to:'',city:'',county:'',receipt:'',company:'',modalities:[props.modality],page:0});void loadCases() }
 async function previewReport() {
   if(!selectedCase.value)return
   await run(async()=>{
@@ -387,7 +388,6 @@ const importFile = ref<File | null>(null)
 const importType = ref<'PERFORMANCE' | 'PROTECTION'>('PERFORMANCE')
 const importPreview = ref<ImportPreview | null>(null)
 const attachmentCategory = ref<'POINT_MAP' | 'CERTIFICATE' | 'PHANTOM_MANUAL' | 'OTHER'>('POINT_MAP')
-const queryPage=computed({get:()=>query.page+1,set:(v:number)=>{query.page=v-1}})
 async function selectQueryCase(item: CaseSummary, edit=false) {
   if(item.modality!==props.modality){queryVisible.value=false;pendingQueryId.value=item.id;pendingQueryEdit.value=edit;emit('select-modality',item.modality);return}
   queryVisible.value=false;await selectCase(item.id)
@@ -463,6 +463,7 @@ watch(() => props.modality, async (value) => {
   query.modalities = [value]
   Object.assign(caseForm, blankCaseForm(value))
   await Promise.all([loadCatalog(), loadCases(), loadRules(), loadLibraries()])
+  if(props.openCaseId)await selectCase(props.openCaseId)
   if(pendingQueryId.value){const id=pendingQueryId.value;pendingQueryId.value=undefined;await selectCase(id);if(pendingQueryEdit.value && editable.value) openEditCase();pendingQueryEdit.value=false}
 }, { immediate: true })
 
@@ -1559,19 +1560,7 @@ function showMeasurementHelp(field: FieldDefinition) {
       <div v-if="previewPages.length" class="report-preview-pages"><figure v-for="(page,index) in previewPages" :key="index"><figcaption>第{{index+1}}页 / 共{{previewPages.length}}页</figcaption><img :src="page" :alt="`检测报告第${index+1}页`" /></figure></div>
       <div v-else ref="previewContainer" class="report-preview-pages"></div>
     </el-dialog>
-    <el-dialog v-model="queryVisible" class="case-query-dialog" title="综合查询" width="92%">
-      <el-form label-position="top"><el-row :gutter="12">
-        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测年份"><el-input-number v-model="query.year" :min="1900" :max="2200" style="width:100%" /></el-form-item></el-col>
-        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测时间起"><el-date-picker v-model="query.from" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
-        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="检测时间止"><el-date-picker v-model="query.to" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
-        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="报告状态"><el-select v-model="query.status" clearable style="width:100%"><el-option v-for="s in ['DRAFT','DATA_ENTERED','CALCULATED','PENDING_REVIEW','REVIEWED','APPROVED','REPORTED']" :key="s" :value="s" :label="statusText(s as CaseStatus)" /></el-select></el-form-item></el-col>
-        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="所在地市"><el-select v-model="query.city" filterable allow-create clearable style="width:100%"><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col><el-col :xs="24" :sm="12" :lg="6"><el-form-item label="所在县区"><el-select v-model="query.county" filterable allow-create clearable style="width:100%"><el-option v-for="r in regionsLibrary.filter(r=>r.level>=3)" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>
-        <el-col :xs="24" :sm="12" :lg="6"><el-form-item label="受理编号"><el-input v-model="query.receipt" clearable /></el-form-item></el-col><el-col :xs="24" :sm="12" :lg="6"><el-form-item label="受检单位"><el-input v-model="query.company" clearable /></el-form-item></el-col>
-        <el-col :xs="24" :sm="12"><el-form-item label="设备类别"><el-select v-model="query.modalities" multiple clearable placeholder="不限（DR/CT）" style="width:100%"><el-option label="DR" value="DR" /><el-option label="CT" value="CT" /></el-select></el-form-item></el-col>
-      </el-row></el-form><el-button type="primary" @click="query.page=0;loadCases()">查询</el-button><el-button @click="resetQuery">重置</el-button>
-      <el-table :data="cases" border style="margin-top:16px"><el-table-column prop="sampleAcceptanceNo" label="受理编号" min-width="150" /><el-table-column prop="inspectedUnitName" label="受检单位" min-width="160" /><el-table-column prop="modality" label="设备类别" width="90" /><el-table-column prop="equipmentName" label="设备名称" min-width="150" /><el-table-column prop="equipmentNo" label="设备编号" min-width="120" /><el-table-column prop="inspectionDate" label="检测时间" width="120" /><el-table-column label="出具报告时间" min-width="170"><template #default="s">{{s.row.generatedAt?.replace("T"," ").slice(0,19) || "—"}}</template></el-table-column><el-table-column label="操作" width="150"><template #default="s"><el-button link @click="selectQueryCase(s.row)">查看</el-button><el-button v-if="['DRAFT','DATA_ENTERED','CALCULATED'].includes(s.row.status)" link @click="selectQueryCase(s.row,true)">修改</el-button></template></el-table-column></el-table>
-      <el-pagination v-model:current-page="queryPage" :page-size="query.size" :total="totalCases" layout="prev,pager,next,total" @current-change="loadCases" />
-    </el-dialog>
+    <el-dialog v-model="queryVisible" title="综合查询（CT / DR / 个人剂量）" width="94%" destroy-on-close><InspectionQuery :token="token" @open="row=>{queryVisible=false;if(row.modality==='DOSE')emit('open-dose',row.id);else selectQueryCase({id:row.id,modality:row.modality} as CaseSummary)}"/></el-dialog>
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">
       <el-form label-position="top">
         <el-row :gutter="14">
