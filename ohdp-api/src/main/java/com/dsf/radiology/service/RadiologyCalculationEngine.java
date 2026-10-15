@@ -135,7 +135,7 @@ public class RadiologyCalculationEngine {
     }
 
     private int significantScale(Map<String,BigDecimal> n,String prefix,double result) {
-        var readings=n.entrySet().stream().filter(e->e.getKey().startsWith(prefix) && e.getValue()!=null && !e.getKey().contains("-K")).map(Map.Entry::getValue).toList();
+        var readings=n.entrySet().stream().filter(e->e.getKey().startsWith(prefix) && e.getValue()!=null && !e.getKey().contains("-K") && !(prefix.startsWith("ETD") && e.getKey().equals(prefix+"0"))).map(Map.Entry::getValue).toList();
         int digits=readings.stream().mapToInt(BigDecimal::precision).min().orElse(1);
         if(result==0) return readings.stream().mapToInt(BigDecimal::scale).max().orElse(0);
         BigDecimal rounded=BigDecimal.valueOf(result).round(new java.math.MathContext(digits,RoundingMode.HALF_EVEN));
@@ -191,8 +191,8 @@ public class RadiologyCalculationEngine {
         double e2 = 100 * (m2 - overall) / overall;
         double result = Math.max(Math.abs(e1), Math.abs(e2));
         return complete("ARS", result, null, "%", List.of(
-                CalculatedField.number("MEAN_1", "第一组平均值", m1, significantScale(n,"ARS",m1), ""),
-                CalculatedField.number("MEAN_2", "第二组平均值", m2, significantScale(n,"ARS",m2), ""),
+                CalculatedField.number("MEAN_1", "第一组平均值", m1, significantScale(n,"ARS1-",m1), ""),
+                CalculatedField.number("MEAN_2", "第二组平均值", m2, significantScale(n,"ARS2-",m2), ""),
                 CalculatedField.number("OVERALL_MEAN", "总平均值", overall, significantScale(n,"ARS",overall), ""),
                 CalculatedField.number("DEVIATION_1", "第一组相对偏差", e1, 1, "%"),
                 CalculatedField.number("DEVIATION_2", "第二组相对偏差", e2, 1, "%"),

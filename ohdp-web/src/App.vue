@@ -445,6 +445,7 @@ const actionBusy = reactive({
   uploadReferenceDocument: false,
 })
 const inspectionOpenId=ref<number>()
+const radiologyWorkbench=ref<{confirmLeave:()=>Promise<boolean>}>()
 function openInspection(row:{id:number;modality:'CT'|'DR'|'DOSE'}){inspectionOpenId.value=row.id;if(row.modality==='DOSE'){activeTab.value='personalDose';selectedMenuKey.value='radiology.dose'}else{radiologyChildMenu.value=row.modality;activeTab.value='radiology';selectedMenuKey.value=row.modality==='CT'?'radiology.ct':'radiology.dr'}}
 const activeTab = ref<'project' | 'reportCenter' | 'maintenance' | 'system' | 'basicData' | 'hazardFactor' | 'configCenter' | 'labManage' | 'radiology' | 'personalDose' | 'feedback' | 'help'>('project')
 const projectChildMenu = ref<'workspace' | 'report'>('workspace')
@@ -588,7 +589,8 @@ function openSystemMenu(child: 'user' | 'role' | 'menu' | 'permission' | 'dept' 
   selectedMenuKey.value = keyMap[child]
 }
 
-function selectMenu(key: MenuKey) {
+async function selectMenu(key: MenuKey) {
+  if(activeTab.value==='radiology' && radiologyWorkbench.value && !await radiologyWorkbench.value.confirmLeave())return
   if ((key === 'system' || key.startsWith('system.')) && !isAdmin.value) {
     setMessage('当前账号没有系统管理权限', 'error')
     return
@@ -4778,6 +4780,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 
       <section v-else-if="activeTab === 'radiology'" class="radiology-module">
         <RadiologyWorkbench
+          ref="radiologyWorkbench"
           :open-case-id="inspectionOpenId"
           @open-dose="id=>openInspection({id,modality:'DOSE'})"
           :token="token"

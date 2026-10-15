@@ -4,6 +4,7 @@ import { renderAsync } from 'docx-preview'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import InspectionQuery from './InspectionQuery.vue'
+import { sameDraft } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
@@ -388,7 +389,23 @@ const importFile = ref<File | null>(null)
 const importType = ref<'PERFORMANCE' | 'PROTECTION'>('PERFORMANCE')
 const importPreview = ref<ImportPreview | null>(null)
 const attachmentCategory = ref<'POINT_MAP' | 'CERTIFICATE' | 'PHANTOM_MANUAL' | 'OTHER'>('POINT_MAP')
+async function confirmLeave():Promise<boolean> {
+  const c=selectedCase.value
+  if(!c || !editable.value)return true
+  const storedValues=Object.fromEntries(c.measurements.filter(v=>v.fieldRole==='RAW').map(v=>[`${v.itemCode}::${v.fieldCode}`,String(v.valueText ?? v.valueNum ?? '')]))
+  const currentValues=Object.fromEntries(Object.entries(measurementValues).filter(([,v])=>String(v)!=='' ).map(([k,v])=>[k,String(v)]))
+  for(const key of Object.keys(storedValues))if(storedValues[key]==='')delete storedValues[key]
+  const pending=!sameDraft(currentValues,storedValues) || !sameDraft(conditionValues,c.itemConditions || {}) || !sameDraft(profileDraft,{...blankProfile(c.modality),...c.profile}) || !sameDraft(pointDrafts.value,c.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')}))) || (caseDialogVisible.value && caseFormDirty.value)
+  if(!pending)return true
+  try {await ElMessageBox.confirm('当前项目有未保存的修改。继续切换将放弃这些修改；如需保留，请取消并先保存。','未保存的内容',{confirmButtonText:'放弃修改并切换',cancelButtonText:'留在当前项目',type:'warning',closeOnClickModal:false});return true}catch{return false}
+}
+defineExpose({confirmLeave})
+async function openQueryResult(row:{id:number;modality:'CT'|'DR'|'DOSE'}) {
+  if(row.modality==='DOSE'){if(!await confirmLeave())return;queryVisible.value=false;emit('open-dose',row.id)}
+  else await selectQueryCase(row as CaseSummary)
+}
 async function selectQueryCase(item: CaseSummary, edit=false) {
+  if(!await confirmLeave())return
   if(item.modality!==props.modality){queryVisible.value=false;pendingQueryId.value=item.id;pendingQueryEdit.value=edit;emit('select-modality',item.modality);return}
   queryVisible.value=false;await selectCase(item.id)
   if(edit && editable.value) openEditCase()
@@ -1560,7 +1577,7 @@ function showMeasurementHelp(field: FieldDefinition) {
       <div v-if="previewPages.length" class="report-preview-pages"><figure v-for="(page,index) in previewPages" :key="index"><figcaption>第{{index+1}}页 / 共{{previewPages.length}}页</figcaption><img :src="page" :alt="`检测报告第${index+1}页`" /></figure></div>
       <div v-else ref="previewContainer" class="report-preview-pages"></div>
     </el-dialog>
-    <el-dialog v-model="queryVisible" title="综合查询（CT / DR / 个人剂量）" width="94%" destroy-on-close><InspectionQuery :token="token" @open="row=>{queryVisible=false;if(row.modality==='DOSE')emit('open-dose',row.id);else selectQueryCase({id:row.id,modality:row.modality} as CaseSummary)}"/></el-dialog>
+    <el-dialog v-model="queryVisible" title="综合查询（CT / DR / 个人剂量）" width="94%" destroy-on-close><InspectionQuery :token="token" @open="openQueryResult"/></el-dialog>
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">
       <el-form label-position="top">
         <el-row :gutter="14">
