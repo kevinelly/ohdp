@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 type Field={code:string;label:string;unit:string;required:boolean;role:'RAW'|'INTERMEDIATE'|'FINAL';sortNo:number}
-const props=defineProps<{code:string;fields:Field[];results?:{fieldCode:string;output:string}[]}>()
+const props=defineProps<{code:string;fields:Field[];conditions?:Record<string,string>;disabled?:boolean;results?:{fieldCode:string;output:string}[]}>()
 const layout=computed(()=>{
  const c=props.code
  const groups:{label:string;codes:string[]}[]=[]
@@ -52,17 +52,21 @@ function calculated(row:{fields:Field[]},index:number,mean:boolean){
  else if(code==='STP')return '—'
  return props.results?.find(r=>r.fieldCode===key)?.output||'—'
 }
+function setCondition(field:string,index:number,value:string){if(props.conditions)props.conditions['STP.'+field+'.'+(index+1)]=value}
 function output(key:string){return props.results?.find(r=>r.fieldCode===key)?.output||'—'}
 const showMean=computed(()=>!['STP','RUE','LRD','REA','TPA'].includes(props.code))
 const showResult=computed(()=>props.code!=='STP')
 const models=[['LINEAR','线性响应','PV=aK+b'],['LOG','对数相关','PV=a ln(K)+b'],['POWER','幂相关','PV=aKᵇ（c=0）']]
 </script>
 <template>
- <div class="measurement-table-scroll"><table class="measurement-table"><thead><tr><th>测量组</th><th v-for="(f,i) in layout.rows[0]?.fields || []" :key="f.code">{{heading(f,i)}}</th><th v-if="results && showMean">{{['TVD','ETD','ROA','ROQ'].includes(code)?'校正平均值':'平均值'}}</th><th v-if="results && showResult">{{code==='CTDI'?'CTDI100':['ARS','AIC'].includes(code)?'相对偏差':code==='RUE'?'剂量值V':'检测结果'}}</th></tr></thead><tbody><tr v-for="(row,index) in layout.rows" :key="row.label"><th>{{row.label}}</th><td v-for="f in row.fields" :key="f.code"><slot :field="f"/></td><td v-if="results && showMean" class="calculated">{{calculated(row,index,true)}}</td><td v-if="results && showResult" class="calculated">{{calculated(row,index,false)}}</td></tr></tbody></table></div>
- <div v-if="layout.extra.length" class="measurement-table-scroll"><table class="measurement-table"><tbody><tr v-for="f in layout.extra" :key="f.code"><th>{{f.label}}</th><td><slot :field="f"/></td></tr></tbody></table></div>
+ <div v-if="code==='CTDI' && layout.extra.length" class="ctdi-parameters"><label v-for="f in layout.extra" :key="f.code"><span>{{f.label}}</span><slot :field="f"/></label></div>
+ <div class="measurement-table-scroll"><table class="measurement-table"><thead><tr><th>{{code==='STP'?'参考剂量档':code==='CTDI'?'测量位置':'测量组'}}</th><th v-if="code==='STP'">管电压（kV）</th><th v-for="(f,i) in layout.rows[0]?.fields || []" :key="f.code">{{heading(f,i)}}</th><th v-if="code==='STP'">DDI计算值</th><th v-if="results && showMean">{{['TVD','ETD','ROA','ROQ'].includes(code)?'校正平均值':'平均值'}}</th><th v-if="results && showResult">{{code==='CTDI'?'CTDI100':['ARS','AIC'].includes(code)?'相对偏差':code==='RUE'?'剂量值V':'检测结果'}}</th></tr></thead><tbody><tr v-for="(row,index) in layout.rows" :key="row.label"><th>{{row.label}}</th><td v-if="code==='STP'"><el-input :model-value="conditions?.['STP.voltage.'+(index+1)]" :disabled="disabled" type="number" :aria-label="row.label+'管电压'" @update:model-value="(v:string)=>setCondition('voltage',index,v)"/></td><td v-for="f in row.fields" :key="f.code"><slot :field="f"/></td><td v-if="code==='STP'"><el-input :model-value="conditions?.['STP.ddi.'+(index+1)]" :disabled="disabled" type="number" :aria-label="row.label+'DDI计算值'" @update:model-value="(v:string)=>setCondition('ddi',index,v)"/></td><td v-if="results && showMean" class="calculated">{{calculated(row,index,true)}}</td><td v-if="results && showResult" class="calculated">{{calculated(row,index,false)}}</td></tr></tbody></table></div>
+ <div v-if="layout.extra.length && code!=='CTDI'" class="measurement-table-scroll"><table class="measurement-table"><tbody><tr v-for="f in layout.extra" :key="f.code"><th>{{f.label}}</th><td><slot :field="f"/></td></tr></tbody></table></div>
  <table v-if="code==='STP'" class="measurement-table"><thead><tr><th>拟合关系</th><th>拟合公式</th><th>a</th><th>b</th><th>c</th><th>R²</th></tr></thead><tbody><tr v-for="[key,label,formula] in models" :key="key"><th>{{label}}</th><td>{{formula}}</td><td v-for="suffix in ['A','B','C','R2']" :key="suffix" class="calculated">{{key!=='POWER'&&suffix==='B'?output(key+'_C'):key!=='POWER'&&suffix==='C'?'—':output(key+'_'+suffix)}}</td></tr><tr><th>采用的拟合关系</th><td colspan="5" class="calculated">{{models.find(m=>m[0]===output('SELECTED_MODEL'))?.[1]||output('SELECTED_MODEL')}}</td></tr></tbody></table>
  <table v-if="['ARS','AIC','RUE'].includes(code)" class="measurement-table"><tbody><tr><th>{{code==='RUE'?'平均值':'总平均值'}}</th><td class="calculated">{{output(code==='RUE'?'MEAN':'OVERALL_MEAN')}}</td><th>{{code==='RUE'?'变异系数':'最大相对偏差'}}</th><td class="calculated">{{output('RESULT')}}</td></tr></tbody></table>
  <table v-if="code==='CTDI'" class="measurement-table"><thead><tr><th>部位</th><th>CTDI100，C</th><th>CTDI100，P</th><th>CTDIw</th></tr></thead><tbody><tr v-for="[key,label,raw] in [['HEAD','头部模体','HCD1'],['BODY','体部模体','SCD1']]" :key="key" v-show="fields.some(f=>f.code===raw)"><th>{{label}}</th><td v-for="suffix in ['CENTER','PERIPHERAL','CTDIW']" :key="suffix" class="calculated">{{key!=='POWER'&&suffix==='B'?output(key+'_C'):key!=='POWER'&&suffix==='C'?'—':output(key+'_'+suffix)}}</td></tr></tbody></table>
 </template>
 <style scoped>.measurement-table td.calculated{background:#ddd;text-align:center}</style>
 <style scoped>.measurement-table-scroll{overflow:auto;margin:18px 0}.measurement-table{border-collapse:collapse;min-width:100%;table-layout:fixed}.measurement-table th,.measurement-table td{border:1px solid #aaa;padding:8px;min-width:120px}.measurement-table th{background:#d4d4d4;font-weight:500}.measurement-table td{background:white}.measurement-extra{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.measurement-extra label>span{display:block;margin-bottom:6px;font-size:13px}</style>
+
+<style scoped>.ctdi-parameters{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:12px;margin:16px 0}.ctdi-parameters label>span{display:block;margin-bottom:6px;font-size:13px}</style>

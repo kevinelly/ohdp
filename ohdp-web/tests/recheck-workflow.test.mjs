@@ -117,3 +117,10 @@ test('personal dose preview sends the exact comment once and clears it for the n
  await c.action('submit','编写核对意见')
  assert.equal(sent.length,1);assert.equal(sent[0].body.comment,'编写核对意见');assert.equal(c.selected.value.status,'PENDING_REVIEW');assert.equal(c.previewVisible.value,false);assert.equal(c.previewComment.value,'');assert.equal(c.previewComplete.value,false)
 })
+
+test('STP optional per-level conditions preserve all other saved conditions',()=>{
+ const conditions=reactive({'STP':'SID=100cm','__params.STP':'{"voltage":"80"}'})
+ const c=component('MeasurementTable.vue','setCondition',{props:{code:'STP',fields:[],conditions}})
+ c.setCondition('voltage',2,'85');c.setCondition('ddi',2,'100.00')
+ assert.equal(conditions['STP.voltage.3'],'85');assert.equal(conditions['STP.ddi.3'],'100.00');assert.equal(conditions.STP,'SID=100cm');assert.equal(conditions['__params.STP'],'{"voltage":"80"}')
+})
