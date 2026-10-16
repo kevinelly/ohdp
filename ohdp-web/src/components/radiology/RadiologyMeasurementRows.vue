@@ -31,6 +31,18 @@ const resultColumns=computed(()=>{
  return [...columns].map(([code,label])=>({code,label}))
 })
 function rowResult(id:number,code:string){return props.results?.find(r=>r.fieldCode===`R${id}__${code}`)?.output||'—'}
+const columns=computed(()=>{
+ const inputs=fields.value.map(field=>({code:field.code,label:label(field),field:field as Field|undefined}))
+ const outputs=resultColumns.value.map(column=>({...column,field:undefined as Field|undefined}))
+ if(['HCR','RST'].includes(props.code)){
+  const order=props.code==='HCR'?['HCR-MANUFACTURER','HCR-NYQUIST','HCR-BASELINE','HCR1']:['RST-FACTOR','CTbackground','CTmax','WWMIN','CTHM','R1','R2','R3','R4','MEAN','R0','DEVIATION']
+  const rank=(code:string)=>order.includes(code)?order.indexOf(code):order.length
+  return [...inputs,...outputs].sort((a,b)=>rank(a.code)-rank(b.code))
+ }
+ if(props.code!=='ETD')return [...inputs,...outputs]
+ const mean=outputs.find(c=>c.code.startsWith('MEAN')) || {code:'MEAN_1',label:'校正平均值',field:undefined}
+ return [...inputs.filter(c=>!c.code.includes('-K')),mean,...inputs.filter(c=>c.code.includes('-K')),...outputs.filter(c=>c.code!==mean.code)]
+})
 const selected=ref<number[]>([])
 function addRow(){if(!rows.value.length)enable();add()}
 function deleteRows(){if(!rows.value.length){enable();remove(rows.value[rows.value.length-1]!);return}for(const id of selected.value)if(rows.value.length>1)remove(id);selected.value=[]}
@@ -43,7 +55,7 @@ function remove(id:number) {
 </script>
 <template>
  <div class="measurement-rows">
-  <div v-if="rows.length" class="rows-scroll"><table><thead><tr><th></th><th>检测条件</th><th v-for="f in fields" :key="f.code">{{label(f)}}</th><th v-for="column in resultColumns" :key="column.code">{{column.label}}</th></tr></thead><tbody><tr v-for="id in rows" :key="id"><td><input type="checkbox" v-model="selected" :value="id" :disabled="disabled" :aria-label="`选择第${id}行`"/></td><td><el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="使用共有条件"/></td><td v-for="f in fields" :key="f.code"><el-select v-if="f.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,f.code)]" :disabled="disabled"><el-option value="个" label="个"/></el-select><el-input v-else v-model="values[key(id,f.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${label(f)}`"><template v-if="f.unit" #append>{{f.unit}}</template></el-input></td><td v-for="column in resultColumns" :key="column.code" class="calculated">{{rowResult(id,column.code)}}</td></tr></tbody></table></div>
+  <div v-if="rows.length" class="rows-scroll"><table><thead><tr><th></th><th>检测条件</th><th v-for="column in columns" :key="column.code">{{column.label}}</th></tr></thead><tbody><tr v-for="id in rows" :key="id"><td><input type="checkbox" v-model="selected" :value="id" :disabled="disabled" :aria-label="`选择第${id}行`"/></td><td><el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="使用共有条件"/></td><td v-for="column in columns" :key="column.code" :class="{calculated:!column.field}"><template v-if="column.field"><el-select v-if="column.field.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,column.code)]" :disabled="disabled"><el-option value="个" label="个"/></el-select><el-input v-else v-model="values[key(id,column.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${column.label}`"><template v-if="column.field.unit" #append>{{column.field.unit}}</template></el-input></template><template v-else>{{rowResult(id,column.code)}}</template></td></tr></tbody></table></div>
   <div class="row-actions"><el-button :disabled="disabled||rows.length>=30" @click="addRow">增加行</el-button><el-button :disabled="disabled||rows.length===1||(rows.length>0&&!selected.length)" @click="deleteRows">删除行</el-button></div>
  </div>
 </template>

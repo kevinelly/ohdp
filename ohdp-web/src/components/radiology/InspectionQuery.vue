@@ -22,7 +22,7 @@ onMounted(async()=>{await load();try{const r=await axios.get('/api/ohdp/basic/re
     <el-form-item label="检测时间范围"><el-date-picker v-model="dateRange" type="daterange" range-separator="至" value-format="YYYY-MM-DD"/></el-form-item>
     <el-form-item label="所在地市"><el-select v-model="filters.city" clearable filterable placeholder="请点击选择" @change="filters.county='' "><el-option v-for="r in cities" :key="r.id" :label="r.regionName" :value="r.regionName"/></el-select></el-form-item>
     <el-form-item label="所在县区"><el-select v-model="filters.county" clearable filterable placeholder="请点击选择"><el-option v-for="r in counties" :key="r.id" :label="r.regionName" :value="r.regionName"/></el-select></el-form-item>
-    <el-form-item v-for="[key,label] in [['receipt','受理编号'],['company','受检单位名称']]" :key="key" :label="label"><el-input v-model="filters[key as 'receipt'|'company']" clearable @keyup.enter="load(true)"/></el-form-item>
+    <el-form-item v-for="[key,label] in [['receipt','受理编号'],['company','受检单位名称']]" :key="key" :label="label" :class="{wide:key==='company'}"><el-input v-model="filters[key as 'receipt'|'company']" clearable @keyup.enter="load(true)"/></el-form-item>
     <el-form-item label="报告状态"><el-select v-model="filters.status" clearable placeholder="全部状态"><el-option v-for="(v,k) in statuses" :key="k" :label="v" :value="k"/></el-select></el-form-item>
     <el-form-item label="设备类别"><el-select v-model="filters.modalities" multiple clearable placeholder="全部类别"><el-option label="DR" value="DR"/><el-option label="CT" value="CT"/><el-option label="个人剂量监测" value="DOSE"/></el-select></el-form-item>
   </el-form>
@@ -33,6 +33,6 @@ onMounted(async()=>{await load();try{const r=await axios.get('/api/ohdp/basic/re
 </template>
 <style scoped>.query-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.query-fields :deep(.el-date-editor),.query-fields :deep(.el-input-number){width:100%}.el-pagination{margin-top:16px}</style>
 
-<style scoped>.query-range{grid-column:span 2}</style>
+<style scoped>.query-range{grid-column:span 2}.query-fields>.wide{grid-column:1/-1}</style>
 
 <style scoped>@media(max-width:650px){.query-fields{grid-template-columns:1fr}}.query-fields :deep(.el-date-editor){max-width:100%}</style>

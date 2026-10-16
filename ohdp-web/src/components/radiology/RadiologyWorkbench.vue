@@ -6,6 +6,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import InspectionQuery from './InspectionQuery.vue'
 import InspectionFlow from './InspectionFlow.vue'
 import MeasurementTable from './MeasurementTable.vue'
+import RadiologyCaseSummary from './RadiologyCaseSummary.vue'
 import EquipmentParameters from './EquipmentParameters.vue'
 import { sameDraft, pptItemName, pptFieldName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
@@ -587,6 +588,10 @@ function syncSavedMeasurements() {
     measurementValues[`${value.itemCode}::${value.fieldCode}`] = value.valueText ?? value.valueNum ?? ''
   }
 }
+function syncSavedPointResults(previousPoints:ProtectionPoint[]) {
+  const asDraft=(points:ProtectionPoint[])=>points.map(point=>({...point,readingsText:point.readings.join(', ')}))
+  if(sameDraft(pointDrafts.value,asDraft(previousPoints)))pointDrafts.value=asDraft(selectedCase.value?.protectionPoints || [])
+}
 function syncCaseState() {
   syncSavedMeasurements()
   const current = selectedCase.value
@@ -892,9 +897,11 @@ async function saveMeasurements() {
     return
   }
   await run(async () => {
+    const previousPoints=selectedCase.value!.protectionPoints
     const response = await api.put<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/measurements`, { values, conditions: conditionValues, expectedDataVersion: selectedCase.value?.dataVersion })
     selectedCase.value = response.data
     syncSavedMeasurements()
+    syncSavedPointResults(previousPoints)
     await loadCases()
   }, `已保存 ${values.length} 个测量值`)
 }
@@ -1242,19 +1249,21 @@ function showMeasurementHelp(field: FieldDefinition) {
 
           <el-tabs v-if="viewStage<=2" v-model="workTab" class="qc-tabs">
             <el-tab-pane label="基本信息" name="base"><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="openEditCase">编辑信息</el-button></div>
+              <RadiologyCaseSummary :modality="modality" :case-data="selectedCase" />
+              <details class="ppt-help"><summary>补充信息及历史参数</summary>
               <div class="info-grid">
-                <div><span>受理编号</span><strong>{{ selectedCase.sampleAcceptanceNo || '-' }}</strong></div>
-                <div><span>受检单位名称</span><strong>{{ selectedCase.inspectedUnitName }}</strong></div><div><span>设备名称</span><strong>{{ selectedCase.equipmentName }}</strong></div><div><span>设备型号</span><strong>{{ selectedCase.equipmentModel || "—" }}</strong></div><div><span>检测类别</span><strong>{{ selectedCase.detectionCategory || '-' }}</strong></div>
+
+
                 <div><span>样品名称</span><strong>{{ selectedCase.profile?.sampleName || '-' }}</strong></div>
                 <div><span>送检单位</span><strong>{{ selectedCase.profile?.submittingUnit || '-' }}</strong></div>
-                <div><span>委托单位</span><strong>{{ selectedCase.profile?.commissionedUnit || '-' }}</strong></div>
+                <div v-if="modality==='DR'"><span>委托单位</span><strong>{{ selectedCase.profile?.commissionedUnit || '-' }}</strong></div>
                 <div><span>所在地市 / 县区</span><strong>{{ [selectedCase.city,selectedCase.county].filter(Boolean).join(' / ') || '-' }}</strong></div>
                 <div><span>设备编号</span><strong>{{ selectedCase.equipmentNo || '-' }}</strong></div>
                 <div><span>生产厂家 <HelpMark anchor-id="radiology.equipment" /></span><strong>{{ selectedCase.manufacturer || '-' }}</strong></div>
                 <div v-if="modality === 'CT'"><span>检测模体 <HelpMark anchor-id="radiology.phantom" /></span><strong>{{ selectedCase.phantomName || '-' }}</strong></div>
                 <div v-if="modality === 'CT'"><span>模体厂家/型号 <HelpMark anchor-id="radiology.phantom" /></span><strong>{{ [selectedCase.phantomManufacturer, selectedCase.phantomModel].filter(Boolean).join(' / ') || '-' }}</strong></div>
-                <div><span>检测地点</span><strong>{{ selectedCase.detectionLocation || '-' }}</strong></div>
-                <div><span>检测起止日期</span><strong>{{ selectedCase.inspectionDate || '-' }} 至 {{ selectedCase.inspectionEndDate || '未填写' }}</strong></div>
+
+
                 <div><span>检测人</span><strong>{{ selectedCase.profile?.detectorName || '-' }}</strong></div>
                 <div><span>检测范围</span><strong>{{ (selectedCase.profile?.selectedGroups || blankProfile(modality).selectedGroups || []).map(detectionGroupLabel).join('、') }}</strong></div>
                 <div><span>校准方式</span><strong>{{ calibrationLabel(selectedCase.profile?.calibrationMode || (selectedCase.protectionMode==='RESPONSE_CORRECTED' ? 'BOTH' : undefined)) }}</strong></div>
@@ -1262,8 +1271,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <div><span>计算版本 <HelpMark anchor-id="radiology.calculation" /></span><strong>{{ selectedCase.calculationVersion }}</strong></div>
               </div>
               <div v-if="selectedCase.profile?.equipmentParameters" class="text-block"><span>设备参数</span><p>{{ selectedCase.profile.equipmentParameters }}</p></div>
-              <div class="text-block"><span>检测依据 <HelpMark anchor-id="basic.reference" /></span><p>{{ selectedCase.standardBasis || '-' }}</p></div>
-              <div class="text-block"><span>检测设备及证书 <HelpMark anchor-id="radiology.instrument" /></span><p>{{ selectedCase.instrumentDescription || '-' }}</p></div>
+              </details>
               <el-table v-if="selectedCase.profile?.instruments?.length" :data="selectedCase.profile.instruments" border class="instrument-snapshot">
                 <el-table-column prop="name" label="仪器名称" min-width="150" />
                 <el-table-column prop="model" label="型号" min-width="110" />
@@ -1316,7 +1324,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
-                  <RadiologyConditionEditor v-if="!['RPD','CTDI'].includes(item.code)" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"><template v-if="item.code==='RUE'" #response-model><label>拟合关系<el-select v-model="measurementValues[key('STP','STP-MODEL')]" :disabled="!editable" placeholder="选择拟合关系"><el-option label="线性响应" value="LINEAR"/><el-option label="对数相关" value="LOG"/><el-option label="幂相关" value="POWER"/><el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT"/></el-select></label></template></RadiologyConditionEditor>
+                  <RadiologyConditionEditor v-if="!['RPD','CTDI'].includes(item.code) && (item.code!=='LCR' || rowIds(item.code).length)" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"><template v-if="item.code==='RUE'" #response-model><label>拟合关系<el-select v-model="measurementValues[key('STP','STP-MODEL')]" :disabled="!editable" placeholder="选择拟合关系"><el-option label="线性响应" value="LINEAR"/><el-option label="对数相关" value="LOG"/><el-option label="幂相关" value="POWER"/><el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT"/></el-select></label></template></RadiologyConditionEditor>
                   <details v-if="item.code!=='CTDI' && conditionRows(item.code).length && !rowIds(item.code).length" class="ppt-help"><summary>分组检测条件</summary><div class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div></details>
                   <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体检测法" value="PHANTOM" /><el-option label="斜率指示器法" value="INCLINOMETER" /></el-select>
                   <div v-if="item.code==='CTDI'" class="ctdi-parts"><strong>检测部位</strong><el-checkbox-group :model-value="ctdiParts()" :disabled="!editable" @update:model-value="setCtdiParts"><el-checkbox value="HEAD">头部模体</el-checkbox><el-checkbox value="BODY" :disabled="!selectedCase?.detectionCategory?.includes('验收')">体部模体</el-checkbox></el-checkbox-group><small>验收检测可多选；状态及稳定性检测仅头部模体。</small></div>
@@ -1369,13 +1377,14 @@ function showMeasurementHelp(field: FieldDefinition) {
                 <el-button :disabled="!editable" @click="addProtectionPoint">增加点位</el-button>
                 <el-button type="primary" :disabled="!editable || !pointDrafts.length" @click="saveProtectionPoints">保存并计算</el-button>
               </div>
-              <h4>本底值与校准因子</h4><template v-for="item in catalog.filter(i=>i.code==='RPD')" :key="item.code"><MeasurementTable code="RPD" :fields="visibleFields(item)"><template #default="{field}"><el-input v-model="measurementValues[key('RPD',field.code)]" type="number" :disabled="!editable||field.code==='a'"><template v-if="rawFieldUnit('RPD',field)" #append>{{rawFieldUnit('RPD',field)}}</template></el-input></template></MeasurementTable></template><el-button :disabled="!editable" @click="saveMeasurements">保存本底与校准</el-button><div class="computed-panel"><div v-for="v in computedFields('RPD')" :key="v.id" class="computed-value"><span>{{v.fieldLabel}}</span><strong>{{resultDisplay(v)}}</strong></div></div><div class="protection-context">
+<div class="protection-context">
                 <el-input v-model="profileDraft.protectionConditions" :disabled="!editable" placeholder="防护检测条件：kV、mA、s/mAs、模体、扫描方式等" />
-                <el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" placeholder="检测地点" />
                 <el-input v-model="profileDraft.backgroundOperation" :disabled="!editable" placeholder="设备运行情况（本底测量时未曝光）" />
+                <el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" placeholder="检测地点" />
                 <el-input v-model="profileDraft.instrumentResponseTime" :disabled="!editable" placeholder="仪器响应时间（含单位）" />
                 <el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button>
               </div>
+              <h4>本底值与校准因子</h4><template v-for="item in catalog.filter(i=>i.code==='RPD')" :key="item.code"><MeasurementTable code="RPD" :fields="visibleFields(item)"><template #default="{field}"><el-input v-model="measurementValues[key('RPD',field.code)]" type="number" :disabled="!editable||field.code==='a'"><template v-if="rawFieldUnit('RPD',field)" #append>{{rawFieldUnit('RPD',field)}}</template></el-input></template></MeasurementTable></template><el-button :disabled="!editable" @click="saveMeasurements">保存本底与校准</el-button><div class="computed-panel"><div v-for="v in computedFields('RPD')" :key="v.id" class="computed-value"><span>{{v.fieldLabel}}</span><strong>{{resultDisplay(v)}}</strong></div></div>
               <el-table :data="pointDrafts" border @selection-change="(v:ProtectionPoint[])=>selectedPointRows=v"><el-table-column type="selection" width="38"/>
                 <el-table-column label="点位代码" width="120"><template #default="scope"><el-input v-model="scope.row.pointCode" :disabled="!editable" /></template></el-table-column>
                 <el-table-column label="检测点位" width="150"><template #default="scope"><el-input v-model="scope.row.pointName" :disabled="!editable" /></template></el-table-column>
@@ -1519,19 +1528,21 @@ function showMeasurementHelp(field: FieldDefinition) {
           <div class="case-section-title"><div><span>第 2 步</span><h3>受检设备信息</h3></div><HelpMark anchor-id="radiology.equipment" /></div>
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12"><el-form-item><template #label>受检设备名称 * <HelpMark anchor-id="radiology.equipment" /></template><el-input v-model="caseForm.equipmentName" placeholder="填写设备铭牌名称" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="受检设备型号"><el-input v-model="caseForm.equipmentModel" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="受检设备编号"><el-input v-model="caseForm.equipmentNo" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="生产厂家"><el-input v-model="caseForm.manufacturer" /></el-form-item></el-col>
-            <el-col :span="24"><el-form-item label="设备参数"><EquipmentParameters v-model="caseForm.profile.equipmentParameters"/></el-form-item></el-col>
-            <el-col v-if="modality==='CT'" :span="12"><el-form-item label="出厂日期"><el-date-picker v-model="caseForm.profile.manufacturedDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
-            <template v-if="modality === 'CT'">
+            <el-col :xs="24" :sm="12"><el-form-item label="受检设备编号"><el-input v-model="caseForm.equipmentNo" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12"><el-form-item label="受检设备型号"><el-input v-model="caseForm.equipmentModel" /></el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col v-if="modality==='CT'" :xs="24" :sm="12"><el-form-item label="出厂日期"><el-date-picker v-model="caseForm.profile.manufacturedDate" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="modality==='CT'?12:24"><el-form-item label="设备参数"><EquipmentParameters v-model="caseForm.profile.equipmentParameters"/></el-form-item></el-col>
+          </el-row>
+          <details v-if="modality === 'CT'" class="ppt-help"><summary>检测模体信息</summary><el-row :gutter="16">
               <el-col :xs="24" :sm="12"><el-form-item><template #label>模体名称 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomName" /></el-form-item></el-col>
               <el-col :xs="24" :sm="12"><el-form-item><template #label>模体厂家 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomManufacturer" /></el-form-item></el-col>
               <el-col :xs="24" :sm="12"><el-form-item><template #label>模体型号 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomModel" /></el-form-item></el-col>
               <el-col :xs="24" :sm="12"><el-form-item label="模体编号"><el-input v-model="caseForm.phantomSerialNo" /></el-form-item></el-col>
               <el-col :span="24"><el-form-item><template #label>模体说明书/依据 <HelpMark anchor-id="radiology.phantom" /></template><el-input v-model="caseForm.phantomManualReference" placeholder="填写厂家、型号、说明书名称或版本" /></el-form-item></el-col>
-            </template>
-          </el-row>
+          </el-row></details>
         </section>
 
         <section v-else-if="caseDialogStep === 2" class="case-form-section">
@@ -1556,16 +1567,8 @@ function showMeasurementHelp(field: FieldDefinition) {
         <section v-else class="case-form-section case-review-section">
           <div class="case-section-title"><div><span>第 4 步</span><h3>{{ editingCaseId ? '确认修改内容' : '确认并创建' }}</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
           <el-alert type="info" :closable="false" title="请核对关键字段。创建后仍可在草稿、已录入或已计算状态下修改案例信息。" show-icon />
-          <dl class="case-review-grid">
-            <div><dt>受理编号</dt><dd>{{ caseForm.sampleAcceptanceNo || '未填写' }}</dd></div>
-            <div><dt>检测类别</dt><dd>{{ caseForm.detectionCategory || '未填写' }}</dd></div>
-            <div><dt>受检单位名称</dt><dd>{{ caseForm.inspectedUnitName || '未填写' }}</dd></div>
-            <div><dt>检测地点</dt><dd>{{ caseForm.detectionLocation || '未填写' }}</dd></div>
-            <div><dt>受检设备名称</dt><dd>{{caseForm.equipmentName || '未填写'}}</dd></div><div><dt>设备型号</dt><dd>{{caseForm.equipmentModel || '未填写'}}</dd></div><div><dt>委托单位</dt><dd>{{caseForm.profile.commissionedUnit || '未填写'}}</dd></div><div class="wide"><dt>检测设备及证书</dt><dd>{{caseForm.instrumentDescription || '未填写'}}</dd></div>
-            <div><dt>检测起止日期</dt><dd>{{ caseForm.inspectionDate || '未填写' }} 至 {{ caseForm.inspectionEndDate || '未填写' }}</dd></div>
-            <div class="wide"><dt>检测依据</dt><dd>{{ caseForm.standardBasis || '未填写' }}</dd></div>
-          </dl>
-<details class="ppt-help"><summary>补充信息</summary><dl class="case-review-grid">            <div><dt>案例编号</dt><dd>{{ caseForm.caseCode || '未填写' }}</dd></div>
+          <RadiologyCaseSummary :modality="modality" :case-data="caseForm" />
+<details class="ppt-help"><summary>补充信息</summary><dl class="case-review-grid"><div v-if="modality==='DR'"><dt>委托单位</dt><dd>{{caseForm.profile.commissionedUnit || '未填写'}}</dd></div>            <div><dt>案例编号</dt><dd>{{ caseForm.caseCode || '未填写' }}</dd></div>
             <div v-if="modality === 'CT'"><dt>检测模体</dt><dd>{{ [caseForm.phantomManufacturer, caseForm.phantomName, caseForm.phantomModel].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
             <div><dt>所在地</dt><dd>{{ [caseForm.city,caseForm.county].filter(Boolean).join(' / ') || '未填写' }}</dd></div>
             <div><dt>本次检测范围</dt><dd>{{ (caseForm.profile.selectedGroups || []).map(detectionGroupLabel).join('、') }}</dd></div>

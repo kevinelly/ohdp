@@ -81,6 +81,18 @@ test('cancelled project and cross-module navigation preserve unsaved readings wi
  await c.selectQueryCase({id:2,modality:'DR'});await c.selectQueryCase({id:3,modality:'CT'});await c.openQueryResult({id:4,modality:'DOSE'})
  assert.equal(c.selectedCase.value.id,1);assert.equal(c.measurementValues['ETD::ETD1-1'],'11.12');assert.equal(c.queryVisible.value,true);assert.deepEqual(c.calls,[]);assert.deepEqual(c.emits,[])
 })
+
+test('saving measurements refreshes invalidated point results but retains unsaved point edits',()=>{
+ for(const edited of [false,true]){
+  const c=component('RadiologyWorkbench.vue','selectedCase,pointDrafts,syncSavedPointResults')
+  const old=[{id:1,name:'测试点位',readings:[1,2,3],resultValue:2,averageValue:2}]
+  c.pointDrafts.value=[{...old[0],name:edited?'尚未保存的点位':old[0].name,readingsText:'1, 2, 3'}]
+  c.selectedCase.value={protectionPoints:[{...old[0],resultValue:null,averageValue:null}]}
+  c.syncSavedPointResults(old)
+  assert.equal(c.pointDrafts.value[0].resultValue,edited?2:null)
+  assert.equal(c.pointDrafts.value[0].name,edited?'尚未保存的点位':'测试点位')
+ }
+})
 test('confirmed discard can open personal dose; clean values do not prompt',async()=>{
  let prompts=0;const c=radiology(async()=>{prompts++})
  assert.equal(await c.confirmLeave(),true);assert.equal(prompts,0)
@@ -112,8 +124,8 @@ test('enabling dynamic measurement rows preserves old readings and conditions',(
 test('material, position and signal tables include every input once',()=>{
  for(const [code,codes] of [['HUL',['Air-HU1','Air-HU2','Air-HU3','Air-REF','LDPE-HU1']],['CTDI',['HCD1','HCD2','HCD3','HUD1','层数n1','CTDI-HEAD-MANUFACTURER']],['STP',['STP-K1','STP-R1','STP-K2','STP-R2','STP-MODEL']],['TVD',['TVD1-0','TVD1-1','TVD2-0','TVD2-1','TVD-K1','TVD-K2']]]){
   const fields=codes.map(code=>({code,label:code,unit:'',required:true,role:'RAW',sortNo:1}))
-  const c=component('MeasurementTable.vue','layout',{props:{code,fields}})
-  const rendered=c.layout.value.rows.flatMap(r=>r.fields).concat(c.layout.value.extra).map(f=>f.code)
+  const c=component('MeasurementTable.vue','layout,referenceFields',{props:{code,fields}})
+  const rendered=c.layout.value.rows.flatMap(r=>r.fields).concat(c.layout.value.extra,c.referenceFields.value).map(f=>f.code)
   assert.deepEqual(rendered.toSorted(),codes.toSorted());assert.equal(new Set(rendered).size,codes.length)
  }
 })
