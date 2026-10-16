@@ -170,3 +170,12 @@
 .dose-step-dialog .el-dialog__footer .el-button{min-height:44px;min-width:95px;border-radius:8px;font-size:17px}
 .dose-workbench .dose-summary .el-descriptions__table{border-collapse:separate;border-spacing:6px}
 .dose-workbench .dose-summary .el-descriptions__table .el-descriptions__cell{border:1px solid #aaa;border-radius:6px;font-size:16px}
+
+/* Keep report review actions and comments visible while the report scrolls. */
+.ppt-report-preview.el-dialog{display:flex;flex-direction:column;max-height:94vh;overflow:hidden}
+.ppt-report-preview .el-dialog__body{flex:1;min-height:0;overflow:auto}
+.ppt-report-preview .el-dialog__footer{flex:none;max-height:45vh;overflow:auto;border-top:1px solid #d8dfe1;padding-top:14px}
+.ppt-report-preview .el-dialog__footer .el-form{margin-top:14px}
+.ppt-report-preview .el-dialog__footer .el-form-item__label{font:20px/1.5 SimSun,serif;color:#111}
+.ppt-report-preview .el-dialog__footer .el-textarea__inner{min-height:75px;border:2px solid #aaa;border-radius:8px;background:white;box-shadow:none;font-size:18px}
+.ppt-report-preview .el-dialog__footer .el-button{min-height:42px;min-width:95px;border-radius:8px;font-size:17px}
