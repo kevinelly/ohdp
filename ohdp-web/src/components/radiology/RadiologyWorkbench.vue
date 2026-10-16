@@ -1480,13 +1480,18 @@ function showMeasurementHelp(field: FieldDefinition) {
       <el-form label-position="top" class="case-step-form">
         <section v-if="caseDialogStep === 0" class="case-form-section">
           <div class="case-section-title"><div><span>第 1 步</span><h3>受检单位信息</h3></div><HelpMark anchor-id="radiology.case-steps" /></div>
-<el-row :gutter="16">
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="受理编号 *"><el-input v-model="caseForm.sampleAcceptanceNo" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测类别 *"><el-select v-model="caseForm.detectionCategory" style="width:100%"><el-option label="验收检测" value="验收检测" /><el-option label="状态检测" value="状态检测" /><el-option label="稳定性检测" value="稳定性检测" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :sm="12"><el-form-item label="委托单位"><el-input v-model="caseForm.profile.commissionedUnit" /></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="受检单位名称 *"><el-input v-model="caseForm.inspectedUnitName" placeholder="填写单位完整名称" /></el-form-item></el-col>
+          <el-row :gutter="16">
+            <el-col :xs="24" :sm="12" :md="6"><el-form-item label="受理编号 *"><el-input v-model="caseForm.sampleAcceptanceNo" /></el-form-item></el-col>
+            <el-col :xs="24" :sm="12" :md="6"><el-form-item label="检测类别 *"><el-select v-model="caseForm.detectionCategory" style="width:100%"><el-option label="验收检测" value="验收检测" /><el-option label="状态检测" value="状态检测" /><el-option label="稳定性检测" value="稳定性检测" /></el-select></el-form-item></el-col>
+            <el-col :xs="24" :sm="24" :md="12"><el-form-item label="委托单位"><el-input v-model="caseForm.profile.commissionedUnit" /></el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :xs="24" :md="12"><el-form-item label="受检单位名称 *"><el-input v-model="caseForm.inspectedUnitName" placeholder="请填写单位完整名称" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="受检单位地址"><el-input v-model="caseForm.inspectedUnitAddress" /></el-form-item></el-col>
-            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="检测地点"><el-input v-model="caseForm.detectionLocation" /></el-form-item></el-col></el-row><details class="ppt-help"><summary>报告及查询补充信息</summary><el-row :gutter="16">            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="案例编号 *"><el-input v-model="caseForm.caseCode" placeholder="例如 CT-20260828-01" /></el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :xs="24" :md="12"><el-form-item label="检测地点"><el-input v-model="caseForm.detectionLocation" /></el-form-item></el-col>
+          </el-row><details class="ppt-help"><summary>报告及查询补充信息</summary><el-row :gutter="16">            <el-col :xs="24" :sm="12" :md="8"><el-form-item label="案例编号 *"><el-input v-model="caseForm.caseCode" placeholder="例如 CT-20260828-01" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="样品名称"><el-input v-model="caseForm.profile.sampleName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="12"><el-form-item label="送检单位"><el-input v-model="caseForm.profile.submittingUnit" /></el-form-item></el-col>
             <el-col :xs="24" :sm="6"><el-form-item label="所在地市"><el-select v-model="caseForm.city" filterable allow-create><el-option v-for="r in cityOptions" :key="r.id" :value="r.regionName" :label="r.regionName" /></el-select></el-form-item></el-col>

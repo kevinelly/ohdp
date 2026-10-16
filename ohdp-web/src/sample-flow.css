@@ -1154,6 +1154,21 @@ tbody tr:hover {
   letter-spacing: 0;
 }
 
+.login-intro .login-platform-name {
+  max-width: none;
+  margin: 0;
+  text-align: center;
+  font-family: "SimSun", "Songti SC", serif;
+  font-size: clamp(21px, 2.8vw, 48px);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.login-platform-name span {
+  display: block;
+  white-space: nowrap;
+}
+
 .login-card {
   border: 1px solid var(--sf-line);
   border-radius: 8px;

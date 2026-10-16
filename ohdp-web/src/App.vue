@@ -3267,15 +3267,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 
     <main v-if="!isLoggedIn" class="login-stage">
       <section class="login-intro">
-        <span class="intro-seal">受控数据</span>
-        <h2>从原始记录到检测报告，<br />每一步都可追溯。</h2>
-        <p>面向检测人员与报告人员的统一工作台，集中完成项目建档、数据录入、自动计算、审核批准和报告归档。</p>
-        <ol class="login-flow" aria-label="检测业务流程">
-          <li><strong>01</strong><span>项目建档</span></li>
-          <li><strong>02</strong><span>数据录入</span></li>
-          <li><strong>03</strong><span>计算判定</span></li>
-          <li><strong>04</strong><span>审核报告</span></li>
-        </ol>
+        <h2 class="login-platform-name"><span>放射性职业病危害因素</span><span>检测数据管理平台</span></h2>
       </section>
       <form class="card login-card" @submit.prevent="login">
         <div class="login-heading">
@@ -3297,7 +3289,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <input v-model="loginForm.rememberMe" type="checkbox" />
           <span><strong>保持登录 30 天 <HelpMark anchor-id="session.remember" /></strong><small>浏览器不会保存明文密码</small></span>
         </label>
-        <button class="login-submit" type="submit">登陆</button>
+        <button class="login-submit" type="submit">登录</button>
         <p class="login-note">系统操作会记录账号、时间和关键数据变更。</p>
       </form>
     </main>
