@@ -31,9 +31,9 @@ function radiology(confirm){
 test('TVD presentation reads legacy groups without changing their stored values or results',()=>{
  const values={'TVD::TVD2-0':'120','TVD::TVD-K2':'1.02'},conditions=reactive({'TVD.2':'第二组原条件'})
  const before=JSON.stringify({values,conditions})
- const c=component('TvdPptEntry.vue','rows,fieldKey,result',{props:{values,conditions,disabled:false,results:[{fieldCode:'MEAN_2',output:'122.40 kV'},{fieldCode:'DISPLAY_2',output:'2.0%'}]}})
+ const c=component('TvdPptEntry.vue','rows,fieldKey,result,meanValue,deviationValue',{props:{values,conditions,disabled:false,results:[{fieldCode:'MEAN_2',output:'122.40 kV'},{fieldCode:'DISPLAY_2',output:'2.0%'}]}})
  assert.deepEqual(c.rows.value,[1,2,3]);assert.equal(c.fieldKey(2,0),'TVD::TVD2-0');assert.equal(c.fieldKey(2,4),'TVD::TVD-K2')
- assert.equal(c.result(2,'MEAN'),'122.40 kV');assert.equal(c.result(2,'DISPLAY'),'2.0%');assert.equal(JSON.stringify({values,conditions}),before)
+ assert.equal(c.meanValue(2),'122.40');assert.equal(c.meanValue(1),'');assert.equal(c.deviationValue(1),'');assert.equal(c.result(2,'MEAN'),'122.40 kV');assert.equal(c.result(2,'DISPLAY'),'2.0%');assert.equal(JSON.stringify({values,conditions}),before)
 })
 
 test('TVD adding a row migrates all three original groups and their independent conditions',()=>{

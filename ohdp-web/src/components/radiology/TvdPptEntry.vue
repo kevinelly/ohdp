@@ -6,9 +6,11 @@ import HelpMark from '../help/HelpMark.vue'
 const props=defineProps<{
   values:Record<string,string|number>
   conditions:Record<string,string>
-  results:{fieldCode:string;output:string}[]
+  results:{fieldCode:string;fieldLabel?:string;output:string}[]
+  supplementOpen?:boolean
   disabled:boolean
 }>()
+const emit=defineEmits<{next:[];'close-supplement':[]}>()
 const dynamicRows=computed<number[]>(()=>JSON.parse(props.conditions['__rows.TVD'] || '[]'))
 const rows=computed(()=>dynamicRows.value.length ? dynamicRows.value : [1,2,3])
 const inputColumns=['预设值','读数1','读数2','读数3','校准因子']
@@ -20,6 +22,8 @@ function result(id:number,kind:'MEAN'|'DISPLAY') {
   const code=dynamicRows.value.length ? `R${id}__${kind}_1` : `${kind}_${id}`
   return props.results.find(value=>value.fieldCode===code)?.output || '—'
 }
+function meanValue(id:number){const value=result(id,'MEAN');return value==='—'?'':value.replace(/\s*kV$/, '')}
+function deviationValue(id:number){const value=result(id,'DISPLAY');return value==='—'?'':value}
 function enableRows() {
   if(dynamicRows.value.length)return
   // Preserve the original three groups and their individual conditions when
@@ -55,7 +59,7 @@ function setCondition(value:string,parameters=false) {
 <template>
   <section class="tvd-ppt-entry" aria-label="管电压指示的偏离录入">
     <h4 class="conditions-title">检测条件</h4>
-    <RadiologyConditionEditor item-code="TVD" ppt-tvd :model-value="conditions.TVD" :parameters="conditions['__params.TVD']" :disabled="disabled" @update:model-value="setCondition($event)" @update:parameters="setCondition($event,true)" />
+    <RadiologyConditionEditor item-code="TVD" ppt-tvd compact-only :model-value="conditions.TVD" :parameters="conditions['__params.TVD']" :disabled="disabled" @update:model-value="setCondition($event)" @update:parameters="setCondition($event,true)" />
     <div class="tvd-matrix-scroll">
       <div class="tvd-matrix" role="table" aria-label="管电压指示的偏离测量值">
         <div class="tvd-grid tvd-column-headings" role="row">
@@ -64,49 +68,61 @@ function setCondition(value:string,parameters=false) {
           <span role="columnheader">偏差 <HelpMark anchor-id="radiology.calculation" /></span>
         </div>
         <div v-for="(id,index) in rows" :key="id" class="tvd-grid tvd-reading-row" role="row" :aria-label="`第${index+1}行`">
-          <div v-for="(label,column) in inputColumns" :key="label" role="cell">
-            <el-input v-model="values[fieldKey(id,column)]" type="number" :disabled="disabled" :aria-label="`TVD第${index+1}行${label}`">
-              <template v-if="column<4" #append>kV</template>
-            </el-input>
+          <div v-for="(label,column) in inputColumns" :key="label" class="tvd-reading-cell" role="cell">
+            <input v-model="values[fieldKey(id,column)]" type="number" step="any" :disabled="disabled" :aria-label="`TVD第${index+1}行${label}`" />
+            <span v-if="column<4" class="reading-unit">kV</span>
           </div>
-          <div class="tvd-output" role="cell" :aria-label="`第${index+1}行平均值`">{{result(id,'MEAN')}}</div>
-          <div class="tvd-output" role="cell" :aria-label="`第${index+1}行偏差`">{{result(id,'DISPLAY')}}</div>
+          <div class="tvd-output tvd-mean" role="cell" :aria-label="`第${index+1}行平均值`"><span>{{meanValue(id)}}</span><span>kV</span></div>
+          <div class="tvd-output tvd-deviation" role="cell" :aria-label="`第${index+1}行偏差`">{{deviationValue(id)}}</div>
         </div>
       </div>
     </div>
-    <div class="tvd-row-actions">
-      <el-button :disabled="disabled || rows.length>=30" @click="addRow">增加行</el-button>
-      <el-button :disabled="disabled || rows.length<=1" title="删除最后一行，至少保留一行；保存后生效" @click="deleteLastRow">删除行</el-button>
+    <div class="tvd-footer">
+      <div class="tvd-row-actions">
+        <el-button :disabled="disabled || rows.length>=30" @click="addRow">增加行</el-button>
+        <el-button :disabled="disabled || rows.length<=1" title="删除最后一行，至少保留一行；保存后生效" @click="deleteLastRow">删除行</el-button>
+      </div>
+      <el-button class="tvd-next" type="primary" @click="emit('next')">下一步</el-button>
     </div>
-    <details class="tvd-group-conditions">
-      <summary>分组检测条件</summary>
-      <label v-for="(id,index) in rows" :key="id">第{{index+1}}组
-        <el-input v-model="conditions[dynamicRows.length ? `TVD.R${id}` : `TVD.${id}`]" :disabled="disabled" placeholder="留空使用上方共有条件" :aria-label="`TVD第${index+1}组检测条件`" />
-      </label>
-    </details>
+    <el-dialog :model-value="!!supplementOpen" title="管电压补充条件与历史记录" width="min(900px,94vw)" @update:model-value="emit('close-supplement')">
+      <RadiologyConditionEditor item-code="TVD" :model-value="conditions.TVD" :parameters="conditions['__params.TVD']" :disabled="disabled" @update:model-value="setCondition($event)" @update:parameters="setCondition($event,true)" />
+      <div class="tvd-group-conditions">
+        <label v-for="(id,index) in rows" :key="id">第{{index+1}}组检测条件
+          <el-input v-model="conditions[dynamicRows.length ? `TVD.R${id}` : `TVD.${id}`]" :disabled="disabled" placeholder="留空使用共有条件" :aria-label="`TVD第${index+1}组检测条件`" />
+        </label>
+      </div>
+      <h4>完整计算结果</h4><p v-for="value in results" :key="value.fieldCode">{{value.fieldLabel || value.fieldCode}}：{{value.output}}</p>
+      <template #footer><el-button @click="emit('close-supplement')">关闭</el-button></template>
+    </el-dialog>
   </section>
 </template>
 
 <style scoped>
-.tvd-ppt-entry{padding:12px 0 0;color:#162f3a}
-.conditions-title{font-size:19px;font-weight:400;margin:10px 0 8px}
-.tvd-matrix-scroll{overflow-x:auto;margin-top:18px;padding-bottom:2px}
+.tvd-ppt-entry{padding:12px 0 0;color:#111;font-family:SimSun,"Songti SC",serif}
+.conditions-title{font-size:26px;font-weight:400;margin:14px 0 4px 16px;line-height:1.4}
+.tvd-ppt-entry>:deep(.tvd-inline-conditions){margin-left:16px}
+.tvd-matrix-scroll{overflow-x:auto;margin-top:18px;padding:0 2px 2px}
 .tvd-matrix{min-width:790px}
-.tvd-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
-.tvd-column-headings{align-items:center;margin:0 0 9px;font-size:17px;text-align:center;line-height:1.7}
-.required{margin-left:3px}
-.tvd-reading-row{margin-bottom:7px;align-items:stretch}
-.tvd-reading-row :deep(.el-input){height:52px;font-size:17px}
-.tvd-reading-row :deep(.el-input__wrapper){padding:1px 10px;border-radius:7px 0 0 7px;box-shadow:0 0 0 1.5px #acb3b5 inset;background:#fff}
-.tvd-reading-row :deep(.el-input:not(.el-input-group) .el-input__wrapper){border-radius:7px}
-.tvd-reading-row :deep(.el-input__inner){min-width:0;text-align:right;color:#111;-moz-appearance:textfield}
-.tvd-reading-row :deep(input::-webkit-inner-spin-button),.tvd-reading-row :deep(input::-webkit-outer-spin-button){-webkit-appearance:none;margin:0}
-.tvd-reading-row :deep(.el-input-group__append){padding:0 9px;background:white;color:#111;box-shadow:0 0 0 1.5px #acb3b5 inset;border-radius:0 7px 7px 0}
-.tvd-output{display:flex;align-items:center;justify-content:center;min-height:52px;padding:4px;border:1.5px solid #acb3b5;border-radius:7px;background:#e9e9e9;font-size:17px;overflow-wrap:anywhere}
-.tvd-row-actions{display:flex;gap:12px;margin:20px 0 12px}
+.tvd-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.tvd-column-headings{align-items:center;margin:0 0 12px;font-size:24px;text-align:center;line-height:1.5;font-weight:400}
+.required{margin-left:2px}
+.tvd-reading-row{margin-bottom:5px;align-items:stretch}
+.tvd-reading-cell,.tvd-output{display:flex;align-items:center;height:56px;min-width:0;border:2px solid #aaa;border-radius:8px;background:white;overflow:hidden;font:24px Arial,sans-serif;color:#111}
+.tvd-reading-cell:focus-within{border-color:#00857a}
+.tvd-reading-cell input{border:0;outline:0;background:transparent;min-width:0;width:100%;padding:0 4px 0 8px;height:100%;color:inherit;font:inherit;text-align:right;box-shadow:none;-moz-appearance:textfield}
+.tvd-reading-cell input::-webkit-inner-spin-button,.tvd-reading-cell input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.tvd-reading-cell input:disabled{color:#68777d;cursor:not-allowed}
+.reading-unit{flex:0 0 auto;padding:0 13px 0 4px}
+.tvd-output{justify-content:center;padding:0 12px;font-size:22px;overflow-wrap:anywhere}
+.tvd-mean{justify-content:flex-end;gap:6px}
+.tvd-deviation{background:#f2f2f2}
+.tvd-column-headings :deep(.help-mark){display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;background:#588d37;color:white;border:0;border-radius:50%;font:700 15px Arial,sans-serif;vertical-align:middle}
+.tvd-footer{display:flex;justify-content:space-between;align-items:flex-start;margin:28px 36px 20px 20px;gap:16px}
+.tvd-row-actions{display:flex;gap:24px}
+.tvd-row-actions .el-button{width:108px;height:48px;padding:0;font:700 20px "Microsoft YaHei",sans-serif;border:2px solid #133f51;background:transparent;border-radius:8px}
 .tvd-row-actions .el-button+.el-button{margin-left:0}
-.tvd-group-conditions{margin-top:18px;font-size:13px;color:#5b6e75}
-.tvd-group-conditions summary{cursor:pointer}
-.tvd-group-conditions label{display:inline-flex;flex-direction:column;gap:6px;width:calc(33.333% - 12px);margin:12px 12px 0 0}
-@media(max-width:850px){.tvd-column-headings{font-size:15px}.tvd-group-conditions label{width:100%}}
+.tvd-footer .tvd-next{margin-top:40px;width:144px;height:48px;font:400 22px "Microsoft YaHei",sans-serif;color:#fff;border-radius:8px}
+.tvd-group-conditions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
+.tvd-group-conditions label{display:flex;flex-direction:column;gap:6px}
+@media(max-width:850px){.tvd-footer{margin-right:4px;margin-left:4px}.tvd-row-actions{gap:10px}.tvd-row-actions .el-button{width:94px}.tvd-group-conditions{grid-template-columns:1fr}}
 </style>
