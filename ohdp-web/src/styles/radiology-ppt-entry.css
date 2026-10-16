@@ -1,0 +1,172 @@
+/* The approved project directory and PPT entry presentation. Data bindings and
+   calculation identifiers remain owned by the existing field components. */
+.radiology-workbench .case-main.ppt-recording-pane{position:relative;background:#f1f5f6;border:0;box-shadow:none}
+.radiology-workbench .ppt-recording-pane .quality-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;align-items:start}
+.radiology-workbench .ppt-recording-pane .quality-navigation{margin:0;max-height:75vh;background:#f7fafb}
+.radiology-workbench .ppt-recording-pane .quality-project{padding:0 2px;color:#111}
+.radiology-workbench .ppt-recording-pane .quality-project>header{border:0;padding:8px 0 18px;display:flex;justify-content:space-between;align-items:center}
+.radiology-workbench .ppt-recording-pane .quality-project .item-title strong{font:400 24px/1.5 SimSun,"Songti SC",serif}
+.radiology-workbench .ppt-recording-pane .quality-project .item-title small{display:none}
+.radiology-workbench .ppt-recording-pane .ppt-entry-actions{gap:8px;margin:0}
+.radiology-workbench .ppt-recording-pane .ppt-entry-actions .el-button{height:48px;min-width:112px;border:2px solid #133f51;background:transparent;border-radius:8px;font:700 18px "Microsoft YaHei",sans-serif}
+.radiology-workbench .ppt-recording-pane .quality-project>details.ppt-help{display:none}
+.radiology-workbench .ppt-recording-pane .quality-project .condition-fields{display:flex;flex-wrap:wrap;gap:14px 20px;margin:8px 8px 20px}
+.radiology-workbench .ppt-recording-pane .condition-fields>label{display:flex;align-items:center;flex-direction:row;gap:0;flex:0 1 auto;min-width:190px;max-width:100%;height:52px;margin:0;border:2px solid #aaa;border-radius:8px;overflow:hidden;background:white;color:#111;font:22px SimSun,"Songti SC",serif}
+.radiology-workbench .ppt-recording-pane .condition-fields>label>span{flex:0 0 auto;padding:0 12px;white-space:nowrap}
+.radiology-workbench .ppt-recording-pane .condition-fields>label>.el-input{width:120px;flex:1;min-width:64px;height:100%}
+.radiology-workbench .ppt-recording-pane .condition-fields>label>.el-select{min-width:120px;max-width:340px;flex:1}
+.radiology-workbench .ppt-recording-pane .condition-fields .el-input__wrapper{border-radius:0;background:#d9d9d9;box-shadow:none;padding:0 8px}
+.radiology-workbench .ppt-recording-pane .condition-fields .el-input__inner{min-width:0;color:#111;text-align:right;font:22px Arial,sans-serif}
+.radiology-workbench .ppt-recording-pane .condition-fields .el-input-group__append{padding:0 12px;background:white;box-shadow:none;border-radius:0;color:#111;font:22px Arial,sans-serif}
+.radiology-workbench .ppt-recording-pane .condition-fields .el-select__wrapper{box-shadow:none;border-radius:0;min-height:48px;font:20px SimSun,serif}
+.radiology-workbench .ppt-recording-pane .condition-fields .exposure-controls{display:flex;min-width:0;flex-wrap:wrap;align-items:center;gap:0;border:2px solid #aaa;border-radius:8px;overflow:hidden;background:white;height:52px}
+.radiology-workbench .ppt-recording-pane .exposure-controls>.el-select{width:190px}
+.radiology-workbench .ppt-recording-pane .exposure-controls>label{display:flex;align-items:stretch;min-width:0;height:100%;margin:0}
+.radiology-workbench .ppt-recording-pane .exposure-controls .el-input{width:165px;height:100%}
+.radiology-workbench .ppt-recording-pane .measurement-extra,.radiology-workbench .ppt-recording-pane .ctdi-parameters{display:flex;flex-wrap:wrap;gap:14px 20px;margin:12px 8px 20px}
+.radiology-workbench .ppt-recording-pane .measurement-extra>label,.radiology-workbench .ppt-recording-pane .ctdi-parameters>label{display:flex;align-items:center;gap:10px;flex:0 1 360px;max-width:100%;color:#111;font:20px SimSun,serif}
+.radiology-workbench .ppt-recording-pane .measurement-extra>label>span,.radiology-workbench .ppt-recording-pane .ctdi-parameters>label>span{flex:0 1 auto;font:20px SimSun,serif;margin:0}
+.radiology-workbench .ppt-recording-pane .measurement-extra .el-input,.radiology-workbench .ppt-recording-pane .ctdi-parameters .el-input{min-width:80px;flex:1}
+.radiology-workbench .ppt-recording-pane .measurement-table,.radiology-workbench .ppt-recording-pane .measurement-rows table{width:100%;min-width:700px;table-layout:fixed;border-collapse:separate;border-spacing:8px 5px;color:#111;font-family:SimSun,"Songti SC",serif}
+.radiology-workbench .ppt-recording-pane .measurement-table th,.radiology-workbench .ppt-recording-pane .measurement-table td,.radiology-workbench .ppt-recording-pane .measurement-rows th,.radiology-workbench .ppt-recording-pane .measurement-rows td{min-width:82px;padding:0;border:0;background:transparent;vertical-align:middle;font-weight:400}
+.radiology-workbench .ppt-recording-pane .measurement-table th,.radiology-workbench .ppt-recording-pane .measurement-rows th{padding:3px 2px 9px;font:22px/1.5 SimSun,"Songti SC",serif;text-align:center}
+.radiology-workbench .ppt-recording-pane .measurement-table tbody th{padding:4px 6px;background:#ddd;border:2px solid #aaa;border-radius:7px;font-size:18px}
+.radiology-workbench .ppt-recording-pane .measurement-table td.calculated,.radiology-workbench .ppt-recording-pane .measurement-rows td.calculated{height:56px;border:2px solid #aaa;border-radius:8px;background:#f2f2f2;text-align:center;padding:4px 8px;font:20px Arial,"Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
+.radiology-workbench .ppt-recording-pane .measurement-table .el-input,.radiology-workbench .ppt-recording-pane .measurement-rows .el-input,.radiology-workbench .ppt-recording-pane .measurement-extra .el-input,.radiology-workbench .ppt-recording-pane .ctdi-parameters .el-input{height:56px;border:2px solid #aaa;border-radius:8px;overflow:hidden;background:white}
+.radiology-workbench .ppt-recording-pane .measurement-table .el-input__wrapper,.radiology-workbench .ppt-recording-pane .measurement-rows .el-input__wrapper,.radiology-workbench .ppt-recording-pane .measurement-extra .el-input__wrapper,.radiology-workbench .ppt-recording-pane .ctdi-parameters .el-input__wrapper{box-shadow:none;border-radius:0;background:white;padding:0 7px}
+.radiology-workbench .ppt-recording-pane .measurement-table .el-input__inner,.radiology-workbench .ppt-recording-pane .measurement-rows .el-input__inner,.radiology-workbench .ppt-recording-pane .measurement-extra .el-input__inner,.radiology-workbench .ppt-recording-pane .ctdi-parameters .el-input__inner{min-width:0;color:#111;font:22px Arial,sans-serif;text-align:right;-moz-appearance:textfield}
+.radiology-workbench .ppt-recording-pane .el-input__inner::-webkit-inner-spin-button,.radiology-workbench .ppt-recording-pane .el-input__inner::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.radiology-workbench .ppt-recording-pane .measurement-table .el-input-group__append,.radiology-workbench .ppt-recording-pane .measurement-rows .el-input-group__append,.radiology-workbench .ppt-recording-pane .measurement-extra .el-input-group__append,.radiology-workbench .ppt-recording-pane .ctdi-parameters .el-input-group__append{padding:0 8px;background:white;border-radius:0;box-shadow:none;color:#111;font:20px Arial,sans-serif}
+.radiology-workbench .ppt-recording-pane .measurement-table .el-select__wrapper,.radiology-workbench .ppt-recording-pane .measurement-rows .el-select__wrapper{min-height:56px;box-shadow:0 0 0 2px #aaa inset;border-radius:8px;background:white;font:18px "Microsoft YaHei",sans-serif}
+.radiology-workbench .ppt-recording-pane .measurement-table .help-mark{display:none}
+.radiology-workbench .ppt-recording-pane .measurement-table th .help-mark{display:inline-flex}
+.radiology-workbench .ppt-recording-pane .chamber-readings{gap:6px;grid-template-columns:repeat(3,minmax(80px,1fr))}
+.radiology-workbench .ppt-recording-pane .chamber-table{min-width:960px}
+.radiology-workbench .ppt-recording-pane .row-actions{display:flex;gap:20px;margin:24px 8px 12px}
+.radiology-workbench .ppt-recording-pane .row-actions .el-button{height:48px;min-width:108px;border:2px solid #133f51;border-radius:8px;background:transparent;font:700 18px "Microsoft YaHei",sans-serif;margin-left:0}
+.radiology-workbench .ppt-recording-pane .ppt-next-actions{padding:10px 8px 16px;margin-top:20px}
+.radiology-workbench .ppt-recording-pane .ppt-next-actions .el-button{height:48px;min-width:138px;border-radius:8px;font:400 22px "Microsoft YaHei",sans-serif}
+.radiology-workbench .ppt-recording-pane .ctdi-block h4{font:22px SimSun,serif;color:#111}
+.radiology-workbench .ppt-recording-pane .ctdi-block{border-top:1px solid #cbd5d9;margin-top:18px;padding-top:8px}
+.radiology-workbench .ppt-recording-pane .reading-label{font:16px SimSun,serif}
+.radiology-workbench .ppt-recording-pane .stp-summary{display:flex;gap:24px;flex-wrap:wrap;margin:18px 8px}
+.radiology-workbench .ppt-recording-pane .stp-summary label{font:20px SimSun,serif;display:flex;gap:12px;align-items:center}
+.radiology-workbench .ppt-recording-pane .stp-summary output{display:flex;align-items:center;min-width:160px;min-height:52px;border:2px solid #aaa;background:#f2f2f2;border-radius:8px;padding:8px 14px;font:18px Arial,sans-serif}
+.radiology-workbench .ppt-recording-pane .protection-calibration{display:flex;align-items:center;flex-wrap:wrap;gap:16px;margin:18px 0;font-size:16px}
+.radiology-workbench .ppt-recording-pane .protection-calibration label{display:flex;align-items:center;gap:12px}
+.radiology-workbench .ppt-recording-pane .protection-calibration .el-select{width:min(480px,55vw)}
+.radiology-workbench .ppt-recording-pane .protection-context{grid-template-columns:repeat(2,minmax(200px,1fr));gap:12px}
+.radiology-workbench .ppt-recording-pane .protection-extra-toggle{margin:16px 0}
+.radiology-workbench .ppt-recording-pane .ppt-protection-readings{--el-table-border-color:transparent;--el-table-tr-bg-color:transparent;--el-table-header-bg-color:transparent;background:transparent}
+.radiology-workbench .ppt-recording-pane .ppt-protection-readings th.el-table__cell{background:transparent;color:#111;font:20px SimSun,serif;border:0}
+.radiology-workbench .ppt-recording-pane .ppt-protection-readings td.el-table__cell{background:transparent;border:0;padding:4px 0}
+.radiology-workbench .ppt-recording-pane .ppt-protection-readings .cell{padding:2px 5px}
+.radiology-workbench .ppt-recording-pane .ppt-protection-readings .el-input__wrapper{height:50px;box-shadow:0 0 0 2px #aaa inset;border-radius:8px;background:white;font:18px Arial,"Microsoft YaHei",sans-serif}
+.radiology-workbench .ppt-recording-pane .ppt-protection-readings td.ppt-point-result .cell{display:flex;align-items:center;justify-content:center;min-height:50px;background:#f2f2f2;border:2px solid #aaa;border-radius:8px;font:18px Arial,sans-serif}
+.radiology-workbench .ppt-recording-pane .measurement-rows table>thead>tr>th:first-child,.radiology-workbench .ppt-recording-pane .measurement-rows table>tbody>tr>td:first-child{width:32px;min-width:32px}
+.radiology-workbench .ppt-recording-pane:has(.el-alert)>.tvd-top-tools{top:64px}
+.dose-workbench .dose-ppt-entry{background:#f1f5f6}
+.dose-workbench .dose-ppt-entry .el-table{--el-table-border-color:transparent;--el-table-tr-bg-color:transparent;--el-table-header-bg-color:transparent;background:transparent}
+.dose-workbench .dose-ppt-entry .el-table th.el-table__cell{background:transparent;color:#111;font:20px SimSun,serif;border:0}
+.dose-workbench .dose-ppt-entry .el-table td.el-table__cell{background:transparent;border:0;padding:5px 0}
+.dose-workbench .dose-ppt-entry .el-table .cell{padding:2px 5px}
+.dose-workbench .dose-ppt-entry .el-input__wrapper{min-height:48px;box-shadow:0 0 0 2px #aaa inset;border-radius:7px;background:white;font-size:17px}
+.dose-workbench .dose-ppt-entry .el-select__wrapper{min-height:48px;box-shadow:0 0 0 2px #aaa inset;border-radius:7px;background:white;font-size:16px}
+.dose-workbench .dose-ppt-entry .el-table td.ppt-readonly .cell{display:flex;align-items:center;justify-content:center;min-height:48px;background:#f2f2f2;border:2px solid #aaa;border-radius:7px;font:17px Arial,sans-serif}
+.dose-workbench .dose-ppt-entry .row-actions .el-button{height:46px;min-width:108px;border:2px solid #133f51;border-radius:8px;background:transparent;font:700 18px "Microsoft YaHei",sans-serif}
+.radiology-workbench .ppt-recording-pane .measurement-table-scroll,.radiology-workbench .ppt-recording-pane .rows-scroll{margin:14px 0}
+@media(max-width:1100px){.radiology-workbench .ppt-recording-pane .quality-layout{grid-template-columns:200px minmax(0,1fr);gap:14px}.radiology-workbench .ppt-recording-pane .condition-fields>label{min-width:180px}.radiology-workbench .ppt-recording-pane .ppt-entry-actions .el-button{min-width:78px;font-size:16px}.radiology-workbench .ppt-recording-pane .quality-project .item-title strong{font-size:22px}}
+@media(max-width:760px){.radiology-workbench .ppt-recording-pane .quality-layout{grid-template-columns:1fr}.radiology-workbench .ppt-recording-pane .quality-navigation{max-height:260px}.radiology-workbench .ppt-recording-pane .quality-navigation section{display:block}.radiology-workbench .ppt-recording-pane .quality-navigation button{width:100%}.radiology-workbench .ppt-recording-pane .exposure-controls{height:auto}.radiology-workbench .ppt-recording-pane .exposure-controls>.el-select{width:100%}.radiology-workbench .ppt-recording-pane .exposure-controls>label{height:50px;flex:1}}
+
+/* Two-page review: equal visual hierarchy for the selected item and PPT inputs. */
+.radiology-workbench .case-main.ppt-recording-pane .quality-project .item-title .el-tag{display:none}
+.radiology-workbench .case-main.ppt-recording-pane .quality-project>header{margin-bottom:12px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-extra{display:flex;gap:12px;margin:12px 8px 20px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-extra>label{display:flex;flex-direction:row;gap:12px;flex:0 0 300px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-extra>label>span{white-space:nowrap;margin:0}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-extra .el-input{height:52px}
+.radiology-workbench .case-main.ppt-recording-pane .condition-fields>label{flex:0 0 210px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-table input::placeholder{color:transparent}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table th .help-mark{width:20px;height:20px;border:0;border-radius:50%;background:#588d37;color:white;font:700 15px Arial,sans-serif}
+
+.radiology-workbench .case-main.ppt-recording-pane .roa-calibration-detail{margin:12px 8px;font:14px "Microsoft YaHei",sans-serif;color:#576c76}
+.radiology-workbench .case-main.ppt-recording-pane .roa-calibration-detail summary{cursor:pointer}
+@media(max-width:1500px){
+ .radiology-workbench .case-main.ppt-recording-pane .measurement-table th,.radiology-workbench .case-main.ppt-recording-pane .measurement-rows th{font-size:18px;white-space:nowrap}
+ .radiology-workbench .case-main.ppt-recording-pane .measurement-table .el-input__inner,.radiology-workbench .case-main.ppt-recording-pane .measurement-rows .el-input__inner{font-size:18px;min-width:0}
+ .radiology-workbench .case-main.ppt-recording-pane .measurement-table .el-input__wrapper,.radiology-workbench .case-main.ppt-recording-pane .measurement-rows .el-input__wrapper{padding:0 4px;min-width:0}
+ .radiology-workbench .case-main.ppt-recording-pane .measurement-table .el-input-group__append,.radiology-workbench .case-main.ppt-recording-pane .measurement-rows .el-input-group__append{font-size:16px;padding:0 5px}
+ .radiology-workbench .case-main.ppt-recording-pane .measurement-table td.calculated,.radiology-workbench .case-main.ppt-recording-pane .measurement-rows td.calculated{font-size:16px;padding:4px;white-space:nowrap}
+ .radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .condition-fields>label{flex-basis:210px;min-width:210px;font-size:20px}
+ .radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .exposure-controls{width:355px;max-width:100%;flex-wrap:nowrap}
+}
+
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .exposure-controls>label{flex:1;min-width:0}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .exposure-controls>label .el-input{width:100%;min-width:0}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .exposure-controls>.el-select{flex:0 0 190px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .exposure-controls:has(input[aria-label="管电流（mA）"]){width:520px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-table thead th:nth-child(6){width:20%}
+
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-rows table tr>:nth-child(2){display:none}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-rows table{min-width:790px}
+.radiology-workbench .case-main.ppt-recording-pane .roa-ppt-project .measurement-rows table thead th:nth-child(8){width:20%}
+
+/* Per-page review: preserve readable values and complete labels at narrower widths. */
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table th{white-space:normal;overflow-wrap:break-word}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="ROQ"]{min-width:1040px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="ARS"]{min-width:1300px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="ARS"] tr>:first-child{width:210px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="RST"]{min-width:1360px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="RUE"]{min-width:950px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="DDI"] thead th:nth-child(4){width:25%}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-extra{display:flex;align-items:flex-end;flex-wrap:wrap}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-extra>label,.radiology-workbench .case-main.ppt-recording-pane .ctdi-parameters>label{display:flex;flex-direction:column;align-items:stretch;flex:0 1 320px;gap:8px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-extra>label>.el-input,.radiology-workbench .case-main.ppt-recording-pane .ctdi-parameters>label>.el-input{flex:0 0 56px;width:100%;height:56px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-extra .el-select__wrapper{min-height:52px;border-radius:8px;box-shadow:0 0 0 2px #aaa inset;font:18px SimSun,serif}
+.radiology-workbench .case-main.ppt-recording-pane .condition-fields>label:has(input[aria-label="参考剂量（μSv）"]){flex-basis:270px}
+.radiology-workbench .case-main.ppt-recording-pane .condition-fields>label:has(.el-select){flex-basis:270px}
+.radiology-workbench .case-main.ppt-recording-pane .condition-fields>label>.el-select{min-width:0}
+.radiology-workbench .case-main.ppt-recording-pane .condition-fields>label:has(input[aria-label="管电流（mA）"]){flex-basis:240px}
+.radiology-workbench .case-main.ppt-recording-pane .exposure-controls{width:355px;max-width:100%;flex-wrap:nowrap}
+.radiology-workbench .case-main.ppt-recording-pane .exposure-controls>label{flex:1;min-width:0}
+.radiology-workbench .case-main.ppt-recording-pane .exposure-controls>label .el-input{width:100%;min-width:0}
+.radiology-workbench .case-main.ppt-recording-pane .exposure-controls>.el-select{flex:0 0 190px}
+.radiology-workbench .case-main.ppt-recording-pane .exposure-controls:has(input[aria-label="管电流（mA）"]){width:520px}
+.radiology-workbench .case-main.ppt-recording-pane .qualified-reading{display:flex;gap:6px}
+.radiology-workbench .case-main.ppt-recording-pane .qualified-reading .el-select{flex:0 0 90px}
+.radiology-workbench .case-main.ppt-recording-pane .qualified-reading .el-input{flex:1;min-width:0}
+.radiology-workbench .case-main.ppt-recording-pane .ctdi-fields>label:has(input[type="number"]){flex-basis:310px}
+
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="HUL"]{min-width:1080px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="HUL"] tr>:first-child{width:190px}
+.radiology-workbench .case-main.ppt-recording-pane .measurement-table[data-item="HUL"] tbody th{white-space:normal}
+.radiology-workbench .case-main.ppt-recording-pane .condition-fields>label:has(input[aria-label="仪器校准因子k1"]){flex-basis:310px}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-protection-context{display:grid;grid-template-columns:repeat(2,minmax(250px,1fr));gap:16px 24px;margin:20px 8px}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-protection-context label{display:flex;flex-direction:column;gap:8px;font:20px SimSun,serif}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-protection-context .calibration-choice{grid-column:1/-1}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-protection-context .el-input__wrapper,.radiology-workbench .case-main.ppt-recording-pane .ppt-protection-context .el-select__wrapper{min-height:52px;box-shadow:0 0 0 2px #aaa inset;border-radius:8px;font-size:18px;background:white}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-background-results{display:flex;gap:20px;flex-wrap:wrap;margin:20px 8px}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-background-results .computed-value{display:flex;flex:1;min-width:180px;flex-direction:column;background:transparent;border:0;gap:8px;padding:0}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-background-results .computed-value span{font:20px SimSun,serif}
+.radiology-workbench .case-main.ppt-recording-pane .ppt-background-results .computed-value strong{font:18px Arial,sans-serif;border:2px solid #aaa;background:#f2f2f2;border-radius:8px;padding:14px}
+.radiology-workbench .case-main.ppt-recording-pane .quality-project>.el-select .el-select__wrapper{min-height:52px;box-shadow:0 0 0 2px #aaa inset;border-radius:8px;font:20px SimSun,serif}
+
+.dose-workbench .dose-main.dose-ppt-entry{background:#f1f5f6}
+.dose-workbench .dose-layout.recording{grid-template-columns:minmax(0,1fr)}
+.dose-workbench .dose-layout.recording>.dose-case-rail{display:none}
+.dose-workbench .dose-main.dose-ppt-entry>.ppt-page-actions .el-button{height:48px;min-width:110px;border:2px solid #133f51;border-radius:8px;font:700 18px "Microsoft YaHei",sans-serif;background:transparent}
+.dose-workbench .dose-main.dose-ppt-entry>.ppt-next-actions .el-button{background:#00857a;border-color:#00857a;color:white;font-weight:400;font-size:22px;min-width:140px}
+.dose-workbench .dose-main.dose-ppt-entry .el-tabs__header{background:white}
+.dose-workbench .dose-main.dose-ppt-entry .el-table .el-date-editor{min-height:48px;box-shadow:0 0 0 2px #aaa inset;border-radius:7px;background:white}
+.dose-workbench .dose-main.dose-ppt-entry .el-table .raw-values{flex-wrap:nowrap}
+.dose-workbench .dose-main.dose-ppt-entry .el-table .raw-values .el-input{flex:1 1 85px;min-width:65px}
+
+.case-step-dialog .case-step-form .el-form-item__label,.dose-step-dialog .el-form-item__label,.dose-main.dose-ppt-entry .el-form-item__label{font:20px/1.5 SimSun,serif;color:#111}
+.case-step-dialog .case-step-form .el-input__wrapper,.dose-step-dialog .el-input__wrapper,.dose-step-dialog .el-select__wrapper,.dose-step-dialog .el-date-editor{min-height:46px;box-shadow:0 0 0 2px #aaa inset;border-radius:8px;background:white;font-size:18px}
+.case-step-dialog .case-step-form .el-select__wrapper{min-height:46px;box-shadow:0 0 0 2px #aaa inset;border-radius:8px}
+.dose-step-dialog .el-dialog__body{max-height:65vh;overflow:auto}
+.dose-step-dialog .el-dialog__footer{display:flex;gap:12px;padding-top:18px;border-top:1px solid #d8dfe1}
+.dose-step-dialog .el-dialog__footer .el-button:nth-child(3){margin-left:auto}
+.dose-step-dialog .el-dialog__footer .el-button{min-height:44px;min-width:95px;border-radius:8px;font-size:17px}
+.dose-workbench .dose-summary .el-descriptions__table{border-collapse:separate;border-spacing:6px}
+.dose-workbench .dose-summary .el-descriptions__table .el-descriptions__cell{border:1px solid #aaa;border-radius:6px;font-size:16px}

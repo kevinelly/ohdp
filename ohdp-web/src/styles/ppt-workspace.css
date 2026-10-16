@@ -2,3 +2,11 @@
 .ppt-workspace .brand-lockup{width:auto;flex:1;min-width:0;background:transparent;padding:18px 24px}.ppt-workspace .topbar{display:flex;justify-content:space-between}.ppt-workspace .brand-lockup h1{font-size:clamp(20px,2.3vw,34px);white-space:nowrap}.ppt-workspace .topbar-right{flex-shrink:0}.ppt-workspace .case-step-dialog .el-form-item__label{font-size:14px}.ppt-workspace .case-step-dialog{max-width:calc(100vw - 36px)}
 
 .ppt-workspace .ppt-entry-actions{margin:4px 0 10px}.ppt-workspace .qc-tabs .el-tabs__header{margin-bottom:8px}.ppt-workspace .quality-project header{padding:8px 0}.ppt-workspace .quality-projects{gap:12px}.ppt-workspace .ppt-help{margin:8px 0}.ppt-workspace .quality-navigation{margin:8px 0}.ppt-workspace .topbar{position:relative;top:auto}.ppt-workspace .quality-project{padding-top:0}
+
+/* Forms without an individual PPT mockup share the same entry controls. */
+.ppt-workspace .maintenance-grid .card{background:#f1f5f6}
+.ppt-workspace .maintenance-grid .grid2>label{font:20px SimSun,"Songti SC",serif;color:#222;line-height:1.6}
+.ppt-workspace .maintenance-grid .grid2 input:not([type=checkbox]):not([type=radio]):not([type=file]),.ppt-workspace .maintenance-grid .grid2 select,.ppt-workspace .maintenance-grid .grid2 textarea{min-height:48px;border:2px solid #aaa;border-radius:8px;background:white;color:#111;font:18px Arial,"Microsoft YaHei",sans-serif;box-shadow:none}
+.ppt-workspace .ppt-query-page .el-form-item__label{font:18px SimSun,"Songti SC",serif}
+.ppt-workspace .ppt-query-page .el-input__wrapper,.ppt-workspace .ppt-query-page .el-select__wrapper{min-height:44px;box-shadow:0 0 0 2px #aaa inset;border-radius:7px}
+@media(max-width:900px){.ppt-workspace .maintenance-grid .grid2>label{font-size:17px}.ppt-workspace .maintenance-grid .grid2 input,.ppt-workspace .maintenance-grid .grid2 select{font-size:16px}}

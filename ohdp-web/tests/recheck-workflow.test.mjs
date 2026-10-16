@@ -250,6 +250,25 @@ test('dynamic results map by stable row id after deletion and preserve display p
  const c=component('RadiologyMeasurementRows.vue','resultColumns,rowResult',{props:{code:'TVD',fields:[],values:{},conditions:{'__rows.TVD':'[1,3]'},disabled:false,results:[{fieldCode:'R1__MEAN_1',fieldLabel:'第1行 校正均值',output:'80.00 kV'},{fieldCode:'R3__MEAN_1',fieldLabel:'第3行 校正均值',output:'100.0 kV'}]}})
  assert.equal(c.resultColumns.value.length,1);assert.equal(c.rowResult(3,'MEAN_1'),'100.0 kV');assert.equal(c.rowResult(2,'MEAN_1'),'—')
 })
+
+test('repeatable PPT rows retain their output columns before calculation and after cache invalidation',()=>{
+ for(const [code,expected] of [['ROA',['MEAN','RESULT']],['ETD',['MEAN_1','DEVIATION_MS_1']],['HCR',['RESULT']],['LCR',['RESULT']],['RST',['WWMIN','CTHM','MEAN','DEVIATION']]]){
+  const c=component('RadiologyMeasurementRows.vue','columns',{props:{code,fields:[],values:{},conditions:{['__rows.'+code]:'[1,7]'},disabled:false,results:[]}})
+  assert.deepEqual(c.columns.value.filter(v=>!v.field).map(v=>v.code).toSorted(),expected.toSorted())
+ }
+})
+
+test('PPT repeatable view keeps ETD factor after the average and never adds unrelated intermediate outputs',()=>{
+ const c=component('RadiologyMeasurementRows.vue','columns',{props:{code:'ETD',fields:[{code:'ETD1-0'},{code:'ETD1-1'},{code:'ETD1-2'},{code:'ETD1-3'},{code:'ETD-K1'}],values:{},conditions:{'__rows.ETD':'[1,7]'},disabled:false,results:[{fieldCode:'R7__MEAN_1',fieldLabel:'均值',output:'100.00 ms'},{fieldCode:'R7__DEVIATION_PERCENT_1',fieldLabel:'相对偏差',output:'2.0%'}]}})
+ const codes=c.columns.value.map(v=>v.code);assert.ok(codes.indexOf('MEAN_1')<codes.indexOf('ETD-K1'));assert.equal(codes.includes('DEVIATION_PERCENT_1'),false)
+})
+
+test('selected STP formula uses the existing fitted coefficient keys including power c=0',()=>{
+ for(const [model,expected] of [['LINEAR','PV=2·K+3'],['LOG','PV=2·ln(K)+3'],['POWER','PV=2·K^3']]){
+  const c=component('MeasurementTable.vue','selectedFormula',{props:{code:'STP',fields:[],results:[{fieldCode:'SELECTED_MODEL',output:model},{fieldCode:model+'_A',output:'2'},{fieldCode:model+(model==='POWER'?'_B':'_C'),output:'3'}]}})
+  assert.equal(c.selectedFormula(),expected)
+ }
+})
 test('AEC group and RUE region results use their own calculated fields',()=>{
  for(const [code,key,index] of [['ARS','DEVIATION_2',1],['AIC','LEFT_DEVIATION',1],['RUE','DOSE_4',3]]){
  const c=component('MeasurementTable.vue','calculated',{props:{code,fields:[],results:[{fieldCode:key,output:'-2.0'}]}})
@@ -317,4 +336,34 @@ test('simple-average projects show the computed average instead of an empty MEAN
   const c=component('MeasurementTable.vue','calculated',{props:{code,fields:[],results:[{fieldCode:'RESULT',output:'0.3 HU'}]}})
   assert.equal(c.calculated({fields:[]},0,true),'0.3 HU')
  }
+})
+
+
+test('ROA repeat rows retain mean and CV columns before recalculation',()=>{
+ const c=component('RadiologyMeasurementRows.vue','columns',{props:{code:'ROA',fields:[{code:'ROA1',label:'读数K1'}],conditions:{},values:{},results:[]}})
+ assert.deepEqual(c.columns.value.filter(column=>!column.field).map(column=>column.code),['MEAN','RESULT'])
+})
+
+
+test('PPT project progression follows artefact, distance and lag order without mutating saved scopes',()=>{
+ const codes=['DDI','STP','RUE','REA','ILA','ART','HCR','LCR']
+ const original=codes.map(itemCode=>({itemCode,selected:true,applicable:true,pending:false}))
+ const ordered=scopeSupport.pptOrderedScopes(original)
+ assert.deepEqual(original.map(x=>x.itemCode),codes)
+ assert.deepEqual(ordered.map(x=>x.itemCode),['DDI','STP','RUE','ART','REA','ILA','HCR','LCR'])
+ assert.equal(scopeSupport.adjacentQuality(ordered,'RUE',1),'ART')
+ assert.equal(scopeSupport.adjacentQuality(ordered,'REA',-1),'ART')
+})
+
+test('qualitative artefact and lag results display persisted text instead of an absent numeric result',()=>{
+ for(const code of ['ART','ILA']){
+  const c=component('MeasurementTable.vue','calculated',{props:{code,fields:[],results:[{fieldCode:'RESULT_TEXT',output:'无'}]}})
+  assert.equal(c.calculated({fields:[]},0,false),'无')
+ }
+})
+
+test('editing the LCR reference dose in the table preserves its shared conditions',()=>{
+ const c=component('RadiologyConditionEditor.vue','fields,update',{props:{itemCode:'LCR',referenceOnly:true}})
+ Object.assign(c.fields,{sid:'100',voltage:'80',referenceDose:'3.5',extra:'原始补充条件'});c.update()
+ const saved=JSON.parse(c.emits[0][1]);assert.equal(saved.referenceDose,'3.5');assert.equal(saved.sid,'100');assert.equal(saved.voltage,'80');assert.equal(saved.extra,'原始补充条件')
 })

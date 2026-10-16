@@ -126,3 +126,16 @@ function setCondition(value:string,parameters=false) {
 .tvd-group-conditions label{display:flex;flex-direction:column;gap:6px}
 @media(max-width:850px){.tvd-footer{margin-right:4px;margin-left:4px}.tvd-row-actions{gap:10px}.tvd-row-actions .el-button{width:94px}.tvd-group-conditions{grid-template-columns:1fr}}
 </style>
+
+<style scoped>
+.tvd-mean>span{white-space:nowrap;flex-shrink:0}
+@media(max-width:1500px){
+ .tvd-matrix{min-width:700px}
+ .tvd-grid{grid-template-columns:repeat(5,minmax(0,1fr)) minmax(0,1.2fr) minmax(0,1.15fr);gap:8px}
+ .tvd-column-headings{font-size:20px}
+ .tvd-reading-cell,.tvd-output{font-size:18px}
+ .tvd-output{padding:0 7px;white-space:nowrap}
+ .reading-unit{padding-right:7px}
+ .tvd-footer{margin-right:8px;margin-left:8px}
+}
+</style>
