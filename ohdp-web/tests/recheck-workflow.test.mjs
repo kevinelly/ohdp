@@ -10,9 +10,9 @@ const support=await import('data:text/javascript;base64,'+Buffer.from(transpile(
 const doseSupport=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('personalDoseSupport.ts',dir),'utf8'))).toString('base64'))
 const scopeSupport=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('radiologyScopeSupport.ts',dir),'utf8'))).toString('base64'))
 const systemLabels=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('../../systemDisplayLabels.ts',dir),'utf8'))).toString('base64'))
-function component(name,expose,{get=async()=>({data:{content:[],totalElements:0,last:true}}),confirm=async()=>{},post=async()=>({data:{}}),props={}}={}){
+function component(name,expose,{get=async()=>({data:{content:[],totalElements:0,last:true}}),confirm=async()=>{},post=async()=>({data:{}}),put=async()=>({data:{}}),props={}}={}){
  const calls=[],emits=[],warnings=[]
- const api={post,interceptors:{request:{use(){}}},get:async(...args)=>{calls.push(args[0]);return get(...args)}}
+ const api={post,put,interceptors:{request:{use(){}}},get:async(...args)=>{calls.push(args[0]);return get(...args)}}
  const bindings={withDefaults:(props,defaults)=>({...defaults,...props}),ref,reactive,computed,watch(){},onMounted(){},onBeforeUnmount(){},defineProps:()=>({token:'test',username:'test',modality:'DR',...props}),defineEmits:()=>((...v)=>emits.push(v)),defineExpose(){},axios:{create:()=>api},ElMessage:{warning:m=>warnings.push(m),error:m=>warnings.push(m),success(){}},ElMessageBox:{confirm},...support,...doseSupport,...scopeSupport}
  const source=parse(fs.readFileSync(new URL(name,dir),'utf8')).descriptor.scriptSetup.content
  const ast=ts.createSourceFile('component.ts',source,ts.ScriptTarget.Latest,true)
@@ -82,6 +82,14 @@ test('historical protection points remain stored but are omitted from this evalu
   c.selectedCase.value={measurements:[],itemResults:[],itemScope:[{itemCode:'RPD',selected,applicable:selected}],protectionPoints:[{pointName:'历史点位',readings:[1,2,3,4,5],resultValue:1.2}]}
   assert.equal(c.evaluationRows.value.length,selected?1:0);assert.equal(c.selectedCase.value.protectionPoints.length,1)
  }
+})
+
+test('saving changed scope clears the last evaluation cache while retaining unsaved measurement edits',async()=>{
+ const before={id:1,modality:'DR',status:'CALCULATED',profile:{selectedGroups:['GENERAL','SPECIAL']},protectionPoints:[],measurements:[],itemResults:[{itemCode:'HCR',complete:true,judgement:'QUALIFIED'}]}
+ const after={...before,profile:{selectedGroups:['GENERAL'],scopeConfirmed:true},calculationFresh:false,itemResults:[]}
+ const c=component('RadiologyWorkbench.vue','selectedCase,calculation,calculationItems,measurementValues,profileDraft,syncCaseState,saveReportProfile',{put:async()=>({data:after})})
+ c.selectedCase.value=before;c.syncCaseState();c.calculation.value={items:before.itemResults};c.measurementValues['ROA::ROA1']='尚未保存的编辑';c.profileDraft.selectedGroups=['GENERAL']
+ assert.equal(await c.saveReportProfile(),true);assert.equal(c.calculation.value,null);assert.deepEqual(c.calculationItems.value,[]);assert.equal(c.measurementValues['ROA::ROA1'],'尚未保存的编辑')
 })
 test('rule display omits null bounds and preserves zero and text requirements',()=>{
  assert.equal(support.ruleLimitText({lowerLimit:null,upperLimit:25,unit:'μSv/h'}),'≤25 μSv/h')

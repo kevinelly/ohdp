@@ -378,7 +378,7 @@ async function saveReportProfile() {
   let saved=false
   await run(async()=>{
     const c=selectedCase.value!;const payload={...blankCaseForm(c.modality),...c,...featureDraft,notes:noteDraft.value,profile:JSON.parse(JSON.stringify(profileDraft)),expectedDataVersion:c.dataVersion}
-    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;syncSavedPointResults(c.protectionPoints);Object.assign(profileDraft,blankProfile(c.modality),JSON.parse(JSON.stringify(data.profile || {})));scopePreview.value=null;saved=true;await loadCases()
+    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;calculation.value=null;syncSavedPointResults(c.protectionPoints);Object.assign(profileDraft,blankProfile(c.modality),JSON.parse(JSON.stringify(data.profile || {})));scopePreview.value=null;saved=true;await loadCases()
   },'总体评价和防护条件已保存，请重新计算后提交')
   return saved
 }
@@ -638,6 +638,7 @@ async function selectCase(id: number) {
 }
 
 function syncSavedMeasurements() {
+  calculation.value=null
   for (const key of Object.keys(measurementValues)) delete measurementValues[key]
   const current = selectedCase.value
   for (const name of Object.keys(conditionValues)) delete conditionValues[name]
