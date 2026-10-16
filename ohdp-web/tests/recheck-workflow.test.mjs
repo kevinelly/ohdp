@@ -28,6 +28,35 @@ function radiology(confirm){
  c.syncCaseState();return c
 }
 
+test('TVD presentation reads legacy groups without changing their stored values or results',()=>{
+ const values={'TVD::TVD2-0':'120','TVD::TVD-K2':'1.02'},conditions=reactive({'TVD.2':'第二组原条件'})
+ const before=JSON.stringify({values,conditions})
+ const c=component('TvdPptEntry.vue','rows,fieldKey,result',{props:{values,conditions,disabled:false,results:[{fieldCode:'MEAN_2',output:'122.40 kV'},{fieldCode:'DISPLAY_2',output:'2.0%'}]}})
+ assert.deepEqual(c.rows.value,[1,2,3]);assert.equal(c.fieldKey(2,0),'TVD::TVD2-0');assert.equal(c.fieldKey(2,4),'TVD::TVD-K2')
+ assert.equal(c.result(2,'MEAN'),'122.40 kV');assert.equal(c.result(2,'DISPLAY'),'2.0%');assert.equal(JSON.stringify({values,conditions}),before)
+})
+
+test('TVD adding a row migrates all three original groups and their independent conditions',()=>{
+ const values={},conditions=reactive({'TVD.2':'第二组曝光参数'})
+ for(let id=1;id<=3;id++){for(let col=0;col<4;col++)values[`TVD::TVD${id}-${col}`]=String(id*10+col);values[`TVD::TVD-K${id}`]=String(id)}
+ const c=component('TvdPptEntry.vue','rows,addRow',{props:{values,conditions,disabled:false,results:[]}})
+ c.addRow();assert.deepEqual(c.rows.value,[1,2,3,4]);assert.equal(conditions['TVD.R2'],'第二组曝光参数')
+ for(let id=1;id<=3;id++){for(let col=0;col<4;col++)assert.equal(values[`TVD::R${id}__TVD1-${col}`],String(id*10+col));assert.equal(values[`TVD::R${id}__TVD-K1`],String(id))}
+})
+
+test('TVD sparse repeatable rows keep their result identity and delete only the last row',()=>{
+ const values={'TVD::R1__TVD1-0':'80','TVD::R7__TVD1-0':'120'},conditions=reactive({'__rows.TVD':'[1,7]','TVD.R1':'保留条件','TVD.R7':'待删除条件'})
+ const c=component('TvdPptEntry.vue','rows,result,addRow,deleteLastRow',{props:{values,conditions,disabled:false,results:[{fieldCode:'R7__DISPLAY_1',output:'1.5%'}]}})
+ assert.equal(c.result(7,'DISPLAY'),'1.5%');c.deleteLastRow();assert.deepEqual(c.rows.value,[1]);assert.equal(values['TVD::R7__TVD1-0'],undefined);assert.equal(conditions['TVD.R7'],undefined);assert.equal(conditions['TVD.R1'],'保留条件');assert.equal(values['TVD::R1__TVD1-0'],'80')
+ c.deleteLastRow();assert.deepEqual(c.rows.value,[1]);c.addRow();assert.deepEqual(c.rows.value,[1,2])
+})
+
+test('TVD readonly view never enables row migration or deletes measurements',()=>{
+ const values={'TVD::TVD1-0':'80'},conditions={};const before=JSON.stringify({values,conditions})
+ const c=component('TvdPptEntry.vue','addRow,deleteLastRow',{props:{values,conditions,disabled:true,results:[]}})
+ c.addRow();c.deleteLastRow();assert.equal(JSON.stringify({values,conditions}),before)
+})
+
 test('page display names map legacy codes without changing stored identifiers',()=>{
  assert.equal(support.pptItemName('AIC','旧名称'),'AEC电离室之间一致性')
  assert.equal(support.pptItemName('LCD','低对比可探测能力'),'低对比分辨力')

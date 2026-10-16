@@ -6,6 +6,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import InspectionQuery from './InspectionQuery.vue'
 import InspectionFlow from './InspectionFlow.vue'
 import MeasurementTable from './MeasurementTable.vue'
+import TvdPptEntry from './TvdPptEntry.vue'
 import RadiologyCaseSummary from './RadiologyCaseSummary.vue'
 import RadiologyScopeEditor from './RadiologyScopeEditor.vue'
 import { scopeSelection, applicableQuality, adjacentQuality, qualityStatus, type ItemScope, type ScopeProfile } from './radiologyScopeSupport'
@@ -401,6 +402,8 @@ const scopeReady=computed(()=>!!selectedCase.value && !scopePreviewBusy.value &&
 const qualityScope=computed(()=>scopeRows.value.filter(item=>item.selected&&item.itemCode!=='RPD'))
 const applicableItems=computed(()=>applicableQuality(scopeRows.value))
 const currentQuality=computed(()=>applicableItems.value.some(item=>item.itemCode===activeQuality.value)?activeQuality.value:applicableItems.value[0]?.itemCode || '')
+const tvdPptPage=computed(()=>entryStep.value==='input' && currentQuality.value==='TVD')
+const tvdDirectoryOpen=ref(false)
 const qualityGroups=computed(()=>[...new Set(qualityScope.value.map(item=>item.group))])
 const protectionSelected=computed(()=>scopeRows.value.some(item=>item.itemCode==='RPD'&&item.selected))
 async function previewScope(){
@@ -1273,7 +1276,7 @@ function showMeasurementHelp(field: FieldDefinition) {
         </article>
       </aside>
 
-      <main class="case-main">
+      <main class="case-main" :class="{'tvd-ppt-main':viewStage===2 && workTab==='data' && tvdPptPage}">
         <div v-if="!selectedCase" class="select-hint">
           <div class="hint-mark">{{ modality }}</div>
           <h3>选择左侧案例开始录入</h3>
@@ -1349,6 +1352,7 @@ function showMeasurementHelp(field: FieldDefinition) {
 
             <el-tab-pane label="质量控制项目" name="data">
               <RadiologyScopeEditor v-if="entryStep==='scope'" :modality="modality" :profile="profileDraft" :scopes="scopeRows" :names="scopeNames" :editable="editable" :busy="busy || scopePreviewBusy" :dirty="scopeDirty" @update:profile="setScopeProfile" @confirm="confirmScope" />
+              <details v-else-if="tvdPptPage" class="tvd-scope-tools"><summary>检测范围与适用条件</summary><div class="scope-current"><span>本次检测范围：{{(profileDraft.selectedGroups || []).map(detectionGroupLabel).join('、')}}</span><el-button @click="entryStep='scope'">修改检测范围与适用条件</el-button></div></details>
               <div v-else class="scope-current"><span>本次检测范围：{{(profileDraft.selectedGroups || []).map(detectionGroupLabel).join('、')}}</span><el-button @click="entryStep='scope'">修改检测范围与适用条件</el-button></div>
               <el-alert v-if="scopePreviewError" :title="scopePreviewError" type="error" :closable="false"/><el-button v-if="scopePreviewError" @click="previewScope">重试适用项目预览</el-button>
 
@@ -1380,25 +1384,27 @@ function showMeasurementHelp(field: FieldDefinition) {
                 </template>
               </el-alert>
 
-              <div v-if="entryStep==='input'" class="quality-layout"><aside class="quality-navigation" aria-label="本次检测项目清单"><section v-for="group in qualityGroups" :key="group"><h4>{{detectionGroupLabel(group)}}</h4><button v-for="scope in qualityScope.filter(item=>item.group===group)" :key="scope.itemCode" type="button" :class="{active:currentQuality===scope.itemCode&&scopeReady,excluded:!scope.applicable}" :disabled="!scopeReady || !scope.applicable || scope.pending" :title="scope.reason" @click="activeQuality=scope.itemCode"><strong>{{scopeNames[scope.itemCode]}}</strong><span>{{scopeStatus(scope)}}</span><small v-if="scope.reason">{{scope.reason}}</small></button></section><p v-if="!qualityScope.length">未选择质量控制项目。</p><el-button v-if="scopeReady && protectionSelected" @click="workTab='points'">进入场所防护</el-button></aside><div class="quality-projects"><el-alert v-if="!scopeReady" type="info" :closable="false" title="先选择检测范围并确认适用条件，保存后开始录入。"/><el-empty v-else-if="!currentQuality" description="本次无须录入质量控制项目；请继续场所防护或附件。"/>
+              <div v-if="entryStep==='input'" class="quality-layout" :class="{'tvd-single-page':tvdPptPage}"><aside v-if="!tvdPptPage || tvdDirectoryOpen" id="quality-project-directory" class="quality-navigation" aria-label="本次检测项目清单"><section v-for="group in qualityGroups" :key="group"><h4>{{detectionGroupLabel(group)}}</h4><button v-for="scope in qualityScope.filter(item=>item.group===group)" :key="scope.itemCode" type="button" :class="{active:currentQuality===scope.itemCode&&scopeReady,excluded:!scope.applicable}" :disabled="!scopeReady || !scope.applicable || scope.pending" :title="scope.reason" @click="activeQuality=scope.itemCode;tvdDirectoryOpen=false"><strong>{{scopeNames[scope.itemCode]}}</strong><span>{{scopeStatus(scope)}}</span><small v-if="scope.reason">{{scope.reason}}</small></button></section><p v-if="!qualityScope.length">未选择质量控制项目。</p><el-button v-if="scopeReady && protectionSelected" @click="workTab='points'">进入场所防护</el-button></aside><div class="quality-projects"><el-alert v-if="!scopeReady" type="info" :closable="false" title="先选择检测范围并确认适用条件，保存后开始录入。"/><el-empty v-else-if="!currentQuality" description="本次无须录入质量控制项目；请继续场所防护或附件。"/>
 
-                <section v-for="item in catalog.filter(i=>scopeReady && i.code===currentQuality)" :key="item.code" class="quality-project">
+                <section v-for="item in catalog.filter(i=>scopeReady && i.code===currentQuality)" :key="item.code" class="quality-project" :class="{'tvd-ppt-project':item.code==='TVD'}">
                   <header>
                     <div class="item-title">
                       <span class="item-code">{{ item.code }}</span>
                     <strong>{{ pptItemName(item.code,item.name) }}</strong>
                       <small>{{ item.standardCode }}</small>
                       <el-tag v-if="!measurementsPending && selectedCase.calculationFresh && computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
+                      <el-button link class="tvd-directory-button" v-if="item.code==='TVD'" :aria-expanded="tvdDirectoryOpen" aria-controls="quality-project-directory" @click="tvdDirectoryOpen=!tvdDirectoryOpen">项目目录</el-button>
                     </div>
-                  <div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveMeasurements">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="previousQuality">上一步</el-button></div></header>
+                  <div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveMeasurements">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button v-if="item.code!=='TVD'" @click="previousQuality">上一步</el-button></div></header>
                   <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
-                  <RadiologyConditionEditor v-if="!['RPD','CTDI'].includes(item.code) && (item.code!=='LCR' || rowIds(item.code).length)" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"><template v-if="item.code==='RUE'" #response-model><label>拟合关系<el-select v-model="measurementValues[key('STP','STP-MODEL')]" :disabled="!editable" placeholder="选择拟合关系"><el-option label="线性响应" value="LINEAR"/><el-option label="对数相关" value="LOG"/><el-option label="幂相关" value="POWER"/><el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT"/></el-select></label></template></RadiologyConditionEditor>
-                  <details v-if="item.code!=='CTDI' && conditionRows(item.code).length && !rowIds(item.code).length" class="ppt-help"><summary>分组检测条件</summary><div class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div></details>
+                  <RadiologyConditionEditor v-if="!['TVD','RPD','CTDI'].includes(item.code) && (item.code!=='LCR' || rowIds(item.code).length)" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"><template v-if="item.code==='RUE'" #response-model><label>拟合关系<el-select v-model="measurementValues[key('STP','STP-MODEL')]" :disabled="!editable" placeholder="选择拟合关系"><el-option label="线性响应" value="LINEAR"/><el-option label="对数相关" value="LOG"/><el-option label="幂相关" value="POWER"/><el-option label="自动选择最佳拟合（暂用）" value="BEST_FIT"/></el-select></label></template></RadiologyConditionEditor>
+                  <details v-if="!['TVD','CTDI'].includes(item.code) && conditionRows(item.code).length && !rowIds(item.code).length" class="ppt-help"><summary>分组检测条件</summary><div class="condition-subrows"><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable" placeholder="留空使用上方共有条件；可补充本组曝光参数" /></label></div></details>
                   <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体检测法" value="PHANTOM" /><el-option label="斜率指示器法" value="INCLINOMETER" /></el-select>
                   <div v-if="item.code==='CTDI'" class="ctdi-parts"><strong>检测部位</strong><el-checkbox-group :model-value="ctdiParts()" :disabled="!editable" @update:model-value="setCtdiParts"><el-checkbox value="HEAD">头部模体</el-checkbox><el-checkbox value="BODY" :disabled="!selectedCase?.detectionCategory?.includes('验收')">体部模体</el-checkbox></el-checkbox-group><small>验收检测可多选；状态及稳定性检测仅头部模体。</small></div>
-                  <MeasurementTable v-if="!rowIds(item.code).length" :code="item.code" :fields="visibleFields(item)" :conditions="conditionValues" :disabled="!editable" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))"><template #default="{field}"><HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" />
+                  <TvdPptEntry v-if="item.code==='TVD'" :values="measurementValues" :conditions="conditionValues" :disabled="!editable" :results="computedFields('TVD').map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))" />
+                  <MeasurementTable v-else-if="!rowIds(item.code).length" :code="item.code" :fields="visibleFields(item)" :conditions="conditionValues" :disabled="!editable" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))"><template #default="{field}"><HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" />
                       <div v-if="isAicExposurePair(item.code)" class="aic-exposure-pair">
                         <el-input :model-value="aicExposurePair(field.code).current" type="number" :disabled="!editable" placeholder="电流" @update:model-value="updateAicExposurePair(field.code,'current',$event)"><template #append>mA</template></el-input>
                         <el-input :model-value="aicExposurePair(field.code).time" type="number" :disabled="!editable" placeholder="曝光时间" @update:model-value="updateAicExposurePair(field.code,'time',$event)"><template #append>s</template></el-input>
@@ -1428,7 +1434,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                         <template v-if="rawFieldUnit(item.code, field)" #append>{{ rawFieldUnit(item.code, field) }}</template>
                       </el-input>
                   </template></MeasurementTable>
-                  <RadiologyMeasurementRows v-if="repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,fieldLabel:v.fieldLabel,output:displayCalculated(v)}))" :disabled="!editable" />
+                  <RadiologyMeasurementRows v-if="item.code!=='TVD' && repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,fieldLabel:v.fieldLabel,output:displayCalculated(v)}))" :disabled="!editable" />
                   <details v-if="computedFields(item.code).length" class="ppt-help"><summary>完整计算结果</summary><div class="computed-panel">
                     <div v-for="value in computedFields(item.code)" :key="value.id" :class="['computed-value', value.fieldRole.toLowerCase()]">
                       <span>{{ value.fieldLabel }}</span>
@@ -1508,7 +1514,7 @@ function showMeasurementHelp(field: FieldDefinition) {
               </el-table>
             </el-tab-pane>
           </el-tabs>
-          <div v-if="viewStage<=2" class="ppt-page-actions"><el-button type="primary" @click="nextEntry">下一步</el-button></div>
+          <div v-if="viewStage<=2" class="ppt-page-actions" :class="{'tvd-page-footer':viewStage===2 && workTab==='data' && tvdPptPage}"><el-button v-if="viewStage===2 && workTab==='data' && tvdPptPage" @click="previousQuality">上一步</el-button><el-button type="primary" @click="nextEntry">下一步</el-button></div>
 <section v-if="viewStage===3"><el-tabs v-model="evaluationTab"><el-tab-pane label="自动评价" name="results">              <section  class="calculation-summary ppt-evaluation">
                 <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
                 <el-table :data="evaluationRows" :span-method="evaluationSpan" border>
@@ -1889,3 +1895,22 @@ function showMeasurementHelp(field: FieldDefinition) {
 </style>
 
 <style scoped>.scope-current{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;background:#f0f7f5;border:1px solid #cbded8;border-radius:8px;margin-bottom:12px}.scope-current>span{font-size:13px}@media(max-width:700px){.scope-current{display:block}.scope-current .el-button{margin-top:8px}}</style>
+
+<style scoped>
+.quality-layout.tvd-single-page{display:block;position:relative}
+.tvd-single-page>.quality-navigation{position:absolute;z-index:20;right:0;top:56px;width:min(360px,100%);max-height:65vh;box-shadow:0 8px 28px #19364226;background:#fff}
+.tvd-scope-tools{color:#5b6e75;font-size:13px;margin:8px 0}
+.tvd-scope-tools summary{cursor:pointer}
+.tvd-scope-tools .scope-current{margin:8px 0}
+.tvd-ppt-project{padding:8px 6px 0}
+.tvd-ppt-project header{border:0;padding:8px 0 14px}
+.tvd-ppt-project .item-title strong{font-weight:400;font-size:21px}
+.tvd-ppt-project .item-title small{display:none}
+.tvd-ppt-project .ppt-entry-actions .el-button{min-width:112px;height:44px;font-size:16px}
+.tvd-ppt-main{background:#f1f5f6;border:0;box-shadow:none}
+.tvd-ppt-main :deep(.el-tabs__nav-wrap){background:white;border-radius:6px}
+.tvd-ppt-project .item-title .tvd-directory-button{margin-left:14px;font-size:13px}
+.tvd-page-footer{padding:10px 6px 6px;margin-top:12px}
+.tvd-page-footer .el-button{min-width:112px;height:44px;font-size:16px}
+@media(max-width:700px){.tvd-ppt-project .ppt-entry-actions .el-button{min-width:70px}.tvd-single-page>.quality-navigation section{display:block}.tvd-single-page>.quality-navigation button{width:100%}}
+</style>
