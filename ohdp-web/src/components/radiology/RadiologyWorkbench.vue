@@ -7,6 +7,8 @@ import InspectionQuery from './InspectionQuery.vue'
 import InspectionFlow from './InspectionFlow.vue'
 import MeasurementTable from './MeasurementTable.vue'
 import RadiologyCaseSummary from './RadiologyCaseSummary.vue'
+import RadiologyScopeEditor from './RadiologyScopeEditor.vue'
+import { scopeSelection, applicableQuality, adjacentQuality, qualityStatus, type ItemScope, type ScopeProfile } from './radiologyScopeSupport'
 import EquipmentParameters from './EquipmentParameters.vue'
 import { sameDraft, pptItemName, pptFieldName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
@@ -89,6 +91,7 @@ interface ReportFile {
 }
 
 interface InspectionCase {
+  itemScope?: ItemScope[]
   city?: string
   county?: string
   profile?: ReportProfile
@@ -214,7 +217,7 @@ interface ImportPreview {
 }
 
 interface InstrumentRecord { deviceId?: number; name: string; model: string; deviceNo: string; certificateNo: string; validFrom?: string; validTo?: string }
-interface ReportProfile {
+interface ReportProfile extends ScopeProfile {
   sampleName?: string; submittingUnit?: string; commissionedUnit?: string; equipmentParameters?: string; manufacturedDate?: string;
   detectorName?: string; backgroundLocation?: string; backgroundOperation?: string; calibrationMode?: string; instrumentResponseTime?: string;
   protectionConditions?: string; overallConclusion?: string; selectedGroups?: string[]; instruments?: InstrumentRecord[];
@@ -371,11 +374,13 @@ async function replaceAttachment(id: number,event: Event) {
   await run(async()=>{const form=new FormData();form.append('file',file);await api.put(`/api/radiology/attachments/${id}`,form);await selectCase(selectedCase.value!.id)},'附件已更换');input.value=''
 }
 async function saveReportProfile() {
-  if(!selectedCase.value)return
+  if(!selectedCase.value)return false
+  let saved=false
   await run(async()=>{
     const c=selectedCase.value!;const payload={...blankCaseForm(c.modality),...c,...featureDraft,notes:noteDraft.value,profile:JSON.parse(JSON.stringify(profileDraft)),expectedDataVersion:c.dataVersion}
-    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;Object.assign(profileDraft,blankProfile(c.modality),JSON.parse(JSON.stringify(data.profile || {})))
+    const {data}=await api.put<InspectionCase>(`/api/radiology/cases/${c.id}`,payload);selectedCase.value=data;syncSavedPointResults(c.protectionPoints);Object.assign(profileDraft,blankProfile(c.modality),JSON.parse(JSON.stringify(data.profile || {})));scopePreview.value=null;saved=true;await loadCases()
   },'总体评价和防护条件已保存，请重新计算后提交')
+  return saved
 }
 async function generateNonconformities() {
   if(!selectedCase.value)return
@@ -383,6 +388,57 @@ async function generateNonconformities() {
 }
 
 const featureDraft=reactive({hasAec:true,hasRawImages:true,featureReason:''})
+const scopePreview=ref<ItemScope[]|null>(null),scopePreviewBusy=ref(false),scopePreviewError=ref('')
+const entryStep=ref<'scope'|'input'>('scope')
+let scopePreviewSequence=0
+const scopeRows=computed(()=>scopePreview.value || selectedCase.value?.itemScope || [])
+const scopeNames=computed(()=>Object.fromEntries(catalog.value.map(item=>[item.code,pptItemName(item.code,item.name)])))
+const scopeDirty=computed(()=>{
+ const current=selectedCase.value;if(!current)return false
+ return !sameDraft(scopeSelection(profileDraft),scopeSelection(normalizedProfile(current))) || !sameDraft(featureDraft,{hasAec:current.hasAec!==false,hasRawImages:current.hasRawImages!==false,featureReason:current.featureReason || ''})
+})
+const scopeReady=computed(()=>!!selectedCase.value && !scopePreviewBusy.value && !scopePreviewError.value && !scopeDirty.value && profileDraft.scopeConfirmed!==false && !scopeRows.value.some(item=>item.selected&&item.pending))
+const qualityScope=computed(()=>scopeRows.value.filter(item=>item.selected&&item.itemCode!=='RPD'))
+const applicableItems=computed(()=>applicableQuality(scopeRows.value))
+const currentQuality=computed(()=>applicableItems.value.some(item=>item.itemCode===activeQuality.value)?activeQuality.value:applicableItems.value[0]?.itemCode || '')
+const qualityGroups=computed(()=>[...new Set(qualityScope.value.map(item=>item.group))])
+const protectionSelected=computed(()=>scopeRows.value.some(item=>item.itemCode==='RPD'&&item.selected))
+async function previewScope(){
+ const current=selectedCase.value;if(!current)return
+ const sequence=++scopePreviewSequence;scopePreviewBusy.value=true;scopePreviewError.value=''
+ try{const {data}=await api.post<ItemScope[]>(`/api/radiology/cases/${current.id}/scope-preview`,{profile:JSON.parse(JSON.stringify(profileDraft)),detectionCategory:current.detectionCategory,...featureDraft});if(sequence===scopePreviewSequence&&selectedCase.value?.id===current.id)scopePreview.value=data}
+ catch(e:any){if(sequence===scopePreviewSequence)scopePreviewError.value=e.response?.data?.message || '适用项目预览失败，请重试'}
+ finally{if(sequence===scopePreviewSequence)scopePreviewBusy.value=false}
+}
+watch(()=>[scopeSelection(profileDraft),{...featureDraft}],()=>{if(selectedCase.value&&scopeDirty.value)void previewScope()},{deep:true})
+function setScopeProfile(profile:ScopeProfile){Object.assign(profileDraft,profile);if(['ARP','ARS','AIC'].some(code=>profile.itemApplicability?.[code]===true))featureDraft.hasAec=true}
+async function confirmScope(){
+ if(!profileDraft.selectedGroups?.length){ElMessage.warning('请至少选择一类检测项目');return}
+ if(scopeReady.value){entryStep.value='input';if(!applicableItems.value.length&&protectionSelected.value)workTab.value='points';return}
+ const old=profileDraft.scopeConfirmed;profileDraft.scopeConfirmed=true
+ const saved=await saveReportProfile()
+ if(!saved || selectedCase.value?.profile?.scopeConfirmed!==true){profileDraft.scopeConfirmed=old;return}
+ ++scopePreviewSequence;scopePreview.value=null;scopePreviewBusy.value=false;scopePreviewError.value=''
+ entryStep.value='input'
+ if(!applicableItems.value.length&&protectionSelected.value)workTab.value='points'
+}
+function scopeStatus(item:ItemScope){const saved=selectedCase.value?.measurements.some(v=>v.itemCode===item.itemCode&&v.fieldRole==='RAW'&&String(v.valueText??v.valueNum??'')!=='') || false;return qualityStatus(item,saved,!!selectedCase.value?.calculationFresh,calculationItems.value.some(v=>v.itemCode===item.itemCode&&v.complete))}
+function previousQuality(){const previous=adjacentQuality(scopeRows.value,currentQuality.value,-1);if(previous)activeQuality.value=previous;else workTab.value='base'}
+async function nextEntry(){
+ if(viewStage.value===1){goStage(2);return}
+ if(workTab.value==='base'){workTab.value='data';return}
+ if(workTab.value==='data'){
+  if(entryStep.value==='scope'){
+   if(!scopeReady.value)await confirmScope()
+   if(!scopeReady.value)return
+   entryStep.value='input';if(!applicableItems.value.length)workTab.value=protectionSelected.value?'points':'attachments';return
+  }
+  if(!scopeReady.value){ElMessage.warning('请先保存并确认检测范围及适用条件');return}
+  const next=adjacentQuality(scopeRows.value,currentQuality.value,1);if(next)activeQuality.value=next;else workTab.value=protectionSelected.value?'points':'attachments';return
+ }
+ if(workTab.value==='points'){workTab.value='attachments';return}
+ goStage(3)
+}
 const noteDraft=ref('')
 const conditionValues = reactive<Record<string,string>>({})
 const measurementValues = reactive<Record<string, string | number>>({})
@@ -451,7 +507,7 @@ const blankCaseForm = (modality: Modality): CaseForm => ({
     ? 'WS 76-2020《医用常规X射线诊断设备质量控制检测规范》；GBZ 130-2020《放射诊断放射防护要求》'
     : 'WS 519-2019《X射线计算机体层摄影装置质量控制检测规范》；GBZ 130-2020《放射诊断放射防护要求》',
   instrumentDescription: '', writerName: '', reviewerName: '', approverName: '', notes: '',
-  hasAec: true, hasRawImages: true, featureReason: '', agencyName: '', region: '', inspectionEndDate: '', protectionMode: 'UNSUBTRACTED', rpdUnit: 'nSv/h', city:'',county:'',profile:blankProfile(modality),
+  hasAec: true, hasRawImages: true, featureReason: '', agencyName: '', region: '', inspectionEndDate: '', protectionMode: 'UNSUBTRACTED', rpdUnit: 'nSv/h', city:'',county:'',profile:{...blankProfile(modality),selectedGroups:[],scopeConfirmed:false,itemApplicability:{ARP:null,ARS:null,AIC:null,DDI:null,STP:null,RUE:null,ART:null},itemExclusionReasons:{}},
 })
 
 const caseForm = reactive<CaseForm>(blankCaseForm(props.modality))
@@ -471,16 +527,19 @@ const qcFlowStage = computed(() => {
 })
 const completenessText = computed(() => {
   if (!selectedCase.value) return '未选择'
-  const results=calculationItems.value
+  if(profileDraft.scopeConfirmed===false || scopeRows.value.some(scope=>scope.selected&&scope.pending))return '待确认范围及适用条件'
+  const relevant=scopeRows.value.filter(scope=>scope.selected&&scope.applicable&&!scope.pending)
+  const results=calculationItems.value.filter(item=>relevant.some(scope=>scope.itemCode===item.itemCode))
   if (!results.length) return '待计算'
-  return results.filter(r=>r.complete).length + ' / ' + results.length
+  return results.filter(r=>r.complete).length + ' / ' + relevant.length
 })
 const completenessHint = computed(() => selectedCase.value?.submissionIssues?.length
   ? '仍有 ' + selectedCase.value.submissionIssues.length + ' 项提交条件待补齐'
-  : '已处理项目 / 项目清单总数（含不检测）')
+  : '已处理项目 / 本次适用项目总数（不开展项不计入）')
 const nextQcAction = computed(() => {
   const status = selectedCase.value?.status
   if (!status) return `创建或选择一个 ${props.modality} 案例开始录入。`
+  if(profileDraft.scopeConfirmed===false)return '先选择并确认本次检测范围与机型适用条件。'
   if (status === 'DRAFT') return '补全案例信息和原始检测数据，然后保存。'
   if (status === 'DATA_ENTERED') return '执行自动计算并逐项核对标准判定依据。'
   if (status === 'CALCULATED') return '确认完整性和异常项后提交审核。'
@@ -593,6 +652,8 @@ function syncSavedPointResults(previousPoints:ProtectionPoint[]) {
   if(sameDraft(pointDrafts.value,asDraft(previousPoints)))pointDrafts.value=asDraft(selectedCase.value?.protectionPoints || [])
 }
 function syncCaseState() {
+  ++scopePreviewSequence;scopePreview.value=null;scopePreviewBusy.value=false;scopePreviewError.value=''
+  entryStep.value='scope'
   syncSavedMeasurements()
   const current = selectedCase.value
   if (!current) return
@@ -798,7 +859,8 @@ const evaluationRows=computed<EvaluationRow[]>(()=>{
   const expanded=codes.flatMap((code,index)=>{const field=selectedCase.value?.measurements.find(m=>m.itemCode===item.itemCode&&m.fieldCode===code&&m.fieldRole!=='RAW');return field?[{...base,condition:selectedCase.value?.itemConditions?.[item.itemCode+'.'+(index+1)]||base.condition+' / '+(conditionRows(item.itemCode)[index]||'第'+(index+1)+'组'),result:resultDisplay(field)}]:[]})
   return expanded.length===codes.length?expanded:[base]
  })
- for(const point of selectedCase.value?.protectionPoints||[])rows.push({itemName:'防护检测',condition:[point.pointName,point.locationDescription].filter(Boolean).join(' / '),result:(point.resultDisplay??point.resultValue??'—')+' μSv/h',judgement:point.judgement||'INCOMPLETE',rule:point.controlLimit!=null?'≤'+point.controlLimit+' μSv/h':'—',message:''})
+ const pointScope=selectedCase.value?.itemScope?.find(scope=>scope.itemCode==='RPD')
+ if(!pointScope || pointScope.selected&&pointScope.applicable)for(const point of selectedCase.value?.protectionPoints||[])rows.push({itemName:'防护检测',condition:[point.pointName,point.locationDescription].filter(Boolean).join(' / '),result:(point.resultDisplay??point.resultValue??'—')+' μSv/h',judgement:point.judgement||'INCOMPLETE',rule:point.controlLimit!=null?'≤'+point.controlLimit+' μSv/h':'—',message:''})
  return rows
 })
 function evaluationSpan({rowIndex,columnIndex}:{rowIndex:number;columnIndex:number}) {
@@ -872,8 +934,10 @@ function isProtectionRecord(item: CalculationItem) {
 
 async function saveMeasurements() {
   if (!selectedCase.value) return
+  if(!scopeReady.value){ElMessage.warning('请先保存并确认检测范围及适用条件');return}
   const values: Array<{ itemCode: string; fieldCode: string; valueNum?: number | string | null; valueText?: string | null }> = []
   for (const item of catalog.value) {
+    if(!scopeRows.value.some(scope=>scope.itemCode===item.code&&scope.applicable&&!scope.pending))continue
     for (const field of editableFields(item)) {
       const raw = measurementValues[key(item.code, field.code)]
       if (raw === '' || raw === undefined || raw === null) {
@@ -908,8 +972,9 @@ async function saveMeasurements() {
 
 async function calculateCase() {
   if (!selectedCase.value) return
+  if(!scopeReady.value){ElMessage.warning('请先保存并确认检测范围及适用条件');return}
   const pointsPending=()=>!sameDraft(pointDrafts.value,selectedCase.value!.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')})))
-  if(pointsPending()){await saveProtectionPoints();if(pointsPending())return}
+  if(protectionSelected.value && pointsPending()){await saveProtectionPoints();if(pointsPending())return}
   if(noteDraft.value!==(selectedCase.value.notes||'') || !sameDraft(profileDraft,normalizedProfile(selectedCase.value)) || !sameDraft(featureDraft,{hasAec:selectedCase.value.hasAec!==false,hasRawImages:selectedCase.value.hasRawImages!==false,featureReason:selectedCase.value.featureReason||''})) {
     await saveReportProfile()
     if(!sameDraft(profileDraft,normalizedProfile(selectedCase.value)))return
@@ -1282,7 +1347,10 @@ function showMeasurementHelp(field: FieldDefinition) {
             </el-tab-pane>
 
             <el-tab-pane label="质量控制项目" name="data">
-              <details class="ppt-help"><summary>导入与检测项目设置</summary>
+              <RadiologyScopeEditor v-if="entryStep==='scope'" :modality="modality" :profile="profileDraft" :scopes="scopeRows" :names="scopeNames" :editable="editable" :busy="busy || scopePreviewBusy" :dirty="scopeDirty" @update:profile="setScopeProfile" @confirm="confirmScope" />
+              <div v-else class="scope-current"><span>本次检测范围：{{(profileDraft.selectedGroups || []).map(detectionGroupLabel).join('、')}}</span><el-button @click="entryStep='scope'">修改检测范围与适用条件</el-button></div>
+              <el-alert v-if="scopePreviewError" :title="scopePreviewError" type="error" :closable="false"/><el-button v-if="scopePreviewError" @click="previewScope">重试适用项目预览</el-button>
+
               <details class="ppt-help"><summary>Excel批量导入 / 模板下载</summary><div class="import-strip">
                 <div>
                   <strong>Excel 批量导入 <HelpMark anchor-id="radiology.excel-import" /></strong>
@@ -1311,8 +1379,9 @@ function showMeasurementHelp(field: FieldDefinition) {
                 </template>
               </el-alert>
 
-                          <details open class="ppt-help"><summary>检测项目范围</summary><el-form-item label="本次检测范围"><el-checkbox-group v-model="profileDraft.selectedGroups" :disabled="!editable"><template v-if="modality==='DR'"><el-checkbox value="GENERAL">X射线摄影设备通用检测项目</el-checkbox><el-checkbox value="SPECIAL">数字X射线摄影（DR）设备专用检测项目</el-checkbox></template><el-checkbox v-else value="QC">CT质量控制检测项目</el-checkbox><el-checkbox value="PROTECTION">放射工作场所卫生防护检测</el-checkbox></el-checkbox-group></el-form-item><el-button :disabled="!editable" @click="saveReportProfile">保存检测项目</el-button></details><div v-if="modality==='DR'" class="equipment-features"><details open><summary>AEC功能与未处理图像</summary><el-radio-group v-model="featureDraft.hasAec" :disabled="!editable"><el-radio :value="false">该受检设备不具备AEC功能，该三项不检测</el-radio><el-radio :value="true">该受检设备具备AEC功能，跳转至录入界面</el-radio></el-radio-group><el-radio-group v-model="featureDraft.hasRawImages" :disabled="!editable"><el-radio :value="true">可获取未处理图像</el-radio><el-radio :value="false">无法获取未处理图像</el-radio></el-radio-group><el-input v-if="!featureDraft.hasAec||!featureDraft.hasRawImages" v-model="featureDraft.featureReason" :disabled="!editable" placeholder="设备功能与不检测理由"/><el-button :disabled="!editable" @click="saveReportProfile">保存设备功能</el-button></details></div></details><div class="quality-navigation"><el-select v-model="activeQuality" placeholder="选择检测项目" clearable><el-option v-for="item in catalog" :key="item.code" :value="item.code" :label="pptItemName(item.code,item.name)" /></el-select></div><div class="quality-projects">
-                <section v-for="item in catalog.filter(i=>i.code===(activeQuality || catalog[0]?.code))" :key="item.code" class="quality-project">
+              <div v-if="entryStep==='input'" class="quality-layout"><aside class="quality-navigation" aria-label="本次检测项目清单"><section v-for="group in qualityGroups" :key="group"><h4>{{detectionGroupLabel(group)}}</h4><button v-for="scope in qualityScope.filter(item=>item.group===group)" :key="scope.itemCode" type="button" :class="{active:currentQuality===scope.itemCode&&scopeReady,excluded:!scope.applicable}" :disabled="!scopeReady || !scope.applicable || scope.pending" :title="scope.reason" @click="activeQuality=scope.itemCode"><strong>{{scopeNames[scope.itemCode]}}</strong><span>{{scopeStatus(scope)}}</span><small v-if="scope.reason">{{scope.reason}}</small></button></section><p v-if="!qualityScope.length">未选择质量控制项目。</p><el-button v-if="scopeReady && protectionSelected" @click="workTab='points'">进入场所防护</el-button></aside><div class="quality-projects"><el-alert v-if="!scopeReady" type="info" :closable="false" title="先选择检测范围并确认适用条件，保存后开始录入。"/><el-empty v-else-if="!currentQuality" description="本次无须录入质量控制项目；请继续场所防护或附件。"/>
+
+                <section v-for="item in catalog.filter(i=>scopeReady && i.code===currentQuality)" :key="item.code" class="quality-project">
                   <header>
                     <div class="item-title">
                       <span class="item-code">{{ item.code }}</span>
@@ -1320,7 +1389,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                       <small>{{ item.standardCode }}</small>
                       <el-tag v-if="!measurementsPending && selectedCase.calculationFresh && computedFields(item.code).some(value => value.fieldRole === 'FINAL')" size="small" type="success">已计算</el-tag>
                     </div>
-                  <div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveMeasurements">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='base'">上一步</el-button></div></header>
+                  <div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveMeasurements">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="previousQuality">上一步</el-button></div></header>
                   <p v-if="calculationItems.find(r => r.itemCode === item.code)?.judgement === 'NOT_APPLICABLE'" class="item-exclusion">
                     {{ calculationItems.find(r => r.itemCode === item.code)?.ruleDescription }}
                   </p>
@@ -1366,12 +1435,12 @@ function showMeasurementHelp(field: FieldDefinition) {
                     </div>
                   </div></details>
                 </section>
-              </div>
+              </div></div>
 
 
             </el-tab-pane>
 
-            <el-tab-pane label="场所防护" name="points"><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveProtectionPoints">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='data'">上一步</el-button></div>
+            <el-tab-pane label="场所防护" name="points" :disabled="!scopeReady || !protectionSelected"><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveProtectionPoints">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='data'">上一步</el-button></div>
               <div class="section-toolbar">
                 <div><h4>场所卫生防护点位 <HelpMark anchor-id="radiology.protection-point" /></h4><p>DR 超过 25 μSv/h 后，系统按年工作负荷、居留因子和使用因子继续计算年有效剂量，并按 0.25 mSv/a 判定；CT 按 2.5 μSv/h 判定。</p></div>
                 <el-button :disabled="!editable" @click="addProtectionPoint">增加点位</el-button>
@@ -1438,7 +1507,7 @@ function showMeasurementHelp(field: FieldDefinition) {
               </el-table>
             </el-tab-pane>
           </el-tabs>
-          <div v-if="viewStage<=2" class="ppt-page-actions"><el-button type="primary" @click="viewStage===1?goStage(2):workTab==='base'?workTab='data':workTab==='data'?workTab='points':workTab==='points'?workTab='attachments':goStage(3)">下一步</el-button></div>
+          <div v-if="viewStage<=2" class="ppt-page-actions"><el-button type="primary" @click="nextEntry">下一步</el-button></div>
 <section v-if="viewStage===3"><el-tabs v-model="evaluationTab"><el-tab-pane label="自动评价" name="results">              <section  class="calculation-summary ppt-evaluation">
                 <h4>本次计算结果 <HelpMark anchor-id="radiology.calculation" /></h4>
                 <el-table :data="evaluationRows" :span-method="evaluationSpan" border>
@@ -1559,7 +1628,7 @@ function showMeasurementHelp(field: FieldDefinition) {
             <el-col :xs="24" :sm="12"><el-form-item label="防护原始读数单位"><el-select v-model="caseForm.rpdUnit" style="width:100%"><el-option v-for="unit in ['nSv/h','μSv/h','mSv/h']" :key="unit" :value="unit" :label="unit" /></el-select></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="校准因子使用"><el-select v-model="caseForm.profile.calibrationMode" style="width:100%"><el-option label="结果无需修正" value="NONE" /><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT" /><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH" /><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME" /></el-select></el-form-item></el-col>
             <el-col :span="24"><el-form-item label="场所防护数据处理"><el-select v-model="caseForm.protectionMode" style="width:100%"><el-option label="不扣本底" value="UNSUBTRACTED" /><el-option label="扣本底" value="SUBTRACTED" /></el-select></el-form-item></el-col>
-            <el-col :span="24" v-if="modality === 'DR'"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
+            <el-col :span="24" v-if="modality === 'DR' && !caseForm.profile.itemApplicability"><el-checkbox v-model="caseForm.hasAec">设备具备AEC</el-checkbox><el-checkbox v-model="caseForm.hasRawImages">可获取未处理图像</el-checkbox><el-form-item v-if="!caseForm.hasAec || !caseForm.hasRawImages" label="设备功能与不检测理由"><el-input v-model="caseForm.featureReason" type="textarea" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item label="编写人"><el-input v-model="caseForm.writerName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item><template #label>预设审核人 <HelpMark anchor-id="radiology.review" /></template><el-input v-model="caseForm.reviewerName" /></el-form-item></el-col>
             <el-col :xs="24" :sm="8"><el-form-item><template #label>预设批准人 <HelpMark anchor-id="radiology.approve" /></template><el-input v-model="caseForm.approverName" /></el-form-item></el-col>
@@ -1813,3 +1882,9 @@ function showMeasurementHelp(field: FieldDefinition) {
 <style scoped>.qc-layout.recording{grid-template-columns:minmax(0,1fr)!important}.quality-project :deep(.measurement-table td){min-width:90px}.equipment-features{margin:10px 0}.equipment-features .el-radio-group{display:flex;flex-wrap:wrap}.row-actions{margin:16px 0}</style>
 
 <style scoped>.quality-project header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.quality-project header .ppt-entry-actions{margin:0}.quality-project header .item-title{flex:1;min-width:180px}</style>
+
+<style scoped>
+.quality-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;align-items:start}.quality-navigation{border:1px solid #d1dce0;border-radius:8px;padding:12px;background:#f7fafb;max-height:75vh;overflow:auto}.quality-navigation h4{font-size:14px;margin:10px 0;line-height:1.5}.quality-navigation button{width:100%;display:block;text-align:left;margin:7px 0;padding:10px;border:1px solid #cbd8dc;border-radius:6px;background:white;color:#193642;cursor:pointer}.quality-navigation button.active{border-color:#00877a;background:#e5f5f1}.quality-navigation button:disabled{cursor:default;opacity:1}.quality-navigation button.excluded{background:#f0f1f2;color:#67737b}.quality-navigation button strong{display:block;font-size:13px;line-height:1.5}.quality-navigation button span{display:block;color:#007e73;font-size:12px;margin-top:4px}.quality-navigation button small{display:block;color:#63717b;font-size:12px;margin-top:4px}.quality-projects{min-width:0}@media(max-width:1050px){.quality-layout{grid-template-columns:1fr}.quality-navigation{max-height:320px}.quality-navigation section{display:flex;flex-wrap:wrap;gap:8px}.quality-navigation h4{width:100%}.quality-navigation button{width:calc(50% - 4px);margin:0}}@media(max-width:600px){.quality-navigation button{width:100%}}
+</style>
+
+<style scoped>.scope-current{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;background:#f0f7f5;border:1px solid #cbded8;border-radius:8px;margin-bottom:12px}.scope-current>span{font-size:13px}@media(max-width:700px){.scope-current{display:block}.scope-current .el-button{margin-top:8px}}</style>

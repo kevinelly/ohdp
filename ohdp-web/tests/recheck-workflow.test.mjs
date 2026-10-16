@@ -8,11 +8,12 @@ const dir=new URL('../src/components/radiology/',import.meta.url)
 const transpile=s=>ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText
 const support=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('radiologyDraftSupport.ts',dir),'utf8'))).toString('base64'))
 const doseSupport=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('personalDoseSupport.ts',dir),'utf8'))).toString('base64'))
+const scopeSupport=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('radiologyScopeSupport.ts',dir),'utf8'))).toString('base64'))
 const systemLabels=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('../../systemDisplayLabels.ts',dir),'utf8'))).toString('base64'))
 function component(name,expose,{get=async()=>({data:{content:[],totalElements:0,last:true}}),confirm=async()=>{},post=async()=>({data:{}}),props={}}={}){
  const calls=[],emits=[],warnings=[]
  const api={post,interceptors:{request:{use(){}}},get:async(...args)=>{calls.push(args[0]);return get(...args)}}
- const bindings={withDefaults:(props,defaults)=>({...defaults,...props}),ref,reactive,computed,watch(){},onMounted(){},onBeforeUnmount(){},defineProps:()=>({token:'test',username:'test',modality:'DR',...props}),defineEmits:()=>((...v)=>emits.push(v)),defineExpose(){},axios:{create:()=>api},ElMessage:{warning:m=>warnings.push(m),error:m=>warnings.push(m),success(){}},ElMessageBox:{confirm},...support,...doseSupport}
+ const bindings={withDefaults:(props,defaults)=>({...defaults,...props}),ref,reactive,computed,watch(){},onMounted(){},onBeforeUnmount(){},defineProps:()=>({token:'test',username:'test',modality:'DR',...props}),defineEmits:()=>((...v)=>emits.push(v)),defineExpose(){},axios:{create:()=>api},ElMessage:{warning:m=>warnings.push(m),error:m=>warnings.push(m),success(){}},ElMessageBox:{confirm},...support,...doseSupport,...scopeSupport}
  const source=parse(fs.readFileSync(new URL(name,dir),'utf8')).descriptor.scriptSetup.content
  const ast=ts.createSourceFile('component.ts',source,ts.ScriptTarget.Latest,true)
  let stripped=source
@@ -35,6 +36,52 @@ test('page display names map legacy codes without changing stored identifiers',(
  assert.equal(support.pptFieldName('RST','R3','R3'),'实测值3')
  assert.equal(support.pptFieldName('NEW','future','未来字段'),'未来字段')
  assert.equal(support.attachmentCategoryName('POINT_MAP'),'检测点位图')
+})
+
+test('applicable navigation skips unselected, pending and excluded items and leaves protection to its own page',()=>{
+ const rows=[{itemCode:'TVD',selected:true,applicable:true},{itemCode:'ROQ',selected:true,applicable:false},{itemCode:'ARP',selected:true,applicable:false,pending:true},{itemCode:'STP',selected:false,applicable:true},{itemCode:'HVL',selected:true,applicable:true},{itemCode:'RPD',selected:true,applicable:true}]
+ assert.deepEqual(scopeSupport.applicableQuality(rows).map(s=>s.itemCode),['TVD','HVL'])
+ assert.equal(scopeSupport.adjacentQuality(rows,'TVD',1),'HVL');assert.equal(scopeSupport.adjacentQuality(rows,'HVL',-1),'TVD');assert.equal(scopeSupport.adjacentQuality(rows,'HVL',1),undefined)
+})
+
+test('scope status never labels excluded or pending items as saved or calculated',()=>{
+ assert.equal(scopeSupport.qualityStatus({selected:true,applicable:false},true,true,true),'不开展')
+ assert.equal(scopeSupport.qualityStatus({selected:true,applicable:false,pending:true},true,true,true),'待确认')
+ assert.equal(scopeSupport.qualityStatus({selected:true,applicable:true},false,false,false),'待录入')
+ assert.equal(scopeSupport.qualityStatus({selected:true,applicable:true},true,false,false),'已保存')
+ assert.equal(scopeSupport.qualityStatus({selected:true,applicable:true},true,true,true),'已计算')
+})
+
+test('confirming one historical machine item preserves the other item choices and recorded exclusion reasons',()=>{
+ const c=component('RadiologyScopeEditor.vue','choose',{props:{profile:{selectedGroups:['SPECIAL']},scopes:[{itemCode:'DDI',modelDependent:true,applicable:false,reason:'历史机型不提供DDI'},{itemCode:'STP',modelDependent:true,applicable:false,reason:'历史机型不提供图像'},{itemCode:'RUE',modelDependent:true,applicable:true,reason:''}]}})
+ c.choose('DDI',true);const profile=c.emits[0][1];assert.equal(profile.itemApplicability.DDI,true);assert.equal(profile.itemApplicability.STP,false);assert.equal(profile.itemApplicability.RUE,true);assert.equal(profile.itemExclusionReasons.STP,'历史机型不提供图像')
+})
+
+test('new cases start with no confirmed scope while legacy and saved scope choices survive hydration',()=>{
+ const c=component('RadiologyWorkbench.vue','blankCaseForm,selectedCase,profileDraft,syncCaseState')
+ const fresh=c.blankCaseForm('DR');assert.deepEqual(fresh.profile.selectedGroups,[]);assert.equal(fresh.profile.scopeConfirmed,false);assert.equal(fresh.profile.itemApplicability.ARP,null)
+ c.selectedCase.value={modality:'DR',measurements:[],protectionPoints:[],profile:{selectedGroups:['PROTECTION']}};c.syncCaseState();assert.deepEqual(c.profileDraft.selectedGroups,['PROTECTION']);assert.notEqual(c.profileDraft.scopeConfirmed,false)
+})
+
+test('scope-first next action opens applicable input and final item continues only into selected protection',async()=>{
+ for(const protection of [false,true]){
+  const c=component('RadiologyWorkbench.vue','selectedCase,syncCaseState,viewStage,workTab,entryStep,activeQuality,nextEntry,previousQuality')
+  c.selectedCase.value={modality:'DR',measurements:[],protectionPoints:[],profile:{selectedGroups:protection?['GENERAL','PROTECTION']:['GENERAL'],scopeConfirmed:true},itemScope:[{itemCode:'TVD',group:'GENERAL',selected:true,applicable:true},{itemCode:'ROQ',group:'GENERAL',selected:true,applicable:false},{itemCode:'RPD',group:'PROTECTION',selected:protection,applicable:protection}]};c.syncCaseState();c.viewStage.value=2;c.workTab.value='data'
+  await c.nextEntry();assert.equal(c.entryStep.value,'input');assert.equal(c.workTab.value,'data');await c.nextEntry();assert.equal(c.workTab.value,protection?'points':'attachments');assert.deepEqual(c.calls,[])
+ }
+})
+
+test('only-protection scope continues directly to protection without a quality input step',async()=>{
+ const c=component('RadiologyWorkbench.vue','selectedCase,syncCaseState,viewStage,workTab,nextEntry')
+ c.selectedCase.value={modality:'DR',measurements:[],protectionPoints:[],profile:{selectedGroups:['PROTECTION'],scopeConfirmed:true},itemScope:[{itemCode:'TVD',group:'GENERAL',selected:false,applicable:false},{itemCode:'RPD',group:'PROTECTION',selected:true,applicable:true}]};c.syncCaseState();c.viewStage.value=2;c.workTab.value='data';await c.nextEntry();assert.equal(c.workTab.value,'points');assert.deepEqual(c.calls,[])
+})
+
+test('historical protection points remain stored but are omitted from this evaluation when protection is unselected',()=>{
+ for(const selected of [true,false]){
+  const c=component('RadiologyWorkbench.vue','selectedCase,evaluationRows')
+  c.selectedCase.value={measurements:[],itemResults:[],itemScope:[{itemCode:'RPD',selected,applicable:selected}],protectionPoints:[{pointName:'历史点位',readings:[1,2,3,4,5],resultValue:1.2}]}
+  assert.equal(c.evaluationRows.value.length,selected?1:0);assert.equal(c.selectedCase.value.protectionPoints.length,1)
+ }
 })
 test('rule display omits null bounds and preserves zero and text requirements',()=>{
  assert.equal(support.ruleLimitText({lowerLimit:null,upperLimit:25,unit:'μSv/h'}),'≤25 μSv/h')

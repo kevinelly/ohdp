@@ -133,7 +133,16 @@ public final class RadiologyDto {
             List<ItemCalculationResponse> itemResults,
             List<WorkflowEvent> workflowHistory,
             List<String> submissionIssues, java.util.Map<String,String> itemConditions, String city, String county,
-            com.dsf.radiology.model.RadiologyProfile profile) {
+            com.dsf.radiology.model.RadiologyProfile profile,
+            List<com.dsf.radiology.service.RadiologyScopeService.ItemScope> itemScope) {
+    }
+    @Data
+    public static class ScopePreviewRequest {
+        private com.dsf.radiology.model.RadiologyProfile profile;
+        private String detectionCategory;
+        private Boolean hasAec;
+        private Boolean hasRawImages;
+        private String featureReason;
     }
     public record WorkflowEvent(String action, String operator, String comment, Long dataVersion, LocalDateTime at) {}
 

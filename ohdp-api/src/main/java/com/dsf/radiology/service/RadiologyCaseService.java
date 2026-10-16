@@ -155,6 +155,16 @@ public class RadiologyCaseService {
         RadiologyCase entity = requireCase(caseId);
         assertEditable(entity);
         checkVersion(entity, request.getExpectedDataVersion());
+        if(Boolean.FALSE.equals(profile(entity).getScopeConfirmed()))throw new BusinessException("请先确认本次检测范围及设备适用条件");
+        var savedScope=Boolean.TRUE.equals(profile(entity).getScopeConfirmed())?itemScope(entity).stream().collect(Collectors.toMap(RadiologyScopeService.ItemScope::itemCode,s->s)):Map.<String,RadiologyScopeService.ItemScope>of();
+        if(!savedScope.isEmpty())for(var value:request.getValues()) {
+            var scope=savedScope.get(value.getItemCode());if(scope==null)throw new BusinessException("未知检测项目");
+            if(scope.applicable())continue;
+            var old=measurementRepository.findByCaseIdAndItemCodeAndFieldCode(caseId,value.getItemCode(),value.getFieldCode()).orElse(null);
+            boolean sameNumber=old!=null && (old.getValueNum()==null?value.getValueNum()==null:value.getValueNum()!=null && old.getValueNum().compareTo(value.getValueNum())==0);
+            boolean sameText=old!=null && (value.getValueNum()!=null || Objects.equals(old.getValueText(),value.getValueText()));
+            if(!sameNumber || !sameText)throw new BusinessException(value.getItemCode()+"不允许录入："+scope.reason());
+        }
         if (request.getConditions()!=null) {
             for(String item:RadiologyMeasurementRows.ITEMS) measurementRows.ids(item,request.getConditions());
             entity.setItemConditionsJson(writeJson(request.getConditions()));
@@ -200,6 +210,7 @@ public class RadiologyCaseService {
     public RadiologyDto.CalculationResponse calculate(Long caseId) {
         RadiologyCase entity = requireCase(caseId);
         assertEditable(entity);
+        if(Boolean.FALSE.equals(profile(entity).getScopeConfirmed()))throw new BusinessException("请先确认本次检测范围及设备适用条件");
         List<RadiologyMeasurement> measurements = measurementRepository.findByCaseIdAndDeletedFalseOrderByItemCodeAscSortNoAsc(caseId);
         Map<String, Map<String, BigDecimal>> numbersByItem = new LinkedHashMap<>();
         Map<String, Map<String, String>> textsByItem = new LinkedHashMap<>();
@@ -216,12 +227,19 @@ public class RadiologyCaseService {
         }
 
         List<RadiologyDto.ItemCalculationResponse> responses = new ArrayList<>();
+        var effectiveNumbers=new LinkedHashMap<>(numbersByItem);var effectiveTexts=new LinkedHashMap<>(textsByItem);
+        for(var scope:itemScope(entity))if(!scope.applicable()){effectiveNumbers.remove(scope.itemCode());effectiveTexts.remove(scope.itemCode());}
         for (RadiologyCatalogService.ItemDefinition item : catalogService.getCatalog(entity.getModality())) {
             Map<String, BigDecimal> itemNumbers = numbersByItem.getOrDefault(item.code(), Map.of());
             Map<String, String> itemTexts = textsByItem.getOrDefault(item.code(), Map.of());
             boolean hasRpdBackground = itemNumbers.keySet().stream().anyMatch(code -> code.startsWith("RPD0-"));
-            String exclusion=scopeService.exclusion(entity, item.code(), measurementRows.ids(item.code(),itemConditions(entity)).isEmpty()?itemNumbers:Map.of());
-            if(!groupSelected(entity,item.code())) exclusion="本次委托检测范围未包含此项目组";
+            var scope=scopeService.decision(entity,profile(entity),item.code(),measurementRows.ids(item.code(),itemConditions(entity)).isEmpty()?itemNumbers:Map.of());
+            if(scope.pending()) {
+                markOldCalculatedFieldsDeleted(caseId,item.code());
+                responses.add(new RadiologyDto.ItemCalculationResponse(item.code(),item.name(),false,scope.reason(),null,"待确认","",RadiologyJudgement.INCOMPLETE,scope.reason()));
+                continue;
+            }
+            String exclusion=scope.applicable()?"":scope.reason();
             if (!exclusion.isEmpty()) {
                 markOldCalculatedFieldsDeleted(caseId,item.code());
                 responses.add(new RadiologyDto.ItemCalculationResponse(item.code(),item.name(),true,exclusion,null,"不检测","",
@@ -252,8 +270,8 @@ public class RadiologyCaseService {
             }
             if(unitCondition!=null) try {String unit=objectMapper.readTree(unitCondition).path("doseUnit").asText();if(unit.equals("μGy"))itemNumbers.put("__MICROGY",BigDecimal.ONE);} catch(JsonProcessingException ex){throw new BusinessException("检测条件结构损坏");}
             RadiologyCalculationEngine.CalculationResult result = calculationEngine.calculate(
-                    item.code(), itemNumbers, itemTexts, numbersByItem, textsByItem);
-            var rowResult=measurementRows.calculate(entity,item.code(),itemNumbers,itemTexts,numbersByItem,textsByItem,itemConditions(entity));
+                    item.code(), itemNumbers, itemTexts, effectiveNumbers, effectiveTexts);
+            var rowResult=measurementRows.calculate(entity,item.code(),itemNumbers,itemTexts,effectiveNumbers,effectiveTexts,itemConditions(entity));
             if(rowResult!=null) result=rowResult.calculation();
             markOldCalculatedFieldsDeleted(caseId, item.code());
             if (result.complete() || rowResult!=null) {
@@ -309,6 +327,7 @@ public class RadiologyCaseService {
         RadiologyCase entity = requireCase(caseId);
         assertEditable(entity);
         checkVersion(entity, request.getExpectedDataVersion());
+        if(Boolean.FALSE.equals(profile(entity).getScopeConfirmed()) || (Boolean.TRUE.equals(profile(entity).getScopeConfirmed()) && !groupSelected(entity,"RPD")))throw new BusinessException("请先确认包含场所防护的检测范围");
         for (RadiologyDto.ProtectionPointRequest value : request.getPoints()) {
             if (value.getReadings().size()!=5 || value.getReadings().stream().anyMatch(v -> v==null || v.signum()<0)) throw new BusinessException("每个防护点必须有5个非负原始读数");
             RadiologyProtectionPoint point = protectionPointRepository
@@ -600,14 +619,29 @@ public class RadiologyCaseService {
     }
     public boolean groupSelected(RadiologyCase entity,String code) {
         var groups=profile(entity).getSelectedGroups();if(groups==null) return true;
-        String group=code.equals("RPD") ? "PROTECTION" : entity.getModality()==RadiologyModality.CT ? "QC" :
-                List.of("DDI","STP","RUE","REA","ILA","ART","HCR","LCR").contains(code) ? "SPECIAL":"GENERAL";
-        return groups.contains(group);
+        return groups.contains(RadiologyScopeService.group(entity.getModality(),code));
+    }
+    public List<RadiologyScopeService.ItemScope> itemScope(RadiologyCase entity) {
+        var numbers=new LinkedHashMap<String,Map<String,BigDecimal>>();
+        if(entity.getId()!=null)for(var value:measurementRepository.findByCaseIdAndDeletedFalseOrderByItemCodeAscSortNoAsc(entity.getId()))
+            if(value.getFieldRole()==RadiologyFieldRole.RAW && value.getValueNum()!=null)numbers.computeIfAbsent(value.getItemCode(),ignored->new LinkedHashMap<>()).put(value.getFieldCode(),value.getValueNum());
+        var p=profile(entity);var conditions=itemConditions(entity);
+        return catalogService.getCatalog(entity.getModality()).stream().map(item->scopeService.decision(entity,p,item.code(),measurementRows.ids(item.code(),conditions).isEmpty()?numbers.getOrDefault(item.code(),Map.of()):Map.of())).toList();
+    }
+    @Transactional(readOnly=true)
+    public List<RadiologyScopeService.ItemScope> previewScope(Long id,RadiologyDto.ScopePreviewRequest request) {
+        var current=requireCase(id);var preview=new RadiologyCase();org.springframework.beans.BeanUtils.copyProperties(current,preview);
+        if(request.getProfile()!=null)preview.setProfileJson(writeJson(request.getProfile()));
+        if(request.getDetectionCategory()!=null)preview.setDetectionCategory(request.getDetectionCategory());
+        if(request.getHasAec()!=null)preview.setHasAec(request.getHasAec());
+        if(request.getHasRawImages()!=null)preview.setHasRawImages(request.getHasRawImages());
+        if(request.getFeatureReason()!=null)preview.setFeatureReason(request.getFeatureReason());
+        return itemScope(preview);
     }
     public String suggestedConclusion(RadiologyCase entity) {
         var failures=itemResults(entity).stream().filter(r->r.judgement()==RadiologyJudgement.UNQUALIFIED)
             .map(r->r.itemName()+"（"+r.ruleDescription()+"）").collect(Collectors.toList());
-        protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(entity.getId()).stream()
+        if(groupSelected(entity,"RPD"))protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(entity.getId()).stream()
             .filter(p->p.getJudgement()==RadiologyJudgement.UNQUALIFIED).forEach(p->failures.add("防护点位："+p.getPointName()));
         return failures.isEmpty() ? "本次未发现不符合项，请结合检测范围确认总体评价。" : "本次不符合项：\n"+String.join("；\n",failures);
     }
@@ -624,7 +658,12 @@ public class RadiologyCaseService {
         if(entity.getInspectionDate()==null) issues.add("检测开始日期未填写");
         if(!StringUtils.hasText(entity.getDetectionCategory())) issues.add("检测类别未填写");
         var results=itemResults(entity);
+        var scopeItems=itemScope(entity);
+        if(Boolean.FALSE.equals(profile(entity).getScopeConfirmed()))issues.add("本次检测范围及设备适用条件尚未确认");
         for (var item:catalogService.getCatalog(entity.getModality())) {
+            var scope=scopeItems.stream().filter(s->s.itemCode().equals(item.code())).findFirst().orElseThrow();
+            if(scope.pending()){issues.add(item.name()+"："+scope.reason());continue;}
+            if(!scope.applicable())continue;
             var result=results.stream().filter(r->r.itemCode().equals(item.code())).findFirst().orElse(null);
             if(result!=null && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE && !item.code().equals("RPD")) {
                 var ids=measurementRows.ids(item.code(),itemConditions(entity));
@@ -638,7 +677,7 @@ public class RadiologyCaseService {
         }
         var points=protectionPointRepository.findByCaseIdAndDeletedFalseOrderBySortNoAsc(entity.getId());
         if (groupSelected(entity,"RPD") && points.isEmpty()) issues.add("尚未录入场所防护点位");
-        for (var point:points) if (point.getResultValue()==null || point.getJudgement()==RadiologyJudgement.INCOMPLETE
+        if(groupSelected(entity,"RPD"))for (var point:points) if (point.getResultValue()==null || point.getJudgement()==RadiologyJudgement.INCOMPLETE
                 || point.getJudgement()==RadiologyJudgement.NEEDS_ASSESSMENT) issues.add(point.getPointName()+"需完成检测或年有效剂量评价");
         return issues;
     }
@@ -849,8 +888,8 @@ public class RadiologyCaseService {
         if(request.getProfile()!=null) {
             var profile=request.getProfile();
             if(!StringUtils.hasText(request.getSampleAcceptanceNo()) || !StringUtils.hasText(request.getDetectionCategory()))throw new BusinessException("受理编号与检测类别为必填项");
-            if(request.getInspectionDate()==null || request.getInspectionEndDate()==null)throw new BusinessException("检测起止日期为必填项");
-            if(profile.getSelectedGroups()!=null && (profile.getSelectedGroups().isEmpty() || !(request.getModality()==RadiologyModality.DR ? List.of("GENERAL","SPECIAL","PROTECTION"):List.of("QC","PROTECTION")).containsAll(profile.getSelectedGroups())))
+            if((request.getInspectionDate()==null || request.getInspectionEndDate()==null) && (entity.getId()==null || !Objects.equals(request.getInspectionDate(),entity.getInspectionDate()) || !Objects.equals(request.getInspectionEndDate(),entity.getInspectionEndDate())))throw new BusinessException("检测起止日期为必填项");
+            if(profile.getSelectedGroups()!=null && ((profile.getSelectedGroups().isEmpty() && !Boolean.FALSE.equals(profile.getScopeConfirmed())) || !(request.getModality()==RadiologyModality.DR ? List.of("GENERAL","SPECIAL","PROTECTION"):List.of("QC","PROTECTION")).containsAll(profile.getSelectedGroups())))
                 throw new BusinessException("至少选择一组检测项目，并使用受支持的检测分组");
             if(profile.getCalibrationMode()!=null && !List.of("NONE","INSTRUMENT","BOTH","TIME").contains(profile.getCalibrationMode()))
                 throw new BusinessException("不支持的校准组合");
@@ -884,6 +923,11 @@ public class RadiologyCaseService {
         entity.setReviewerName(request.getReviewerName());
         entity.setApproverName(request.getApproverName());
         entity.setNotes(request.getNotes());
+        var scopeProfile=profile(entity);
+        if(Boolean.TRUE.equals(scopeProfile.getScopeConfirmed())) {
+            if(scopeProfile.getSelectedGroups()==null || scopeProfile.getSelectedGroups().isEmpty())throw new BusinessException("请明确选择本次检测范围");
+            for(var scope:itemScope(entity))if(scope.pending())throw new BusinessException(scope.itemCode()+"："+scope.reason());
+        }
     }
 
     private void copyCase(RadiologyCase source, RadiologyCase target) {
@@ -948,7 +992,7 @@ public class RadiologyCaseService {
                 entity.getCreatedAt(), entity.getUpdatedAt(), dataVersion(entity), entity.getCalculatedDataVersion(),
                 calculationFresh(entity),entity.getHasAec(),entity.getHasRawImages(),entity.getFeatureReason(),
                 entity.getAgencyName(),entity.getRegion(),entity.getInspectionEndDate(),entity.getProtectionMode(),entity.getRpdUnit(),
-                itemResults(entity),workflowHistory(entity),submissionIssues(entity),itemConditions(entity),entity.getCity(),entity.getCounty(),profile(entity));
+                itemResults(entity),workflowHistory(entity),submissionIssues(entity),itemConditions(entity),entity.getCity(),entity.getCounty(),profile(entity),itemScope(entity));
     }
 
     private RadiologyDto.MeasurementResponse measurementResponse(RadiologyMeasurement value) {

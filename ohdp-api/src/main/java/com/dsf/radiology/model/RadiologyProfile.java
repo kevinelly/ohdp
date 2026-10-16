@@ -20,6 +20,10 @@ public class RadiologyProfile {
     private String protectionConditions;
     private String overallConclusion;
     private List<String> selectedGroups;
+    /** Null preserves legacy scope semantics; false is an unconfirmed new-case draft. */
+    private Boolean scopeConfirmed;
+    private java.util.Map<String,Boolean> itemApplicability;
+    private java.util.Map<String,String> itemExclusionReasons;
     private List<InstrumentRecord> instruments;
 
     @Data

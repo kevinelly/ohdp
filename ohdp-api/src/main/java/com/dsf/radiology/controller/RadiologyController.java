@@ -61,6 +61,10 @@ public class RadiologyController {
     public List<RadiologyCatalogService.ItemDefinition> catalog(@PathVariable RadiologyModality modality) {
         return catalogService.getCatalog(modality);
     }
+    @PostMapping("/cases/{id}/scope-preview")
+    public List<com.dsf.radiology.service.RadiologyScopeService.ItemScope> previewScope(@PathVariable Long id,@RequestBody RadiologyDto.ScopePreviewRequest request) {
+        return caseService.previewScope(id,request);
+    }
 
     @PostMapping("/cases")
     public RadiologyDto.CaseDetail createCase(@Valid @RequestBody RadiologyDto.CaseRequest request) {
