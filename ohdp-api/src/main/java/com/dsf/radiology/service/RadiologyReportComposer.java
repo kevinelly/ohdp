@@ -98,6 +98,19 @@ public class RadiologyReportComposer {
         } else paragraph(doc,"检测仪器："+text(c.getInstrumentDescription()),false);
     }
 
+    static String reportItemName(String code,String fallback) {
+        return switch(code) {
+            case "AIC" -> "AEC电离室之间一致性";
+            case "DDI" -> "探测器剂量指示（DDI）";
+            case "STP" -> "信号传递特性（STP）";
+            case "CTDI" -> "CTDIW";
+            case "MTF" -> "高对比分辨率";
+            case "HUA" -> "CT值（水）";
+            case "HUU" -> "均匀性";
+            default -> fallback;
+        };
+    }
+
     private void qualityTable(XWPFDocument doc,RadiologyCase c,List<com.dsf.radiology.dto.RadiologyDto.ItemCalculationResponse> results,
             Map<String,String> conditions,Map<String,Map<String,RadiologyMeasurement>> values,Boolean special) {
         var t=table(doc,"检测项目","检测条件","检测结果","标准要求","评价");
@@ -113,7 +126,7 @@ public class RadiologyReportComposer {
             if(fields.containsKey("ROWS_JSON") && result!=null && result.judgement()!=RadiologyJudgement.NOT_APPLICABLE) {
                 try {
                     var rows=new com.fasterxml.jackson.databind.ObjectMapper().readTree(fields.get("ROWS_JSON").getValueText());
-                    for(var r:rows) row(t,item.name()+"（第"+r.path("rowId").asInt()+"行）",r.path("condition").asText("—"),r.path("result").asText("待录入"),
+                    for(var r:rows) row(t,reportItemName(item.code(),item.name())+"（第"+r.path("rowId").asInt()+"行）",r.path("condition").asText("—"),r.path("result").asText("待录入"),
                         result.judgement()==RadiologyJudgement.NOT_CONFIGURED?rule:r.path("rule").asText(),
                         result.judgement()==RadiologyJudgement.NOT_CONFIGURED?"—":evaluation(RadiologyJudgement.valueOf(r.path("judgement").asText())));
                 } catch(java.io.IOException ex) {throw new BusinessException("分行计算结果结构损坏，请重新计算");}
@@ -123,7 +136,7 @@ public class RadiologyReportComposer {
             List<String> groups=switch(item.code()) {
                 case "TVD"->List.of("DISPLAY_1","DISPLAY_2","DISPLAY_3");case "ETD"->List.of("DEVIATION_MS_1","DEVIATION_MS_2","DEVIATION_MS_3");case "LRD"->List.of("RESULT_A1","RESULT_A2","RESULT_B1","RESULT_B2");
                 case "REA"->List.of("HORIZONTAL","VERTICAL");case "TPA"->List.of("FORWARD","BACKWARD");case "CTDI"->List.of("HEAD_CTDIW","BODY_CTDIW");default->List.of();};
-            if(groups.isEmpty() || !applicable) {row(t,item.name(),condition,value,rule,judgement);continue;}
+            if(groups.isEmpty() || !applicable) {row(t,reportItemName(item.code(),item.name()),condition,value,rule,judgement);continue;}
             for(int index=0;index<groups.size();index++) {
                 String code=groups.get(index);var field=fields.get(code);String label=switch(code){case "FORWARD"->"前进";case "BACKWARD"->"后退";case "HORIZONTAL"->"水平";case "VERTICAL"->"垂直";case "RESULT_A1"->"左a1";case "RESULT_A2"->"右a2";case "RESULT_B1"->"前b1";case "RESULT_B2"->"后b2";case "HEAD_CTDIW"->"头部模体";case "BODY_CTDIW"->"体部模体";default->"第"+(index+1)+"组";};
                 String display=format(field), assessment=judgement, rowRule=rule;
@@ -154,7 +167,7 @@ public class RadiologyReportComposer {
                         display=format(field)+"（偏差"+deviation.setScale(1,RoundingMode.HALF_EVEN)+"%）";assessment=deviation.abs().compareTo(new BigDecimal(RadiologyScopeService.type(c.getDetectionCategory()).equals("STATE")?"20":"15"))<=0?"符合":"不符合";
                     }
                 }
-                row(t,item.name()+"（"+label+"）",field==null?"—":conditions.getOrDefault(item.code()+"."+(index+1),condition)+"；"+label,display,item.code().equals("TVD")?rule:rowRule,assessment);
+                row(t,reportItemName(item.code(),item.name())+"（"+label+"）",field==null?"—":conditions.getOrDefault(item.code()+"."+(index+1),condition)+"；"+label,display,item.code().equals("TVD")?rule:rowRule,assessment);
             }
         }
     }

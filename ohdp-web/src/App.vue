@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import axios from 'axios'
+import { roleDisplay, permissionDisplay } from './systemDisplayLabels'
 import InspectionQuery from './components/radiology/InspectionQuery.vue'
 import './styles/ppt-workspace.css'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -507,9 +508,9 @@ const menuMeta = computed(() => {
     'system.sysconfig': { group: '系统管理', title: '参数配置', description: '维护系统运行参数' },
     basicData: { group: '检测基础库', title: '法律法规', description: '维护业务引用的法规文件' },
     'basicData.law': { group: '检测基础库', title: '法律法规', description: '维护业务引用的法规文件' },
-    'basicData.standard': { group: '检测基础库', title: '标准规范', description: '维护检测和评价标准' },
+    'basicData.standard': { group: '检测基础库', title: '检测标准库', description: '维护检测和评价标准' },
     'basicData.region': { group: '检测基础库', title: '行政区划', description: '维护行政区域基础数据' },
-    'basicData.device': { group: '检测基础库', title: '检测仪器设备', description: '维护采样与实验仪器台账' },
+    'basicData.device': { group: '检测基础库', title: '检测设备库', description: '维护采样与实验仪器台账' },
     hazardFactor: { group: '检测基础库', title: '危害因素库', description: '维护因素档案与职业接触限值' },
     'hazardFactor.factor': { group: '检测基础库', title: '危害因素库', description: '维护因素档案与职业接触限值' },
     'hazardFactor.sds': { group: '检测基础库', title: 'SDS 说明书', description: '维护化学品安全技术资料' },
@@ -1446,6 +1447,7 @@ async function loadMenuData(key: MenuKey) {
     'system.post': fetchSysPosts,
     'system.notice': fetchSysNotices,
     'system.syslog': fetchSysLogs,
+    'system.sysfile': fetchSysFiles,
     'system.sysconfig': fetchSysConfigs,
     basicData: fetchLaws,
     'basicData.law': fetchLaws,
@@ -2680,6 +2682,9 @@ const sysDepts = ref<SysDept[]>([])
 const sysPosts = ref<SysPost[]>([])
 const sysNotices = ref<SysNotice[]>([])
 const sysLogs = ref<SysSysLog[]>([])
+const sysFiles = ref<Array<{id:number;originalName:string;fileName:string;fileType:string;fileSize:number;bizType:string;bizId:number;uploader:string;createdAt:string}>>([])
+const sysFilePage=ref(1),sysFileTotal=ref(0)
+async function fetchSysFiles(){try{const {data}=await api.get('/api/system/files',{params:{page:sysFilePage.value-1,size:20}});sysFiles.value=data.content||[];sysFileTotal.value=data.totalElements||0}catch{setMessage('加载文件登记失败，请刷新重试','error')}}
 const sysConfigs = ref<SysConfig[]>([])
 
 const lawForm = reactive({ id: null as number|null, title: '', docNo: '', level: 'NATIONAL', publishDate: '', effectiveDate: '', publisher: '', isValid: true, isOpen: true, notes: '' })
@@ -2978,7 +2983,7 @@ async function openRoleAssignDialog(user: SysUser) {
   try {
     // 加载所有角色（用于展示复选框）
     const allRes = await api.get('/api/system/roles', { params: { page: 0, size: 200 } })
-    roles.value = allRes.data.content ?? allRes.data
+    roles.value = (allRes.data.content ?? allRes.data).map(roleDisplay)
     // 加载用户已有角色
     const userRolesRes = await api.get(`/api/system/users/${user.id}/roles`)
     selectedRoleIds.value = (userRolesRes.data as number[]) ?? []
@@ -2997,7 +3002,7 @@ async function saveUserRoles() {
 // ===== 角色管理 =====
 async function fetchRoles() {
   const res = await api.get('/api/system/roles', { params: { roleCode: roleQuery.roleCode || undefined, roleName: roleQuery.roleName || undefined, page: roleQuery.page, size: roleQuery.size } })
-  roles.value = res.data.content
+  roles.value = res.data.content.map(roleDisplay)
   totalRoles.value = res.data.totalElements
 }
 
@@ -3055,7 +3060,7 @@ async function openRolePermDialog(role: SysRole) {
       api.get('/api/system/permissions', { params: { page: 0, size: 500 } }),
       api.get(`/api/system/roles/${role.id}/permissions`),
     ])
-    permissions.value = allRes.data.content ?? allRes.data
+    permissions.value = (allRes.data.content ?? allRes.data).map(permissionDisplay)
     selectedPermIds.value = Array.from((rolePermsRes.data as Set<number>) ?? [])
   } catch { setMessage('加载权限失败', 'error') }
 }
@@ -3140,7 +3145,7 @@ async function fetchPermissions() {
         size: permQuery.size,
       },
     })
-    permissions.value = res.data.content
+    permissions.value = res.data.content.map(permissionDisplay)
     totalPermissions.value = res.data.totalElements
   } catch { setMessage('加载权限失败', 'error') }
 }
@@ -3346,8 +3351,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <el-sub-menu index="foundation-group">
             <template #title>检测基础库</template>
             <el-menu-item index="basicData.law">法律法规</el-menu-item>
-            <el-menu-item index="basicData.standard">标准规范</el-menu-item>
-            <el-menu-item index="basicData.device">检测仪器设备</el-menu-item>
+            <el-menu-item index="basicData.standard">检测标准库</el-menu-item>
+            <el-menu-item index="basicData.device">检测设备库</el-menu-item>
             <el-menu-item index="hazardFactor.factor">危害因素库</el-menu-item>
             <el-menu-item index="hazardFactor.sds">SDS 说明书</el-menu-item>
             <el-menu-item index="basicData.region">行政区划</el-menu-item>
@@ -4556,6 +4561,21 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <tbody><tr v-for="item in sysNotices" :key="item.id"><td>{{ item.title }}</td><td>{{ codeLabel(item.noticeType) }}</td><td>{{ item.publisher }}</td><td><button class="danger tiny" @click="deleteNotice(item.id)">删除</button></td></tr></tbody>
           </table>
         </section>
+        <section class="card" v-else-if="systemChildMenu === 'sysfile'">
+          <h2>文件管理</h2>
+          <p>此处显示通用文件登记。放射检测附件、点位图和归档报告，请进入对应案例查看与下载。</p>
+          <div class="actions"><button class="ghost" @click="fetchSysFiles">刷新</button></div>
+          <el-table :data="sysFiles" border empty-text="暂无文件登记">
+            <el-table-column label="文件名" min-width="220"><template #default="{row}">{{row.originalName || row.fileName}}</template></el-table-column>
+            <el-table-column prop="fileType" label="文件类型" width="120"/>
+            <el-table-column label="大小" width="120"><template #default="{row}">{{formatFileSize(row.fileSize)}}</template></el-table-column>
+            <el-table-column label="所属业务" width="130"><template #default="{row}">{{codeLabel(row.bizType)}}</template></el-table-column>
+            <el-table-column prop="bizId" label="业务编号" width="110"/>
+            <el-table-column prop="uploader" label="上传人" width="120"/>
+            <el-table-column label="登记时间" width="190"><template #default="{row}">{{formatDateTime(row.createdAt)}}</template></el-table-column>
+          </el-table>
+          <el-pagination v-model:current-page="sysFilePage" :page-size="20" :total="sysFileTotal" layout="prev,pager,next,total" @current-change="fetchSysFiles"/>
+        </section>
         <section class="card" v-else-if="systemChildMenu === 'syslog'">
           <h2>操作日志 <HelpMark anchor-id="system.audit-log" /></h2>
           <div class="actions"><button class="ghost" @click="fetchSysLogs">刷新</button></div>
@@ -4610,7 +4630,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </section>
         </section>
         <section class="card" v-else-if="basicDataChildMenu === 'standard'">
-          <div class="section-title-row"><div><h2>标准规范 <HelpMark anchor-id="basic.reference" /></h2><p>维护检测、计算和判定使用的标准版本及可核验原文。</p></div></div>
+          <div class="section-title-row"><div><h2>检测标准库 <HelpMark anchor-id="basic.reference" /></h2><p>维护检测、计算和判定使用的标准版本及可核验原文。</p></div></div>
           <div class="grid2">
             <label>标准名称<input v-model="standardForm.standardName" /></label>
             <label>标准编号<input v-model="standardForm.standardCode" /></label>
@@ -4650,7 +4670,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </table>
         </section>
         <section class="card" v-else-if="basicDataChildMenu === 'device'">
-          <h2>检测仪器设备 <HelpMark anchor-id="basic.device" /></h2>
+          <h2>检测设备库 <HelpMark anchor-id="basic.device" /></h2>
           <div class="grid2">
             <label>设备名称<input v-model="deviceForm.deviceName" /></label>
             <label>类型<select v-model="deviceForm.deviceType"><option value="LAB_INSTRUMENT">实验仪器</option><option value="SAMPLER">采样仪器</option></select></label>

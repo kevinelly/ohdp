@@ -8,6 +8,7 @@ const dir=new URL('../src/components/radiology/',import.meta.url)
 const transpile=s=>ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText
 const support=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('radiologyDraftSupport.ts',dir),'utf8'))).toString('base64'))
 const doseSupport=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('personalDoseSupport.ts',dir),'utf8'))).toString('base64'))
+const systemLabels=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('../../systemDisplayLabels.ts',dir),'utf8'))).toString('base64'))
 function component(name,expose,{get=async()=>({data:{content:[],totalElements:0,last:true}}),confirm=async()=>{},post=async()=>({data:{}}),props={}}={}){
  const calls=[],emits=[],warnings=[]
  const api={post,interceptors:{request:{use(){}}},get:async(...args)=>{calls.push(args[0]);return get(...args)}}
@@ -25,6 +26,49 @@ function radiology(confirm){
  c.selectedCase.value={id:1,modality:'DR',status:'DATA_ENTERED',measurements:[{itemCode:'ETD',fieldCode:'ETD1-1',fieldRole:'RAW',valueText:'10.12'}],profile:{},itemConditions:{},protectionPoints:[]}
  c.syncCaseState();return c
 }
+
+test('page display names map legacy codes without changing stored identifiers',()=>{
+ assert.equal(support.pptItemName('AIC','旧名称'),'AEC电离室之间一致性')
+ assert.equal(support.pptItemName('LCD','低对比可探测能力'),'低对比分辨力')
+ assert.equal(support.pptFieldName('ILA','非残影区D0','旧标签'),'非残影区ROI值D2')
+ assert.equal(support.pptFieldName('TVD','TVD2-0','TVD2-0'),'预设值')
+ assert.equal(support.pptFieldName('RST','R3','R3'),'实测值3')
+ assert.equal(support.pptFieldName('NEW','future','未来字段'),'未来字段')
+ assert.equal(support.attachmentCategoryName('POINT_MAP'),'检测点位图')
+})
+test('damaged seed labels are repaired while custom names and all grants remain unchanged',()=>{
+ const row={id:5,roleCode:'RADIOLOGY_RULE_ADMIN',roleName:'æ”¾å°„',remark:'ç»´æŠ¤',status:'ACTIVE',permissions:[1,2]}
+ const fixed=systemLabels.roleDisplay(row)
+ assert.equal(fixed.roleName,'放射规则管理员');assert.equal(fixed.remark,'维护 DR/CT 版本化判定规则')
+ assert.equal(fixed.id,row.id);assert.equal(fixed.permissions,row.permissions);assert.equal(row.roleName,'æ”¾å°„')
+ assert.equal(systemLabels.roleDisplay({...row,roleName:'自定义管理员'}).roleName,'自定义管理员')
+ assert.equal(systemLabels.permissionDisplay({permCode:'RADIOLOGY:REPORT:GENERATE',permName:'æŠ¥å‘Š'}).permName,'放射检测报告按钮')
+ assert.equal(systemLabels.permissionDisplay({permCode:'CUSTOM',permName:'自定义权限'}).permName,'自定义权限')
+})
+test('file selection does not upload until confirmation and can clear pending selection',()=>{
+ let posts=0
+ const c=component('RadiologyWorkbench.vue','chooseAttachment,pendingAttachment',{post:async()=>{posts++;return {data:{}}}})
+ const file={name:'点位图.png'},input={files:[file],value:'selected'}
+ c.chooseAttachment({target:input});assert.deepEqual(c.pendingAttachment.value,file);assert.equal(input.value,'');assert.equal(posts,0)
+ c.chooseAttachment({target:{files:[],value:''}});assert.equal(c.pendingAttachment.value,undefined)
+})
+test('fixed and dynamic reading labels agree; non-average projects do not show empty means',()=>{
+ for(const [code,field] of [['TVD','TVD1-0'],['ETD','ETD1-0']]){
+  const f={code:field,label:field};const rows=component('RadiologyMeasurementRows.vue','label',{props:{code,fields:[f],conditions:{},values:{}}})
+  const fixed=component('MeasurementTable.vue','heading',{props:{code,fields:[f]}})
+  assert.equal(rows.label(f),fixed.heading(f,0))
+ }
+ for(const code of ['ART','ILA','LBA','MTF','HCR','LCR','GTA','RST'])assert.equal(component('MeasurementTable.vue','showMean',{props:{code,fields:[]}}).showMean.value,false)
+})
+test('saved readings use server-normalized values while unsaved profile and points remain intact',()=>{
+ const c=component('RadiologyWorkbench.vue','selectedCase,measurementValues,conditionValues,profileDraft,pointDrafts,syncSavedMeasurements,measurementsPending')
+ c.measurementValues['ROA::ROA1']='10.00';c.measurementValues['ROA::removed']='old';c.conditionValues.OLD='old'
+ c.profileDraft.overallConclusion='尚未保存的人工评价';c.pointDrafts.value=[{name:'尚未保存的点位'}]
+ c.selectedCase.value={measurements:[{itemCode:'ROA',fieldCode:'ROA1',fieldRole:'RAW',valueText:'10.0'}],itemConditions:{LCR:'参考剂量=2.5μSv'}}
+ c.syncSavedMeasurements()
+ assert.equal(c.measurementValues['ROA::ROA1'],'10.0');assert.equal(c.measurementValues['ROA::removed'],undefined);assert.equal(c.conditionValues.OLD,undefined)
+ assert.equal(c.measurementsPending.value,false);assert.equal(c.profileDraft.overallConclusion,'尚未保存的人工评价');assert.equal(c.pointDrafts.value[0].name,'尚未保存的点位')
+})
 test('cancelled project and cross-module navigation preserve unsaved readings without requests',async()=>{
  const c=radiology(async()=>{throw 'cancel'});c.measurementValues['ETD::ETD1-1']='11.12';c.queryVisible.value=true
  await c.selectQueryCase({id:2,modality:'DR'});await c.selectQueryCase({id:3,modality:'CT'});await c.openQueryResult({id:4,modality:'DOSE'})
