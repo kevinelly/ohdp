@@ -7,7 +7,7 @@ import InspectionQuery from './InspectionQuery.vue'
 import InspectionFlow from './InspectionFlow.vue'
 import MeasurementTable from './MeasurementTable.vue'
 import EquipmentParameters from './EquipmentParameters.vue'
-import { sameDraft, pptItemName, pptFieldName, attachmentCategoryName } from './radiologyDraftSupport'
+import { sameDraft, pptItemName, pptFieldName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
@@ -880,7 +880,7 @@ async function saveMeasurements() {
       else {
         const number = Number(raw)
         if (!Number.isFinite(number)) {
-          ElMessage.warning(`${item.code} / ${field.label} 不是有效数值`)
+          ElMessage.warning(`${pptItemName(item.code,item.name)} / ${pptFieldName(item.code,field.code,field.label)} 不是有效数值`)
           return
         }
         values.push({ itemCode: item.code, fieldCode: field.code, valueNum: String(raw).trim() })
@@ -1420,9 +1420,9 @@ function showMeasurementHelp(field: FieldDefinition) {
               <div class="section-toolbar"><div><h4>版本化判定规则</h4><p>需求表未给出的限值不作猜测；在此按标准版本配置后自动判定。</p></div><el-button type="primary" @click="openCreateRule">新增规则</el-button></div>
               <el-table :data="rules" border>
                 <el-table-column prop="itemCode" label="项目" width="90" />
-                <el-table-column prop="itemName" label="名称" min-width="160" />
+                <el-table-column label="名称" min-width="160"><template #default="scope">{{pptItemName(scope.row.itemCode,scope.row.itemName)}}</template></el-table-column>
                 <el-table-column prop="ruleVersion" label="规则版本" width="150" />
-                <el-table-column label="限值/文本" min-width="170"><template #default="scope">{{ scope.row.lowerLimit !== undefined ? `≥${scope.row.lowerLimit}` : '' }} {{ scope.row.upperLimit !== undefined ? `≤${scope.row.upperLimit}` : '' }} {{ scope.row.expectedText ? `应为“${scope.row.expectedText}”` : '' }} {{ scope.row.unit }}</template></el-table-column>
+                <el-table-column label="限值/文本" min-width="170"><template #default="scope">{{ruleLimitText(scope.row)}}</template></el-table-column>
                 <el-table-column prop="standardCode" label="标准" width="150" />
                 <el-table-column label="启用" width="80"><template #default="scope">{{ scope.row.enabled ? '是' : '否' }}</template></el-table-column>
                 <el-table-column label="操作" width="140"><template #default="scope"><el-button link @click="openEditRule(scope.row)">编辑</el-button><el-button link type="danger" @click="removeRule(scope.row)">删除</el-button></template></el-table-column>
@@ -1601,7 +1601,7 @@ function showMeasurementHelp(field: FieldDefinition) {
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">
       <el-form label-position="top">
         <el-row :gutter="14">
-          <el-col :span="12"><el-form-item label="检测项目"><el-select v-model="ruleForm.itemCode" style="width:100%"><el-option v-for="item in catalog" :key="item.code" :label="`${item.code} / ${item.name}`" :value="item.code" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="检测项目"><el-select v-model="ruleForm.itemCode" style="width:100%"><el-option v-for="item in catalog" :key="item.code" :label="`${item.code} / ${pptItemName(item.code,item.name)}`" :value="item.code" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item><template #label>规则版本 <HelpMark anchor-id="radiology.calculation" /></template><el-input v-model="ruleForm.ruleVersion" /></el-form-item></el-col>
           <el-col :span="24"><el-form-item label="适用检测类别"><el-select v-model="ruleForm.detectionCategory"><el-option v-for="category in ['验收检测','状态检测','稳定性检测']" :key="category" :label="category" :value="category" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-checkbox v-model="ruleForm.lowerInclusive">下限包含边界（≥）</el-checkbox></el-col>

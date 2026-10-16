@@ -36,6 +36,13 @@ test('page display names map legacy codes without changing stored identifiers',(
  assert.equal(support.pptFieldName('NEW','future','未来字段'),'未来字段')
  assert.equal(support.attachmentCategoryName('POINT_MAP'),'检测点位图')
 })
+test('rule display omits null bounds and preserves zero and text requirements',()=>{
+ assert.equal(support.ruleLimitText({lowerLimit:null,upperLimit:25,unit:'μSv/h'}),'≤25 μSv/h')
+ assert.equal(support.ruleLimitText({lowerLimit:0,upperLimit:null}),'≥0')
+ assert.equal(support.ruleLimitText({lowerLimit:0,upperLimit:5,lowerInclusive:false,upperInclusive:false}),'>0 <5')
+ assert.equal(support.ruleLimitText({lowerLimit:null,upperLimit:null,expectedText:'否'}),'应为“否”')
+ assert.equal(support.ruleLimitText({}),'未设置限值')
+})
 test('damaged seed labels are repaired while custom names and all grants remain unchanged',()=>{
  const row={id:5,roleCode:'RADIOLOGY_RULE_ADMIN',roleName:'æ”¾å°„',remark:'ç»´æŠ¤',status:'ACTIVE',permissions:[1,2]}
  const fixed=systemLabels.roleDisplay(row)

@@ -47,3 +47,6 @@ export function pptFieldName(item:string,code:string,fallback:string):string {
  return fallback
 }
 export function attachmentCategoryName(code:string):string{return ({POINT_MAP:'检测点位图',CERTIFICATE:'仪器证书',PHANTOM_MANUAL:'模体说明书',OTHER:'其他附件'} as Record<string,string>)[code]||code}
+export function ruleLimitText(rule:{lowerLimit?:number|null;upperLimit?:number|null;lowerInclusive?:boolean;upperInclusive?:boolean;expectedText?:string|null;unit?:string}):string {
+ return [rule.lowerLimit!=null?(rule.lowerInclusive===false?'>':'≥')+rule.lowerLimit:'',rule.upperLimit!=null?(rule.upperInclusive===false?'<':'≤')+rule.upperLimit:'',rule.expectedText?'应为“'+rule.expectedText+'”':'',rule.unit||''].filter(Boolean).join(' ')||'未设置限值'
+}
