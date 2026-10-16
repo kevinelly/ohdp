@@ -4249,7 +4249,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </div>
 
           <div class="grid2" style="margin-top:12px">
-            <label>用户名 <span style="color:red">*</span><input v-model="userForm.username" placeholder="登录账号" /></label>
+            <label><span>用户名 <span style="color:red">*</span></span><input v-model="userForm.username" placeholder="登录账号" /></label>
             <label>密码 {{ userForm.id ? '（留空不修改）' : '（必填）' }}<input v-model="userForm.password" type="password" placeholder="密码" /></label>
             <label>员工ID（可选）<input v-model.number="userForm.employeeId" type="number" placeholder="关联员工ID" /></label>
             <label>用户类型
@@ -4339,8 +4339,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </div>
 
           <div class="grid2" style="margin-top:12px">
-            <label>角色编码 <span style="color:red">*</span><input v-model="roleForm.roleCode" placeholder="如 INSPECTOR" :disabled="!!roleForm.id" /></label>
-            <label>角色名称 <span style="color:red">*</span><input v-model="roleForm.roleName" placeholder="如 检测员" /></label>
+            <label><span>角色编码 <span style="color:red">*</span></span><input v-model="roleForm.roleCode" placeholder="如 INSPECTOR" :disabled="!!roleForm.id" /></label>
+            <label><span>角色名称 <span style="color:red">*</span></span><input v-model="roleForm.roleName" placeholder="如 检测员" /></label>
             <label class="full">备注<input v-model="roleForm.remark" placeholder="可选说明" /></label>
             <label>状态
               <select v-model="roleForm.status">
@@ -4406,8 +4406,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </div>
 
           <div class="grid2" style="margin-top:12px">
-            <label>权限码 <span style="color:red">*</span><input v-model="menuForm.permCode" placeholder="如 system:user:list" :disabled="!!menuForm.id" /></label>
-            <label>菜单名称 <span style="color:red">*</span><input v-model="menuForm.permName" placeholder="如 用户管理" /></label>
+            <label><span>权限码 <span style="color:red">*</span></span><input v-model="menuForm.permCode" placeholder="如 system:user:list" :disabled="!!menuForm.id" /></label>
+            <label><span>菜单名称 <span style="color:red">*</span></span><input v-model="menuForm.permName" placeholder="如 用户管理" /></label>
             <label>父菜单
               <select v-model="menuForm.parentId">
                 <option :value="null">无（顶级菜单）</option>
@@ -4478,8 +4478,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           </div>
 
           <div class="grid2" style="margin-top:12px">
-            <label>权限码 <span style="color:red">*</span><input v-model="permForm.permCode" placeholder="如 ohdp:project:edit" :disabled="!!permForm.id" /></label>
-            <label>权限名称 <span style="color:red">*</span><input v-model="permForm.permName" placeholder="如 编辑项目" /></label>
+            <label><span>权限码 <span style="color:red">*</span></span><input v-model="permForm.permCode" placeholder="如 ohdp:project:edit" :disabled="!!permForm.id" /></label>
+            <label><span>权限名称 <span style="color:red">*</span></span><input v-model="permForm.permName" placeholder="如 编辑项目" /></label>
             <label>权限类型
               <select v-model="permForm.permType">
                 <option value="MENU">MENU（菜单）</option>
