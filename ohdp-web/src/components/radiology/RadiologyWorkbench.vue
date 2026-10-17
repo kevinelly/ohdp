@@ -12,7 +12,9 @@ import RadiologyCaseSummary from './RadiologyCaseSummary.vue'
 import RadiologyScopeEditor from './RadiologyScopeEditor.vue'
 import { scopeSelection, pptOrderedScopes, applicableQuality, adjacentQuality, qualityStatus, type ItemScope, type ScopeProfile } from './radiologyScopeSupport'
 import EquipmentParameters from './EquipmentParameters.vue'
-import { sameDraft, pptItemName, pptFieldName, pptResultName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
+import DoseRateInput from './DoseRateInput.vue'
+import PptLabel from './PptLabel.vue'
+import { sameDraft, convertDoseRate, pptItemName, pptFieldName, pptResultName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
@@ -458,9 +460,19 @@ const measurementsPending=computed(()=>{
 function displayCalculated(v:Measurement){return measurementsPending.value||!selectedCase.value?.calculationFresh?'待重算':resultDisplay(v)}
 const pointDrafts = ref<Array<ProtectionPoint & { readingsText: string }>>([])
 const selectedPointRows=ref<ProtectionPoint[]>([])
-const pointReadCount=computed(()=>Math.max(5,...pointDrafts.value.map(p=>p.readingsText.split(/[，,\s]+/).filter(Boolean).length)))
-function pointRead(point:{readingsText:string},index:number){return point.readingsText.split(/[，,\s]+/)[index]||''}
-function setPointRead(point:{readingsText:string},index:number,value:string){const values=point.readingsText.split(/[，,\s]+/);while(values.length<=index)values.push('');values[index]=value;point.readingsText=values.join(',')}
+function pointValues(text:string){return text.includes(',')||text.includes('，')?text.split(/[，,]/).map(v=>v.trim()):text.trim().split(/\s+/)}
+const pointReadCount=computed(()=>Math.max(5,...pointDrafts.value.map(p=>pointValues(p.readingsText).length)))
+function pointRead(point:{readingsText:string},index:number){return pointValues(point.readingsText)[index]||''}
+function setPointRead(point:{readingsText:string},index:number,value:string){const values=pointValues(point.readingsText);while(values.length<=index)values.push('');values[index]=value;point.readingsText=values.join(',')}
+function pointAverage(point:ProtectionPoint & {readingsText:string}) {
+ const canonical=selectedCase.value?.rpdUnit||'nSv/h'
+ const values=pointValues(point.readingsText)
+ const units=values.filter(v=>v!=='').map((_,i)=>conditionValues['__rpd.pointUnit.'+point.pointCode+'.'+(i+1)]||canonical)
+ const unit=units.length && units.every(u=>u===units[0])?units[0]!:'μSv/h'
+ if(values.some(v=>v==='') || !sameDraft(values.map(Number),point.readings))return '待重算 '+unit
+ if(point.averageValue==null)return '— '+unit
+ return convertDoseRate(point.averageValue,canonical,unit)+' '+unit
+}
 function removeSelectedPoints(){pointDrafts.value=pointDrafts.value.filter(p=>!selectedPointRows.value.includes(p));selectedPointRows.value=[]}
 
 const caseDialogVisible = ref(false)
@@ -926,8 +938,31 @@ function updateAicExposurePair(field:string,part:'current'|'time',value:string) 
   const pair={...aicExposurePair(field),[part]:value};pairs[field]=pair;conditionValues['__aic.pairs']=JSON.stringify(pairs)
   measurementValues[key('AIC',field)]=pair.current && pair.time ? String(Number(pair.current)*Number(pair.time)) : ''
 }
+function backgroundOutput(code:string) {
+ const field=computedFields('RPD').find(v=>v.fieldCode===code)
+ if(!field)return '—'
+ if(measurementsPending.value || !selectedCase.value?.calculationFresh)return '待重算'
+ if(code==='MEAN' && field.valueNum!=null)return Number(convertDoseRate(field.valueNum,selectedCase.value?.rpdUnit||'nSv/h','μSv/h')).toFixed(3)
+ return (field.displayValue || field.valueText || String(field.valueNum ?? '—')).replace(/\s*μSv\/h$/,'')
+}
+async function saveProtectionEntry() {
+ if(!selectedCase.value)return
+ if(!await saveReportProfile())return
+ await saveMeasurements()
+ if(measurementsPending.value)return
+ if(pointDrafts.value.length)await saveProtectionPoints()
+}
+function entryResultText(code:string) {
+  if(measurementsPending.value || !selectedCase.value?.calculationFresh)return ''
+  const item=calculationItems.value.find(i=>i.itemCode===code)
+  const text=item?.resultText || ''
+  return code==='HCR' && text.startsWith('建立基线值') ? text.replace('：',' ')+'（即读数）' : text
+}
 function rawFieldUnit(itemCode: string, field: FieldDefinition) {
   if(itemCode==='TPA') return 'mm'
+  if(itemCode==='UBD' && field.code==='UBD')return '°'
+  if(itemCode==='HCR')return 'lp/mm'
+  if(itemCode==='LCR' && field.code==='LCR1（可观察细节数）')return '个'
   if(itemCode==='GTA' && /α[12]$/.test(field.code)) return '°'
   if(itemCode==='NPS' && field.code==='NPS-n') return 'mm'
   if(itemCode==='LCR' && field.code==='LCR2（可观察对比度）') return '%'
@@ -1065,8 +1100,10 @@ async function saveProtectionPoints() {
     annualWorkloadMas?: number; occupancyFactor?: number; useFactor?: number; sortNo: number
   }> = []
   for (const draft of pointDrafts.value) {
-    const readings = draft.readingsText.split(/[，,\s]+/).filter(Boolean).map(Number)
-    if (!readings.length || readings.some(Number.isNaN)) {
+    const rawReadings=pointValues(draft.readingsText)
+    while(rawReadings.length && rawReadings[rawReadings.length-1]==='')rawReadings.pop()
+    const readings = rawReadings.map(Number)
+    if (!readings.length || rawReadings.some(v=>v==='') || readings.some(v=>!Number.isFinite(v))) {
       ElMessage.warning(`${draft.pointName} 需要填写有效读数`)
       return
     }
@@ -1219,17 +1256,6 @@ function judgementText(value?: string) {
   } as Record<string, string>)[value || ''] || value || '-'
 }
 
-function measurementHelpAnchor(field: FieldDefinition) {
-  const code = field.code.toUpperCase()
-  if (code.includes('CTDI') && code.includes('MANUFACTURER')) return 'radiology.ctdi-manufacturer'
-  if (code.includes('BASELINE')) return 'radiology.stability-baseline'
-  return 'radiology.raw-value'
-}
-
-function showMeasurementHelp(field: FieldDefinition) {
-  const code = field.code.toUpperCase()
-  return field.required || code.includes('CTDI') || code.includes('BASELINE')
-}
 </script>
 
 <template>
@@ -1418,12 +1444,12 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <el-select v-if="item.code==='GTA'" v-model="conditionValues['__method.GTA']" :disabled="!editable" placeholder="选择倾角测量方法"><el-option label="模体检测法" value="PHANTOM" /><el-option label="斜率指示器法" value="INCLINOMETER" /></el-select>
                   <div v-if="item.code==='CTDI'" class="ctdi-parts"><strong>检测部位</strong><el-checkbox-group :model-value="ctdiParts()" :disabled="!editable" @update:model-value="setCtdiParts"><el-checkbox value="HEAD">头部模体</el-checkbox><el-checkbox value="BODY" :disabled="!selectedCase?.detectionCategory?.includes('验收')">体部模体</el-checkbox></el-checkbox-group><small>验收检测可多选；状态及稳定性检测仅头部模体。</small></div>
                   <TvdPptEntry v-if="item.code==='TVD'" :values="measurementValues" :conditions="conditionValues" :disabled="!editable" :results="computedFields('TVD').map(v=>({fieldCode:v.fieldCode,fieldLabel:v.fieldLabel,output:displayCalculated(v)}))" :supplement-open="tvdSupplementOpen" @close-supplement="tvdSupplementOpen=false" @next="nextEntry" />
-                  <MeasurementTable v-else-if="!rowIds(item.code).length" :code="item.code" :fields="visibleFields(item)" :conditions="conditionValues" :disabled="!editable" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))"><template #default="{field}"><HelpMark v-if="showMeasurementHelp(field)" :anchor-id="measurementHelpAnchor(field)" />
+                  <MeasurementTable v-else-if="!rowIds(item.code).length" :code="item.code" :fields="visibleFields(item)" :result-text="entryResultText(item.code)" :conditions="conditionValues" :disabled="!editable" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,output:displayCalculated(v)}))"><template #default="{field}">
                       <div v-if="isAicExposurePair(item.code)" class="aic-exposure-pair">
                         <el-input :model-value="aicExposurePair(field.code).current" type="number" :disabled="!editable" placeholder="电流" @update:model-value="updateAicExposurePair(field.code,'current',$event)"><template #append>mA</template></el-input>
                         <el-input :model-value="aicExposurePair(field.code).time" type="number" :disabled="!editable" placeholder="曝光时间" @update:model-value="updateAicExposurePair(field.code,'time',$event)"><template #append>s</template></el-input>
                       </div>
-                      <el-select v-else-if="textOptions(field.code).length" v-model="measurementValues[key(item.code,field.code)]" :disabled="!editable" clearable>
+                      <el-select v-else-if="textOptions(field.code).length" v-model="measurementValues[key(item.code,field.code)]" :disabled="!editable" :aria-label="pptFieldName(item.code,field.code,field.label)" clearable>
                         <el-option v-for="o in textOptions(field.code)" :key="o" :value="o" :label="o" />
                       </el-select>
                       <el-select
@@ -1443,7 +1469,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                         v-model="measurementValues[key(item.code, field.code)]"
                         :type="isTextField(item.code, field.code) ? 'text' : 'number'"
                         :disabled="!editable || field.code === 'a'"
-                        :placeholder="pptFieldName(item.code,field.code,field.label)" :aria-label="pptFieldName(item.code,field.code,field.label)"
+                        :aria-label="pptFieldName(item.code,field.code,field.label)"
                       >
                         <template v-if="rawFieldUnit(item.code, field)" #append>{{ rawFieldUnit(item.code, field) }}</template>
                       </el-input>
@@ -1451,7 +1477,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <RadiologyMeasurementRows v-if="item.code!=='TVD' && repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,fieldLabel:v.fieldLabel,output:displayCalculated(v)}))" :disabled="!editable" />
                   <details v-if="item.code!=='TVD' && computedFields(item.code).length" class="ppt-help"><summary>完整计算结果</summary><div class="computed-panel">
                     <div v-for="value in computedFields(item.code)" :key="value.id" :class="['computed-value', value.fieldRole.toLowerCase()]">
-                      <span>{{ pptResultName(item.code,value.fieldCode,value.fieldLabel) }}</span>
+                      <span><PptLabel :text="pptResultName(item.code,value.fieldCode,value.fieldLabel)"/></span>
                       <strong>{{ resultDisplay(value) }}</strong>
                     </div>
                   </div></details>
@@ -1462,33 +1488,34 @@ function showMeasurementHelp(field: FieldDefinition) {
 
             </el-tab-pane>
 
-            <el-tab-pane label="场所防护" name="points" :disabled="!scopeReady || !protectionSelected"><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveProtectionPoints">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='data'">上一步</el-button></div>
-              <div class="section-toolbar">
-                <div><h4>场所卫生防护点位 <HelpMark anchor-id="radiology.protection-point" /></h4><p>DR 超过 25 μSv/h 后，系统按年工作负荷、居留因子和使用因子继续计算年有效剂量，并按 0.25 mSv/a 判定；CT 按 2.5 μSv/h 判定。</p></div>
-                <el-button :disabled="!editable" @click="addProtectionPoint">增加点位</el-button>
-                <el-button type="primary" :disabled="!editable || !pointDrafts.length" @click="saveProtectionPoints">保存并计算</el-button>
+            <el-tab-pane label="场所防护" name="points" :disabled="!scopeReady || !protectionSelected">
+              <header class="ppt-protection-header"><h3>场所防护</h3><div class="ppt-page-actions ppt-entry-actions"><el-button :disabled="!editable" @click="saveProtectionEntry">保存</el-button><el-button :disabled="!editable" @click="calculateCase">计算</el-button><el-button @click="workTab='data'">上一步</el-button></div></header>
+              <RadiologyConditionEditor item-code="RPD" compact-only v-model="conditionValues.RPD" v-model:parameters="conditionValues['__params.RPD']" :disabled="!editable"><template #before-reference><label><span><PptLabel :text="modality==='CT'?'仪器刻度系数k₁':'仪器校准因子k₁'"/></span><el-input v-model="measurementValues[key('RPD','k')]" type="number" :disabled="!editable" aria-label="仪器校准因子k₁"/></label></template></RadiologyConditionEditor>
+              <div class="ppt-protection-calibration">
+                <label class="ppt-inline-field"><span>仪器响应时间</span><el-input v-model="profileDraft.instrumentResponseTime" :disabled="!editable" aria-label="仪器响应时间" placeholder="含单位"/></label>
+                <label class="ppt-inline-field"><span><PptLabel text="时间修正因子k₂"/></span><el-input v-model="measurementValues[key('RPD','RPD-k2')]" type="number" :disabled="!editable" aria-label="时间修正因子k₂"/></label>
+                <label class="ppt-inline-field calibration-choice"><span>校准因子使用：</span><el-select v-model="profileDraft.calibrationMode" :disabled="!editable" aria-label="校准因子使用" popper-class="ppt-calibration-options"><el-option label="结果无需修正" value="NONE"/><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT"/><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH"/><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME"/></el-select></label>
               </div>
-<RadiologyConditionEditor item-code="RPD" compact-only v-model="conditionValues.RPD" v-model:parameters="conditionValues['__params.RPD']" :disabled="!editable"><template #before-reference><label><span>仪器校准因子k1</span><el-input v-model="measurementValues[key('RPD','k')]" type="number" :disabled="!editable" aria-label="仪器校准因子k1"/></label></template></RadiologyConditionEditor>
-              <div class="protection-context ppt-protection-context">
-                <label><span>仪器响应时间</span><el-input v-model="profileDraft.instrumentResponseTime" :disabled="!editable" placeholder="含单位" /></label>
-                <label><span>时间修正因子k2</span><el-input v-model="measurementValues[key('RPD','RPD-k2')]" type="number" :disabled="!editable" /></label>
-                <label class="calibration-choice"><span>校准因子使用</span><el-select v-model="profileDraft.calibrationMode" :disabled="!editable"><el-option label="结果无需修正" value="NONE"/><el-option label="需要仪器刻度修正，无需时间响应修正" value="INSTRUMENT"/><el-option label="需要仪器刻度、时间响应同步修正" value="BOTH"/><el-option label="需要时间响应修正，无需仪器刻度修正" value="TIME"/></el-select></label>
-                <label><span>设备运行情况</span><el-input v-model="profileDraft.backgroundOperation" :disabled="!editable" placeholder="本底测量时未曝光" /></label>
-                <label><span>检测地点</span><el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" /></label>
+              <h4 class="ppt-background-title">本底值</h4>
+              <div class="ppt-background-context">
+                <label class="ppt-inline-field"><span>设备运行情况：</span><el-select v-model="profileDraft.backgroundOperation" :disabled="!editable" filterable allow-create default-first-option aria-label="设备运行情况"><el-option label="未曝光" value="未曝光"/><el-option label="曝光" value="曝光"/></el-select></label>
+                <label class="ppt-inline-field"><span>检测地点：</span><el-input v-model="profileDraft.backgroundLocation" :disabled="!editable" aria-label="本底检测地点" placeholder="如有多个检测地点，使用顿号分隔"/></label>
               </div>
-              <details class="protection-extra-toggle"><summary>补充及历史检测条件</summary><div class="protection-context"><label>防护检测条件<el-input v-model="profileDraft.protectionConditions" :disabled="!editable" /></label><label>单位换算常数a<el-input v-model="measurementValues[key('RPD','a')]" disabled /></label><label v-if="modality==='DR'">防护检测管电流（mA）<el-input v-model="measurementValues[key('RPD','RPD-mA')]" :disabled="!editable" /></label></div></details>
-              <el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button>
-              <h4>本底检测</h4><template v-for="item in catalog.filter(i=>i.code==='RPD')" :key="item.code"><MeasurementTable code="RPD" :fields="visibleFields(item)" hide-references><template #default="{field}"><el-input v-model="measurementValues[key('RPD',field.code)]" type="number" :disabled="!editable||field.code==='a'" :aria-label="field.label"><template v-if="rawFieldUnit('RPD',field)" #append>{{rawFieldUnit('RPD',field)}}</template></el-input></template></MeasurementTable></template><el-button :disabled="!editable" @click="saveMeasurements">保存本底与校准</el-button><div class="computed-panel ppt-background-results"><div v-for="v in computedFields('RPD')" :key="v.id" class="computed-value"><span>{{pptResultName('RPD',v.fieldCode,v.fieldLabel)}}</span><strong>{{displayCalculated(v)}}</strong></div></div>
+              <div class="ppt-background-readings"><DoseRateInput v-for="n in 10" :key="n" v-model="measurementValues[key('RPD','RPD0-'+n)]" v-model:display-unit="conditionValues['__rpd.unit.RPD0-'+n]" :canonical-unit="selectedCase.rpdUnit||'nSv/h'" :label="'本底读数'+n" :disabled="!editable"/></div>
+              <div class="ppt-background-summary"><label v-for="entry in [['MEAN','平均值 K̄'],['STD_DEV','标准差'],['RESULT_TEXT','本底值']]" :key="entry[0]"><PptLabel :text="entry[1]!"/><output><span>{{backgroundOutput(entry[0]!)}}</span><span>μSv/h</span></output></label></div>
+              <details class="protection-extra-toggle"><summary>补充及历史检测条件</summary><div class="protection-context"><label>防护检测条件<el-input v-model="profileDraft.protectionConditions" :disabled="!editable" /></label><label>单位换算常数a<el-input v-model="measurementValues[key('RPD','a')]" disabled /></label><label v-if="modality==='DR'">防护检测管电流（mA）<el-input v-model="measurementValues[key('RPD','RPD-mA')]" :disabled="!editable" /></label></div><el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button></details>
+              <div class="section-toolbar ppt-point-heading"><div><h4>场所卫生防护点位 <HelpMark anchor-id="radiology.protection-point"/></h4><p>DR 超过 25 μSv/h 后，系统按年工作负荷、居留因子和使用因子继续计算年有效剂量，并按 0.25 mSv/a 判定；CT 按 2.5 μSv/h 判定。</p></div></div>
               <el-button class="protection-extra-toggle" :aria-expanded="protectionExtrasOpen" @click="protectionExtrasOpen=!protectionExtrasOpen">{{protectionExtrasOpen?'收起补充点位参数':'补充点位参数'}}</el-button>
+              <p v-if="modality==='DR' && Number(measurementValues[key('RPD','RPD-mA')]||100)!==100" class="protection-normalization-note">当前防护检测管电流：{{measurementValues[key('RPD','RPD-mA')]}} mA；点位结果按100 mA归一化计算（×{{100/Number(measurementValues[key('RPD','RPD-mA')])}}）。可在“补充及历史检测条件”中核对。</p>
               <el-table class="ppt-protection-readings" :data="pointDrafts" border @selection-change="(v:ProtectionPoint[])=>selectedPointRows=v"><el-table-column type="selection" width="38"/>
                 <el-table-column v-if="protectionExtrasOpen" label="点位代码" width="120"><template #default="scope"><el-input v-model="scope.row.pointCode" :disabled="!editable" /></template></el-table-column>
                 <el-table-column label="检测点位" width="150"><template #default="scope"><el-input v-model="scope.row.pointName" :disabled="!editable" /></template></el-table-column>
                 <el-table-column label="检测点位置" min-width="180"><template #default="scope"><el-input v-model="scope.row.locationDescription" :disabled="!editable" /></template></el-table-column>
-                <el-table-column v-for="n in pointReadCount" :key="n" :label="`读数${n}（${selectedCase.rpdUnit || 'nSv/h'}）`" min-width="135"><template #default="scope"><el-input :model-value="pointRead(scope.row,n-1)" type="number" :disabled="!editable" @update:model-value="setPointRead(scope.row,n-1,$event)"/></template></el-table-column>
+                <el-table-column v-for="n in pointReadCount" :key="n" :label="`读数${n}`" min-width="180"><template #default="scope"><DoseRateInput :model-value="pointRead(scope.row,n-1)" v-model:display-unit="conditionValues['__rpd.pointUnit.'+scope.row.pointCode+'.'+n]" :canonical-unit="selectedCase.rpdUnit||'nSv/h'" :label="scope.row.pointName+'读数'+n" :disabled="!editable" @update:model-value="setPointRead(scope.row,n-1,$event)"/></template></el-table-column>
                 <el-table-column v-if="modality === 'DR' && protectionExtrasOpen" width="150"><template #header>年工作负荷 <HelpMark anchor-id="radiology.annual-workload" /></template><template #default="scope"><el-input v-model.number="scope.row.annualWorkloadMas" type="number" :disabled="!editable" placeholder="mAs/a" /></template></el-table-column>
                 <el-table-column v-if="modality === 'DR' && protectionExtrasOpen" width="120"><template #header>居留因子 T <HelpMark anchor-id="radiology.occupancy-factor" /></template><template #default="scope"><el-input v-model.number="scope.row.occupancyFactor" type="number" :disabled="!editable" /></template></el-table-column>
                 <el-table-column v-if="modality === 'DR' && protectionExtrasOpen" width="120"><template #header>使用因子 U <HelpMark anchor-id="radiology.use-factor" /></template><template #default="scope"><el-input v-model.number="scope.row.useFactor" type="number" :disabled="!editable" /></template></el-table-column>
-                <el-table-column class-name="ppt-point-result" prop="averageDisplay" label="平均值" width="100" />
+                <el-table-column class-name="ppt-point-result" label="平均值" width="170"><template #default="scope">{{pointAverage(scope.row)}}</template></el-table-column>
                 <el-table-column class-name="ppt-point-result" label="检测结果" width="130"><template #default="scope">{{ scope.row.resultDisplay || '-' }} μSv/h</template></el-table-column>
                 <el-table-column v-if="modality === 'DR' && protectionExtrasOpen" label="年有效剂量" width="150"><template #default="scope">{{ scope.row.annualEffectiveDose ?? '-' }} mSv/a</template></el-table-column>
                 <el-table-column v-if="protectionExtrasOpen" label="结论" width="110"><template #default="scope">{{ judgementText(scope.row.judgement) }}</template></el-table-column>
@@ -1506,7 +1533,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                 </el-select>
                 <input type="file" :disabled="!editable" accept="image/png,image/jpeg,image/webp,application/pdf,.docx,.xlsx" @change="chooseAttachment" aria-label="选择附件文件" />
                 <el-button type="primary" :disabled="!editable||!pendingAttachment" @click="uploadAttachment">确认上传</el-button><span v-if="pendingAttachment">{{pendingAttachment.name}}</span>
-                <span>点位图支持 PNG/JPEG/WebP；其他附件支持 PDF、DOCX、XLSX，单文件不超过 25MB。 <HelpMark anchor-id="radiology.phantom" /></span>
+                <span>点位图支持 PNG/JPEG/WebP；其他附件支持 PDF、DOCX、XLSX，单文件不超过 25MB。 <HelpMark anchor-id="radiology.attachments" /></span>
               </div>
               <el-table :data="selectedCase.attachments" border>
                 <el-table-column label="类别" width="130"><template #default="scope">{{attachmentCategoryName(scope.row.category)}}</template></el-table-column>
@@ -1582,7 +1609,7 @@ function showMeasurementHelp(field: FieldDefinition) {
         <RadiologyConditionEditor v-if="item.code!=='CTDI'" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"/>
         <div class="condition-subrows"><template v-if="rowIds(item.code).length"><label v-for="(id,index) in rowIds(item.code)" :key="id">第{{index+1}}行检测条件<el-input v-model="conditionValues[item.code+'.R'+id]" :disabled="!editable"/></label></template><template v-else><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable"/></label></template></div>
         <p v-if="item.code==='CTDI'">头部和体部检测条件分别在对应模体区域编辑；各自的补充条件独立保留。</p>
-        <h4>完整计算结果</h4><div class="computed-panel"><div v-for="value in computedFields(item.code)" :key="value.id" class="computed-value"><span>{{pptResultName(item.code,value.fieldCode,value.fieldLabel)}}</span><strong>{{resultDisplay(value)}}</strong></div></div>
+        <h4>完整计算结果</h4><div class="computed-panel"><div v-for="value in computedFields(item.code)" :key="value.id" class="computed-value"><span><PptLabel :text="pptResultName(item.code,value.fieldCode,value.fieldLabel)"/></span><strong>{{resultDisplay(value)}}</strong></div></div>
       </template><template #footer><el-button @click="entrySupplementOpen=false">关闭</el-button></template>
     </el-dialog>
     <el-dialog

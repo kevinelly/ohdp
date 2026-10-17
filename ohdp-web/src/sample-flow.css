@@ -2458,3 +2458,7 @@ button.el-picker-panel__icon-btn:focus-visible {
   color: #005f58;
   background: #e7f5f2;
 }
+
+/* Keep the glyph centered even when a page changes inline-grid to inline-flex. */
+span.help-mark,.help-menu-mark,button.context-help-button{align-items:center;justify-content:center;place-items:center;text-align:center;padding:0;line-height:1;flex-shrink:0}
+span.help-mark{font-family:Arial,sans-serif}

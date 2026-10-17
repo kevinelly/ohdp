@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import PptLabel from './PptLabel.vue'
 import HelpMark from '../help/HelpMark.vue'
 import { pptFieldName, pptResultName } from './radiologyDraftSupport'
 interface Field { code: string; label: string; unit: string; required: boolean }
@@ -9,8 +10,8 @@ const fields=computed(()=>props.fields.filter(f=>!['TVD','ETD'].includes(props.c
 const key=(id:number,field:string)=>`${props.code}::R${id}__${field}`
 function label(f:Field) {
   if(['TVD','ETD'].includes(props.code)) {
-    if(f.code.endsWith('-0'))return props.code==='TVD'?'预设值':'指示值T0'
-    if(f.code.includes('-K'))return '校准因子'
+    if(f.code.endsWith('-0'))return props.code==='TVD'?'预设值':'指示值T₀'
+    if(f.code.includes('-K'))return props.code==='ETD'?'校准因子 K₃':'校准因子'
     return (props.code==='ETD'?'读数T':'读数')+f.code.slice(-1)
   }
   return pptFieldName(props.code,f.code,f.label)
@@ -31,12 +32,21 @@ const resultColumns=computed(()=>{
  for(const result of props.results||[]) { const match=/^R\d+__(.+)$/.exec(result.fieldCode);if(match)columns.set(match[1]!,result.fieldLabel.replace(/^第\d+行\s*/,'')) }
  return [...columns].map(([code,label])=>({code,label}))
 })
-function rowResult(id:number,code:string){return props.results?.find(r=>r.fieldCode===`R${id}__${code}`)?.output||'—'}
+function rowResult(id:number,code:string){
+ const result=props.results?.find(r=>r.fieldCode===`R${id}__${code}`)
+ if(props.code==='HCR' && code==='RESULT' && result?.fieldLabel.includes('分辨力基线') && /lp\/mm$/.test(result.output))return `建立基线值 ${result.output}（即读数）`
+ if(props.code==='LCR' && code==='RESULT' && result && Number.isFinite(parseFloat(result.output))){
+  const contrast=props.results?.find(r=>r.fieldCode===`R${id}__CONTRAST`)?.output
+  const delta=props.results?.find(r=>r.fieldCode===`R${id}__DETAIL_DELTA`)?.output
+  if(result.fieldLabel.includes('基线'))return result.fieldLabel.includes('细节数基线')?`建立基线值可观察影像细节数${parseFloat(result.output)}个（对比度${contrast||'—'}）`:`与基线值比较相差${delta?parseFloat(delta):'—'}个细节变化（对比度${contrast||'—'}）`
+ }
+ return result?.output||'—'
+}
 const columns=computed(()=>{
- const inputs=fields.value.filter(field=>props.code!=='ROA'||field.code!=='ROA-K').map(field=>({code:field.code,label:label(field),field:field as Field|undefined}))
+ const inputs=fields.value.filter(field=>(props.code!=='ROA'||field.code!=='ROA-K')&&(props.code!=='HCR'||field.code!=='厂家规定值/基线值')).map(field=>({code:field.code,label:label(field),field:field as Field|undefined}))
  const planned:Record<string,{code:string;label:string}[]>={
   TVD:[{code:'MEAN_1',label:'平均值'},{code:'DISPLAY_1',label:'偏差'}],
-  ETD:[{code:'MEAN_1',label:'平均值'},{code:'DEVIATION_MS_1',label:'检测结果'}],
+  ETD:[{code:'MEAN_1',label:'平均值 T̄'},{code:'DEVIATION_PERCENT_1',label:'检测结果 Eᵣ'}],
   ROA:[{code:'MEAN',label:'平均值'},{code:'RESULT',label:'重复性CV'}],
   HCR:[{code:'RESULT',label:'检测结果'}],LCR:[{code:'RESULT',label:'检测结果'}],
   RST:[{code:'WWMIN',label:'最小窗宽WWmin'},{code:'CTHM',label:'半高CT值CThm'},{code:'MEAN',label:'平均值'},{code:'DEVIATION',label:'偏差'}]
@@ -63,8 +73,9 @@ function remove(id:number) {
 </script>
 <template>
  <div class="measurement-rows">
+  <details v-if="code==='HCR' && rows.length && fields.some(f=>f.code==='厂家规定值/基线值')" class="roa-calibration-detail"><summary>补充参数与历史参考值</summary><div class="measurement-extra"><label v-for="(id,index) in rows" :key="id">第{{index+1}}行历史参考值<el-input v-model="values[key(id,'厂家规定值/基线值')]" type="number" :disabled="disabled" :aria-label="`HCR第${id}行历史参考值`"><template #append>lp/mm</template></el-input></label></div></details>
   <details v-if="code==='ROA' && rows.length" class="roa-calibration-detail"><summary>补充参数（各行校准因子）</summary><div class="measurement-extra"><label v-for="(id,index) in rows" :key="id">第{{index+1}}行校准因子<el-input v-model="values[key(id,'ROA-K')]" type="number" :disabled="disabled" :aria-label="`ROA第${id}行校准因子`"/></label></div></details>
-  <div v-if="rows.length" class="rows-scroll"><table><thead><tr><th></th><th class="row-condition-column">检测条件</th><th v-for="(column,index) in columns" :key="column.code">{{column.label}} <HelpMark v-if="!column.field && index===columns.length-1" anchor-id="radiology.calculation"/></th></tr></thead><tbody><tr v-for="id in rows" :key="id"><td><input type="checkbox" v-model="selected" :value="id" :disabled="disabled" :aria-label="`选择第${id}行`"/></td><td class="row-condition-column"><el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="使用共有条件"/></td><td v-for="column in columns" :key="column.code" :class="{calculated:!column.field}"><template v-if="column.field"><el-select v-if="column.field.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,column.code)]" :disabled="disabled"><el-option value="个" label="个"/></el-select><el-input v-else v-model="values[key(id,column.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${column.label}`"><template v-if="column.field.unit" #append>{{column.field.unit}}</template></el-input></template><template v-else>{{rowResult(id,column.code)}}</template></td></tr></tbody></table></div>
+  <div v-if="rows.length" class="rows-scroll"><table :data-item="code"><thead><tr><th></th><th class="row-condition-column">检测条件</th><th v-for="(column,index) in columns" :key="column.code"><PptLabel :text="column.label"/> <HelpMark v-if="!column.field && index===columns.length-1" :anchor-id="'radiology.result.'+code"/></th></tr></thead><tbody><tr v-for="id in rows" :key="id"><td><input type="checkbox" v-model="selected" :value="id" :disabled="disabled" :aria-label="`选择第${id}行`"/></td><td class="row-condition-column"><el-input v-model="conditions[`${code}.R${id}`]" :disabled="disabled" :aria-label="`${code}第${id}行检测条件`" placeholder="使用共有条件"/></td><td v-for="column in columns" :key="column.code" :class="{calculated:!column.field}"><template v-if="column.field"><el-select v-if="column.field.code==='LCR-BASELINE-UNIT'" v-model="values[key(id,column.code)]" :disabled="disabled"><el-option value="个" label="个"/></el-select><el-input v-else v-model="values[key(id,column.code)]" type="number" :disabled="disabled" :aria-label="`${code}第${id}行${column.label}`"><template v-if="column.field.unit" #append>{{column.field.unit}}</template></el-input></template><template v-else>{{rowResult(id,column.code)}}</template></td></tr></tbody></table></div>
   <div class="row-actions"><el-button :disabled="disabled||rows.length>=30" @click="addRow">增加行</el-button><el-button :disabled="disabled||rows.length===1||(rows.length>0&&!selected.length)" @click="deleteRows">删除行</el-button></div>
  </div>
 </template>

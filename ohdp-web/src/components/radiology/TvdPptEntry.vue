@@ -65,7 +65,7 @@ function setCondition(value:string,parameters=false) {
         <div class="tvd-grid tvd-column-headings" role="row">
           <span v-for="(label,index) in inputColumns" :key="label" role="columnheader">{{label}}<span v-if="index===0" class="required">*</span></span>
           <span role="columnheader" title="沿用系统计算的校正平均值，单位kV">平均值</span>
-          <span role="columnheader">偏差 <HelpMark anchor-id="radiology.calculation" /></span>
+          <span role="columnheader">偏差 <HelpMark anchor-id="radiology.result.TVD" /></span>
         </div>
         <div v-for="(id,index) in rows" :key="id" class="tvd-grid tvd-reading-row" role="row" :aria-label="`第${index+1}行`">
           <div v-for="(label,column) in inputColumns" :key="label" class="tvd-reading-cell" role="cell">

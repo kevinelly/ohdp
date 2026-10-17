@@ -60,7 +60,7 @@ test('TVD readonly view never enables row migration or deletes measurements',()=
 test('page display names map legacy codes without changing stored identifiers',()=>{
  assert.equal(support.pptItemName('AIC','旧名称'),'AEC电离室之间一致性')
  assert.equal(support.pptItemName('LCD','低对比可探测能力'),'低对比分辨力')
- assert.equal(support.pptFieldName('ILA','非残影区D0','旧标签'),'非残影区ROI值D2')
+ assert.equal(support.pptFieldName('ILA','非残影区D0','旧标签'),'非残影区ROI值D₂')
  assert.equal(support.pptFieldName('TVD','TVD2-0','TVD2-0'),'预设值')
  assert.equal(support.pptFieldName('RST','R3','R3'),'实测值3')
  assert.equal(support.pptFieldName('NEW','future','未来字段'),'未来字段')
@@ -252,7 +252,7 @@ test('dynamic results map by stable row id after deletion and preserve display p
 })
 
 test('repeatable PPT rows retain their output columns before calculation and after cache invalidation',()=>{
- for(const [code,expected] of [['ROA',['MEAN','RESULT']],['ETD',['MEAN_1','DEVIATION_MS_1']],['HCR',['RESULT']],['LCR',['RESULT']],['RST',['WWMIN','CTHM','MEAN','DEVIATION']]]){
+ for(const [code,expected] of [['ROA',['MEAN','RESULT']],['ETD',['MEAN_1','DEVIATION_PERCENT_1']],['HCR',['RESULT']],['LCR',['RESULT']],['RST',['WWMIN','CTHM','MEAN','DEVIATION']]]){
   const c=component('RadiologyMeasurementRows.vue','columns',{props:{code,fields:[],values:{},conditions:{['__rows.'+code]:'[1,7]'},disabled:false,results:[]}})
   assert.deepEqual(c.columns.value.filter(v=>!v.field).map(v=>v.code).toSorted(),expected.toSorted())
  }
@@ -260,7 +260,7 @@ test('repeatable PPT rows retain their output columns before calculation and aft
 
 test('PPT repeatable view keeps ETD factor after the average and never adds unrelated intermediate outputs',()=>{
  const c=component('RadiologyMeasurementRows.vue','columns',{props:{code:'ETD',fields:[{code:'ETD1-0'},{code:'ETD1-1'},{code:'ETD1-2'},{code:'ETD1-3'},{code:'ETD-K1'}],values:{},conditions:{'__rows.ETD':'[1,7]'},disabled:false,results:[{fieldCode:'R7__MEAN_1',fieldLabel:'均值',output:'100.00 ms'},{fieldCode:'R7__DEVIATION_PERCENT_1',fieldLabel:'相对偏差',output:'2.0%'}]}})
- const codes=c.columns.value.map(v=>v.code);assert.ok(codes.indexOf('MEAN_1')<codes.indexOf('ETD-K1'));assert.equal(codes.includes('DEVIATION_PERCENT_1'),false)
+ const codes=c.columns.value.map(v=>v.code);assert.ok(codes.indexOf('MEAN_1')<codes.indexOf('ETD-K1'));assert.equal(codes.includes('DEVIATION_PERCENT_1'),true);assert.equal(codes.includes('DEVIATION_MS_1'),false)
 })
 
 test('selected STP formula uses the existing fitted coefficient keys including power c=0',()=>{
@@ -383,4 +383,79 @@ test('editing the LCR reference dose in the table preserves its shared condition
  const c=component('RadiologyConditionEditor.vue','fields,update',{props:{itemCode:'LCR',referenceOnly:true}})
  Object.assign(c.fields,{sid:'100',voltage:'80',referenceDose:'3.5',extra:'原始补充条件'});c.update()
  const saved=JSON.parse(c.emits[0][1]);assert.equal(saved.referenceDose,'3.5');assert.equal(saved.sid,'100');assert.equal(saved.voltage,'80');assert.equal(saved.extra,'原始补充条件')
+})
+
+test('ETD fixed and repeated E-r bind relative percent, leaving absolute milliseconds separate',()=>{
+ const results=[{fieldCode:'MEAN_1',output:'210.00 ms'},{fieldCode:'DEVIATION_MS_1',output:'10.0 ms'},{fieldCode:'DEVIATION_PERCENT_1',output:'5.0 %'}]
+ const c=component('MeasurementTable.vue','calculated,meanHeading,resultHeading',{props:{code:'ETD',fields:[],results}})
+ assert.equal(c.calculated({fields:[]},0,true),'210.00 ms');assert.equal(c.calculated({fields:[]},0,false),'5.0 %')
+ assert.equal(c.meanHeading.value,'平均值 T̄');assert.equal(c.resultHeading.value,'检测结果 Eᵣ')
+ const repeat=component('RadiologyMeasurementRows.vue','rowResult,columns',{props:{code:'ETD',fields:[],values:{},conditions:{'__rows.ETD':'[7]'},results:results.map(r=>({...r,fieldCode:'R7__'+r.fieldCode,fieldLabel:r.fieldCode}))}})
+ assert.equal(repeat.rowResult(7,'DEVIATION_PERCENT_1'),'5.0 %');assert.ok(!repeat.columns.value.some(c=>c.code==='DEVIATION_MS_1'))
+})
+
+test('HCR repeated baseline narration respects stable row id and hides retained legacy inputs',()=>{
+ const values={'HCR::R7__厂家规定值/基线值':'3.2'}
+ const c=component('RadiologyMeasurementRows.vue','rowResult,columns',{props:{code:'HCR',fields:[{code:'HCR1',label:'读数'},{code:'厂家规定值/基线值',label:'旧参考值'}],values,conditions:{'__rows.HCR':'[1,7]'},results:[{fieldCode:'R7__RESULT',fieldLabel:'第7行 分辨力基线',output:'2.6 lp/mm'},{fieldCode:'R1__RESULT',fieldLabel:'第1行 参考值保持率',output:'100.0 %'}]}})
+ assert.equal(c.rowResult(7,'RESULT'),'建立基线值 2.6 lp/mm（即读数）');assert.equal(c.rowResult(1,'RESULT'),'100.0 %')
+ assert.equal(c.columns.value.some(c=>c.code==='厂家规定值/基线值'),false);assert.equal(values['HCR::R7__厂家规定值/基线值'],'3.2')
+})
+
+test('dose display conversion retains physical value, zero, blanks and small decimal precision',()=>{
+ for(const unit of ['nSv/h','μSv/h','mSv/h'])for(const to of ['nSv/h','μSv/h','mSv/h']){
+  assert.equal(support.convertDoseRate('',unit,to),'');assert.equal(support.convertDoseRate(0,unit,to),'0')
+  const converted=support.convertDoseRate('0.000123456789',unit,to)
+  assert.ok(Math.abs(Number(support.convertDoseRate(converted,to,unit))-0.000123456789)<1e-18)
+ }
+ const props=reactive({modelValue:'1234.56789',canonicalUnit:'nSv/h',displayUnit:'μSv/h',label:'读数1'})
+ const c=component('DoseRateInput.vue','displayed,update',{props})
+ assert.equal(c.displayed.value,'1.23456789');assert.deepEqual(c.emits,[])
+ c.update('0.000123456');assert.deepEqual(c.emits[0],['update:modelValue','0.123456'])
+ c.update('');assert.deepEqual(c.emits[1],['update:modelValue',''])
+})
+
+test('clearing a point reading preserves later values and their unit positions',()=>{
+ const c=component('RadiologyWorkbench.vue','pointRead,setPointRead,pointValues,pointAverage,selectedCase,conditionValues')
+ const p={pointCode:'P1',readingsText:'100, 200, 300, 400, 500',readings:[100,200,300,400,500],averageValue:300}
+ c.selectedCase.value={rpdUnit:'nSv/h'};c.setPointRead(p,1,'')
+ assert.equal(c.pointRead(p,1),'');assert.equal(c.pointRead(p,2),'300');assert.equal(c.pointRead(p,4),'500')
+ assert.match(c.pointAverage(p),/^待重算/);c.setPointRead(p,1,'200')
+ for(let i=1;i<=5;i++)c.conditionValues['__rpd.pointUnit.P1.'+i]='μSv/h'
+ assert.equal(c.pointAverage(p),'0.3 μSv/h')
+ c.conditionValues['__rpd.pointUnit.P1.2']='mSv/h';assert.equal(c.pointAverage(p),'0.3 μSv/h')
+ for(let i=1;i<=5;i++)c.conditionValues['__rpd.pointUnit.P1.'+i]='mSv/h'
+ assert.equal(c.pointAverage(p),'0.0003 mSv/h')
+})
+
+test('math labels render semantic bars and subscripts instead of losing scientific symbols',()=>{
+ const c=component('PptLabel.vue','parts',{props:{text:'平均值 K̄ / T̄ / Eᵣ / K₃ / fNyquist / CTDIW / α₁ / L₂ / R²'}})
+ assert.deepEqual(c.parts.value.filter(p=>p.bar).map(p=>p.text),['K','T'])
+ assert.deepEqual(c.parts.value.filter(p=>p.sub).map(p=>[p.text,p.sub]),[['E','r'],['K','3'],['f','Nyquist'],['CTDI','W'],['α','1'],['L','2']])
+ assert.deepEqual(c.parts.value.find(p=>p.sup),{text:'R',sup:'2'})
+})
+
+test('ILA keeps independent percent result and full narrative; HCR baseline uses calculation text',()=>{
+ const c=component('RadiologyWorkbench.vue','selectedCase,syncCaseState,entryResultText')
+ c.selectedCase.value={id:1,status:'CALCULATED',calculationFresh:true,measurements:[{itemCode:'ILA',fieldCode:'RESULT',fieldRole:'FINAL',valueNum:10,displayValue:'10.0 %'}],profile:{},itemConditions:{},protectionPoints:[],itemResults:[{itemCode:'ILA',resultText:'存在残影，且像素值误差为10.0%'},{itemCode:'HCR',resultText:'建立基线值：2.6 lp/mm'}]};c.syncCaseState()
+ assert.equal(c.entryResultText('ILA'),'存在残影，且像素值误差为10.0%');assert.equal(c.entryResultText('HCR'),'建立基线值 2.6 lp/mm（即读数）')
+ c.selectedCase.value.calculationFresh=false;assert.equal(c.entryResultText('ILA'),'')
+})
+
+test('baseline help follows the actual project instead of reusing CT head/body instructions',()=>{
+ for(const [code,expected] of [['HCR','radiology.hcr-baseline'],['LCR','radiology.lcr-baseline'],['DDI','radiology.ddi-baseline'],['CTDI','radiology.stability-baseline'],['NPS','radiology.project-baseline']]){
+  const c=component('MeasurementTable.vue','baselineHelp',{props:{code,fields:[]}});assert.equal(c.baselineHelp(),expected)
+ }
+})
+
+test('all quality projects have project-specific result help and DR baseline help avoids CT instructions',async()=>{
+ const help=await import('data:text/javascript;base64,'+Buffer.from(transpile(fs.readFileSync(new URL('../../helpContent.ts',dir),'utf8'))).toString('base64'))
+ for(const code of ['TVD','ROA','ROQ','HVL','ETD','ARP','ARS','AIC','UBD','LRD','DDI','STP','RUE','ART','REA','ILA','HCR','LCR','TPA','GTA','CTDI','LBA','RST','MTF','LCD','HUL','HUA','HUU','NPS'])assert.ok(help.findHelpAnchor('radiology.result.'+code)?.summary,code)
+ assert.match(help.findHelpAnchor('radiology.result.HVL').summary,/≥2.3 mmAl/)
+ for(const code of ['hcr','lcr','ddi'])assert.doesNotMatch(help.findHelpAnchor('radiology.'+code+'-baseline').summary,/头模|体模/)
+})
+
+test('LCR repeated rows retain baseline or signed change narrative independently',()=>{
+ const c=component('RadiologyMeasurementRows.vue','rowResult',{props:{code:'LCR',fields:[],values:{},conditions:{},results:[{fieldCode:'R1__RESULT',fieldLabel:'第1行 可观察细节数基线',output:'10.00 个细节'},{fieldCode:'R1__CONTRAST',fieldLabel:'对比度',output:'0.300 %'},{fieldCode:'R7__RESULT',fieldLabel:'第7行 与基线的绝对差',output:'2.00'},{fieldCode:'R7__DETAIL_DELTA',fieldLabel:'细节数减基线值',output:'-2.00'},{fieldCode:'R7__CONTRAST',fieldLabel:'对比度',output:'0.300 %'}]}})
+ assert.match(c.rowResult(1,'RESULT'),/建立基线值可观察影像细节数10个/)
+ assert.match(c.rowResult(7,'RESULT'),/相差-2个细节变化/)
 })
