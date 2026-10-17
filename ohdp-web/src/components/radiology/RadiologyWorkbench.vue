@@ -726,6 +726,10 @@ function resetCaseDialogState() {
   caseDialogCommitted.value = false
 }
 
+async function createAnotherCase() {
+  if (await confirmLeave()) openCreateCase()
+}
+
 function openCreateCase() {
   caseFormHydrating.value = true
   resetCaseDialogState()
@@ -1280,6 +1284,10 @@ function judgementText(value?: string) {
 
     <div class="qc-layout" :class="{recording:selectedCase && viewStage>1}">
       <aside v-if="!selectedCase || viewStage===1" class="case-rail">
+        <div v-if="selectedCase" class="ppt-page-actions" style="justify-content:flex-start;margin-bottom:12px">
+          <el-button size="small" type="primary" @click="createAnotherCase">创建新的项目</el-button>
+          <el-button size="small" @click="batchVisible=true">Excel批量导入</el-button>
+        </div>
         <div class="rail-filter">
           <el-input v-model="query.keyword" clearable placeholder="受理编号" @keyup.enter="loadCases" />
           <el-select v-model="query.status" clearable placeholder="全部状态" @change="loadCases">
