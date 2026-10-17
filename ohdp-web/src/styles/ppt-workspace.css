@@ -10,3 +10,17 @@
 .ppt-workspace .ppt-query-page .el-form-item__label{font:18px SimSun,"Songti SC",serif}
 .ppt-workspace .ppt-query-page .el-input__wrapper,.ppt-workspace .ppt-query-page .el-select__wrapper{min-height:44px;box-shadow:0 0 0 2px #aaa inset;border-radius:7px}
 @media(max-width:900px){.ppt-workspace .maintenance-grid .grid2>label{font-size:17px}.ppt-workspace .maintenance-grid .grid2 input,.ppt-workspace .maintenance-grid .grid2 select{font-size:16px}}
+.ppt-workspace .table-action-header{ text-align:center; }
+.ppt-workspace td.table-action-cell{ vertical-align:middle; text-align:center; }
+.ppt-workspace .table-action-cell>.cell,
+.ppt-workspace .table-action-cell>.table-action-group{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px;
+}
+.ppt-workspace .table-action-stack>.cell{ flex-direction:column; }
+.ppt-workspace .table-action-cell button,
+.ppt-workspace .table-action-cell .replace-attachment{
+  display:inline-flex; align-items:center; justify-content:center;
+  margin:0!important; text-align:center; vertical-align:middle; line-height:1.2;
+}
+.ppt-workspace .table-action-cell button>span{ display:inline-flex; align-items:center; justify-content:center; }
+.ppt-workspace .table-action-cell .replace-attachment{ min-height:36px; padding:6px 8px; }

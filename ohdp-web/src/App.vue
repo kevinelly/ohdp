@@ -3502,7 +3502,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
               <el-tag :type="projectStatusTagType(row.status as ProjectStatus)" size="small">{{ statusText[row.status as ProjectStatus] }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="220" fixed="right">
+          <el-table-column align="center" header-align="center" class-name="table-action-cell" label="操作" width="220" fixed="right">
             <template #default="{ row }">
               <button class="ghost tiny" :disabled="!canListRowEdit" @click.stop="editProjectFromList(row as Project)">编辑</button>
               <button class="ghost tiny" :disabled="!canListRowCopy" @click.stop="copyProjectFromList((row as Project).id)">复制</button>
@@ -3710,7 +3710,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                     <th>班制/工时</th>
                     <th>人数</th>
                     <th>危害因素</th>
-                    <th>操作</th>
+                    <th class="table-action-header">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3719,7 +3719,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                     <td>{{ item.shiftSystem }} / {{ item.workingHours }}</td>
                     <td>{{ item.workerCount }}</td>
                     <td>{{ item.hazards }}</td>
-                    <td><button class="danger tiny" :disabled="!canProjectOperate" @click="removePosition(item.id)">删除</button></td>
+                    <td class="table-action-cell"><div class="table-action-group"><button class="danger tiny" :disabled="!canProjectOperate" @click="removePosition(item.id)">删除</button></div></td>
                   </tr>
                 </tbody>
               </table>
@@ -3839,7 +3839,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <th>限值</th>
                 <th>日期/特殊条件</th>
                 <th>判定</th>
-                <th>操作</th>
+                <th class="table-action-header">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -3851,10 +3851,10 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <td>{{ item.adjustedLimitValue ?? item.limitValue }} {{ item.limitUnit }}<small v-if="item.reductionFactor && item.reductionFactor < 1"><br />折减系数 {{ item.reductionFactor }}</small></td>
                 <td>{{ item.measurementDate || '—' }}<small v-if="item.measurementBodyPart || item.measurementBand"><br />{{ [item.measurementBodyPart, item.measurementBand].filter(Boolean).join(' / ') }}</small></td>
                 <td>{{ codeLabel(item.judgement, '未判定') }}</td>
-                <td>
+                <td class="table-action-cell"><div class="table-action-group">
                   <button class="ghost tiny" :disabled="!canProjectOperate" @click="editResult(item)">编辑</button>
                   <button class="danger tiny" :disabled="!canProjectOperate" @click="removeResult(item.id)" style="margin-left:4px">删除</button>
-                </td>
+                </div></td>
               </tr>
             </tbody>
           </table>
@@ -3960,7 +3960,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <el-table-column label="生成时间" min-width="150">
             <template #default="{ row }">{{ formatDateTime(row.generatedAt) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="300" fixed="right">
+          <el-table-column align="center" header-align="center" class-name="table-action-cell" label="操作" width="300" fixed="right">
             <template #default="{ row }">
               <button class="ghost tiny" @click.stop="selectReportCenterRow(row as ReportCenterRow)">查看</button>
               <button class="ghost tiny" :disabled="actionBusy.generateReport" @click.stop="generateReportFromCenter(row as ReportCenterRow)">
@@ -4040,15 +4040,15 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchCompanyProfiles">刷新</button>
         </div>
         <table>
-          <thead><tr><th>单位名称</th><th>地址</th><th>操作</th></tr></thead>
+          <thead><tr><th>单位名称</th><th>地址</th><th class="table-action-header">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in companyProfiles" :key="item.id">
               <td>{{ item.companyName }}</td>
               <td>{{ item.companyAddress }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editCompanyProfile(item)">编辑</button>
                 <button class="danger tiny" @click="deleteCompanyProfile(item.id)">删除</button>
-              </td>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -4073,15 +4073,15 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchPositionTemplates">刷新</button>
         </div>
         <table>
-          <thead><tr><th>岗位</th><th>班制/工时</th><th>操作</th></tr></thead>
+          <thead><tr><th>岗位</th><th>班制/工时</th><th class="table-action-header">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in positionTemplates" :key="item.id">
               <td>{{ item.jobName }}</td>
               <td>{{ item.shiftSystem }} / {{ item.workingHours }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editPositionTemplate(item)">编辑</button>
                 <button class="danger tiny" @click="deletePositionTemplate(item.id)">删除</button>
-              </td>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -4106,17 +4106,17 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchFactorTemplates">刷新</button>
         </div>
         <table>
-          <thead><tr><th>因素</th><th>指标</th><th>默认限值</th><th>方法/仪器</th><th>操作</th></tr></thead>
+          <thead><tr><th>因素</th><th>指标</th><th>默认限值</th><th>方法/仪器</th><th class="table-action-header">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in factorTemplates" :key="item.id">
               <td>{{ item.factorName }}</td>
               <td>{{ item.metricType }}</td>
               <td>{{ item.defaultLimitValue }} {{ item.defaultLimitUnit }}</td>
               <td>{{ item.detectionMethod || '/' }}<br />{{ item.detectionInstruments || '/' }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editFactorTemplate(item)">编辑</button>
                 <button class="danger tiny" @click="deleteFactorTemplate(item.id)">删除</button>
-              </td>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -4145,17 +4145,17 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchDictionaryItems">刷新</button>
         </div>
         <table>
-          <thead><tr><th>编码</th><th>名称</th><th>排序</th><th>启用</th><th>操作</th></tr></thead>
+          <thead><tr><th>编码</th><th>名称</th><th>排序</th><th>启用</th><th class="table-action-header">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in dictionaryItems" :key="item.id">
               <td>{{ item.itemCode }}</td>
               <td>{{ item.itemName }}</td>
               <td>{{ item.sortNo }}</td>
               <td>{{ item.enabled ? '是' : '否' }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editDictionaryItem(item)">编辑</button>
                 <button class="danger tiny" @click="deleteDictionaryItem(item.id)">删除</button>
-              </td>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -4177,17 +4177,17 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchStaffProfiles">刷新</button>
         </div>
         <table>
-          <thead><tr><th>姓名</th><th>职务/职称</th><th>证书编号</th><th>电话</th><th>操作</th></tr></thead>
+          <thead><tr><th>姓名</th><th>职务/职称</th><th>证书编号</th><th>电话</th><th class="table-action-header">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in staffProfiles" :key="item.id">
               <td>{{ item.staffName }}</td>
               <td>{{ item.staffTitle || '-' }}</td>
               <td>{{ item.certNo }}</td>
               <td>{{ item.contactPhone || '-' }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editStaffProfile(item)">编辑</button>
                 <button class="danger tiny" @click="deleteStaffProfile(item.id)">删除</button>
-              </td>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -4219,16 +4219,16 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <button class="ghost" @click="fetchReportTextTemplates">刷新</button>
         </div>
         <table>
-          <thead><tr><th>分类</th><th>名称</th><th>启用</th><th>操作</th></tr></thead>
+          <thead><tr><th>分类</th><th>名称</th><th>启用</th><th class="table-action-header">操作</th></tr></thead>
           <tbody>
             <tr v-for="item in reportTextTemplates" :key="item.id">
               <td>{{ codeLabel(item.templateType) }}</td>
               <td>{{ item.templateName }}</td>
               <td>{{ item.enabled ? '是' : '否' }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editReportTextTemplate(item)">编辑</button>
                 <button class="danger tiny" @click="deleteReportTextTemplate(item.id)">删除</button>
-              </td>
+              </div></td>
             </tr>
           </tbody>
         </table>
@@ -4272,7 +4272,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 
           <table>
             <thead>
-              <tr><th>ID</th><th>用户名</th><th>类型</th><th>状态</th><th>需改密</th><th>创建时间</th><th>操作</th></tr>
+              <tr><th>ID</th><th>用户名</th><th>类型</th><th>状态</th><th>需改密</th><th>创建时间</th><th class="table-action-header">操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="u in users" :key="u.id">
@@ -4282,12 +4282,12 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <td><el-tag :type="u.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ u.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
                 <td>{{ u.mustChangePassword ? '是' : '否' }}</td>
                 <td>{{ u.createdAt ? u.createdAt.substring(0, 10) : '-' }}</td>
-                <td>
+                <td class="table-action-cell"><div class="table-action-group">
                   <button class="ghost tiny" @click="editUser(u)">编辑</button>
                   <button class="ghost tiny" @click="openResetDialog(u)" style="margin-left:4px">重置密码</button>
                   <button class="ghost tiny" @click="openRoleAssignDialog(u)" style="margin-left:4px">分配角色</button>
                   <button class="danger tiny" @click="deleteUser(u.id)" style="margin-left:4px">删除</button>
-                </td>
+                </div></td>
               </tr>
               <tr v-if="users.length === 0"><td colspan="7" style="text-align:center;color:#999">暂无数据，点击查询加载</td></tr>
             </tbody>
@@ -4356,7 +4356,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 
           <table>
             <thead>
-              <tr><th>ID</th><th>角色编码</th><th>角色名称</th><th>状态</th><th>备注</th><th>操作</th></tr>
+              <tr><th>ID</th><th>角色编码</th><th>角色名称</th><th>状态</th><th>备注</th><th class="table-action-header">操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="r in roles" :key="r.id">
@@ -4365,11 +4365,11 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <td>{{ r.roleName }}</td>
                 <td><el-tag :type="r.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ r.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
                 <td>{{ r.remark || '-' }}</td>
-                <td>
+                <td class="table-action-cell"><div class="table-action-group">
                   <button class="ghost tiny" @click="editRole(r)">编辑</button>
                   <button class="ghost tiny" @click="openRolePermDialog(r)" style="margin-left:4px">分配权限</button>
                   <button class="danger tiny" @click="deleteRole(r.id)" style="margin-left:4px">删除</button>
-                </td>
+                </div></td>
               </tr>
               <tr v-if="roles.length === 0"><td colspan="6" style="text-align:center;color:#999">暂无数据，点击查询加载</td></tr>
             </tbody>
@@ -4433,7 +4433,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
           <div v-else>
             <table>
               <thead>
-                <tr><th>ID</th><th>权限码</th><th>菜单名称</th><th>排序</th><th>状态</th><th>操作</th></tr>
+                <tr><th>ID</th><th>权限码</th><th>菜单名称</th><th>排序</th><th>状态</th><th class="table-action-header">操作</th></tr>
               </thead>
               <tbody>
                 <template v-for="m in menuTree" :key="m.id">
@@ -4443,10 +4443,10 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                     <td><strong>{{ m.permName }}</strong></td>
                     <td>{{ m.sortNo ?? '-' }}</td>
                     <td><el-tag :type="m.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ m.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
-                    <td>
+                    <td class="table-action-cell"><div class="table-action-group">
                       <button class="ghost tiny" @click="editMenu(m)">编辑</button>
                       <button class="danger tiny" @click="deleteMenu(m.id)" style="margin-left:4px">删除</button>
-                    </td>
+                    </div></td>
                   </tr>
                   <tr v-for="child in m.children" :key="child.id">
                     <td>{{ child.id }}</td>
@@ -4454,10 +4454,10 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                     <td style="padding-left:24px">↳ {{ child.permName }}</td>
                     <td>{{ child.sortNo ?? '-' }}</td>
                     <td><el-tag :type="child.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ child.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
-                    <td>
+                    <td class="table-action-cell"><div class="table-action-group">
                       <button class="ghost tiny" @click="editMenu(child)">编辑</button>
                       <button class="danger tiny" @click="deleteMenu(child.id)" style="margin-left:4px">删除</button>
-                    </td>
+                    </div></td>
                   </tr>
                 </template>
               </tbody>
@@ -4504,7 +4504,7 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
 
           <table>
             <thead>
-              <tr><th>ID</th><th>权限码</th><th>名称</th><th>类型</th><th>HTTP方法</th><th>路径</th><th>状态</th><th>操作</th></tr>
+              <tr><th>ID</th><th>权限码</th><th>名称</th><th>类型</th><th>HTTP方法</th><th>路径</th><th>状态</th><th class="table-action-header">操作</th></tr>
             </thead>
             <tbody>
               <tr v-for="p in permissions" :key="p.id">
@@ -4515,10 +4515,10 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
                 <td>{{ p.apiMethod || '-' }}</td>
                 <td style="max-width:200px;word-break:break-all">{{ p.apiPath || '-' }}</td>
                 <td><el-tag :type="p.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ p.status === 'ACTIVE' ? '启用' : '禁用' }}</el-tag></td>
-                <td>
+                <td class="table-action-cell"><div class="table-action-group">
                   <button class="ghost tiny" @click="editPermission(p)">编辑</button>
                   <button class="danger tiny" @click="deletePermission(p.id)" style="margin-left:4px">删除</button>
-                </td>
+                </div></td>
               </tr>
               <tr v-if="permissions.length === 0"><td colspan="8" style="text-align:center;color:#999">暂无数据，点击查询加载</td></tr>
             </tbody>
@@ -4533,8 +4533,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>部门代码<input v-model="deptForm.deptCode" /></label>
           </div>
           <div class="actions"><button @click="saveDept">{{ deptForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysDepts">刷新</button></div>
-          <table><thead><tr><th>部门名称</th><th>代码</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in sysDepts" :key="item.id"><td>{{ item.deptName }}</td><td>{{ item.deptCode }}</td><td><button class="ghost tiny" @click="editDept(item)">编辑</button><button class="danger tiny" @click="deleteDept(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>部门名称</th><th>代码</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in sysDepts" :key="item.id"><td>{{ item.deptName }}</td><td>{{ item.deptCode }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editDept(item)">编辑</button><button class="danger tiny" @click="deleteDept(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="systemChildMenu === 'post'">
@@ -4544,8 +4544,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>岗位代码<input v-model="postForm.postCode" /></label>
           </div>
           <div class="actions"><button @click="savePost">{{ postForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysPosts">刷新</button></div>
-          <table><thead><tr><th>岗位名称</th><th>代码</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in sysPosts" :key="item.id"><td>{{ item.postName }}</td><td>{{ item.postCode }}</td><td><button class="ghost tiny" @click="editPost(item)">编辑</button><button class="danger tiny" @click="deletePost(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>岗位名称</th><th>代码</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in sysPosts" :key="item.id"><td>{{ item.postName }}</td><td>{{ item.postCode }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editPost(item)">编辑</button><button class="danger tiny" @click="deletePost(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="systemChildMenu === 'notice'">
@@ -4557,8 +4557,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label class="full">内容<textarea v-model="noticeForm.content" rows="3" style="width:100%"></textarea></label>
           </div>
           <div class="actions"><button @click="saveNotice">{{ noticeForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysNotices">刷新</button></div>
-          <table><thead><tr><th>标题</th><th>类型</th><th>发布人</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in sysNotices" :key="item.id"><td>{{ item.title }}</td><td>{{ codeLabel(item.noticeType) }}</td><td>{{ item.publisher }}</td><td><button class="danger tiny" @click="deleteNotice(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>标题</th><th>类型</th><th>发布人</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in sysNotices" :key="item.id"><td>{{ item.title }}</td><td>{{ codeLabel(item.noticeType) }}</td><td>{{ item.publisher }}</td><td class="table-action-cell"><div class="table-action-group"><button class="danger tiny" @click="deleteNotice(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="systemChildMenu === 'sysfile'">
@@ -4591,8 +4591,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label class="full">参数名称<input v-model="sysConfigForm.configName" /></label>
           </div>
           <div class="actions"><button @click="saveSysConfig">{{ sysConfigForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSysConfigs">刷新</button></div>
-          <table><thead><tr><th>参数键</th><th>参数值</th><th>名称</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in sysConfigs" :key="item.id"><td>{{ item.configKey }}</td><td>{{ item.configValue }}</td><td>{{ item.configName }}</td><td><button class="ghost tiny" @click="editSysConfig(item)">编辑</button><button class="danger tiny" @click="deleteSysConfig(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>参数键</th><th>参数值</th><th>名称</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in sysConfigs" :key="item.id"><td>{{ item.configKey }}</td><td>{{ item.configValue }}</td><td>{{ item.configName }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editSysConfig(item)">编辑</button><button class="danger tiny" @click="deleteSysConfig(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
       </section>
@@ -4620,8 +4620,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>官方来源网址<input v-model="referenceSourceUrl" placeholder="可选，填写官方发布页面" /></label>
           </section>
           <div class="actions"><button :disabled="actionBusy.uploadReferenceDocument" @click="saveLaw">{{ actionBusy.uploadReferenceDocument ? '上传中...' : (lawForm.id ? '更新' : '新增') }}</button><button class="ghost" @click="clearLawForm">清空</button><button class="ghost" @click="fetchLaws">刷新</button></div>
-          <table><thead><tr><th>标题</th><th>文号</th><th>级别</th><th>有效状态</th><th>当前原文</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in laws" :key="item.id"><td>{{ item.title }}</td><td>{{ item.docNo }}</td><td>{{ item.levelLabel || codeLabel(item.level) }}</td><td>{{ item.isValid === false ? '失效或废止' : '现行有效' }}</td><td><button v-if="item.currentDocument" class="link-button" @click="openReferenceDocument(item.currentDocument)">{{ item.currentDocument.versionLabel || item.currentDocument.originalName }}</button><span v-else>未上传</span></td><td><button class="ghost tiny" @click="editLaw(item)">编辑/版本</button><button class="danger tiny" @click="deleteLaw(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>标题</th><th>文号</th><th>级别</th><th>有效状态</th><th>当前原文</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in laws" :key="item.id"><td>{{ item.title }}</td><td>{{ item.docNo }}</td><td>{{ item.levelLabel || codeLabel(item.level) }}</td><td>{{ item.isValid === false ? '失效或废止' : '现行有效' }}</td><td><button v-if="item.currentDocument" class="link-button" @click="openReferenceDocument(item.currentDocument)">{{ item.currentDocument.versionLabel || item.currentDocument.originalName }}</button><span v-else>未上传</span></td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editLaw(item)">编辑/版本</button><button class="danger tiny" @click="deleteLaw(item.id)">删除</button></div></td></tr></tbody>
           </table>
           <section v-if="lawForm.id" class="reference-history">
             <h3>原文版本记录</h3>
@@ -4647,8 +4647,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>官方来源网址<input v-model="referenceSourceUrl" placeholder="可选，填写官方发布页面" /></label>
           </section>
           <div class="actions"><button :disabled="actionBusy.uploadReferenceDocument" @click="saveStandard">{{ actionBusy.uploadReferenceDocument ? '上传中...' : (standardForm.id ? '更新' : '新增') }}</button><button class="ghost" @click="clearStandardForm">清空</button><button class="ghost" @click="fetchStandards">刷新</button></div>
-          <table><thead><tr><th>标准名称</th><th>编号</th><th>级别</th><th>适用范围</th><th>当前原文</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in standards" :key="item.id"><td>{{ item.standardName }}</td><td>{{ item.standardCode }}</td><td>{{ item.levelLabel || codeLabel(item.level) }}</td><td>{{ item.useScope || '-' }}</td><td><button v-if="item.currentDocument" class="link-button" @click="openReferenceDocument(item.currentDocument)">{{ item.currentDocument.versionLabel || item.currentDocument.originalName }}</button><span v-else>未上传</span></td><td><button class="ghost tiny" @click="editStandard(item)">编辑/版本</button><button class="danger tiny" @click="deleteStandard(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>标准名称</th><th>编号</th><th>级别</th><th>适用范围</th><th>当前原文</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in standards" :key="item.id"><td>{{ item.standardName }}</td><td>{{ item.standardCode }}</td><td>{{ item.levelLabel || codeLabel(item.level) }}</td><td>{{ item.useScope || '-' }}</td><td><button v-if="item.currentDocument" class="link-button" @click="openReferenceDocument(item.currentDocument)">{{ item.currentDocument.versionLabel || item.currentDocument.originalName }}</button><span v-else>未上传</span></td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editStandard(item)">编辑/版本</button><button class="danger tiny" @click="deleteStandard(item.id)">删除</button></div></td></tr></tbody>
           </table>
           <section v-if="standardForm.id" class="reference-history">
             <h3>原文版本记录</h3>
@@ -4665,8 +4665,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>排序<input v-model.number="regionForm.sortNo" type="number" /></label>
           </div>
           <div class="actions"><button @click="saveRegion">{{ regionForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchRegions">刷新</button></div>
-          <table><thead><tr><th>名称</th><th>代码</th><th>级别</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in regions" :key="item.id"><td>{{ item.regionName }}</td><td>{{ item.regionCode }}</td><td>{{ item.levelLabel || regionLevelLabel(item.level) }}</td><td><button class="ghost tiny" @click="editRegion(item)">编辑</button><button class="danger tiny" @click="deleteRegion(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>名称</th><th>代码</th><th>级别</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in regions" :key="item.id"><td>{{ item.regionName }}</td><td>{{ item.regionCode }}</td><td>{{ item.levelLabel || regionLevelLabel(item.level) }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editRegion(item)">编辑</button><button class="danger tiny" @click="deleteRegion(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="basicDataChildMenu === 'device'">
@@ -4681,8 +4681,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label class="full">备注<input v-model="deviceForm.notes" /></label>
           </div>
           <div class="actions"><button @click="saveDevice">{{ deviceForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDevices">刷新</button></div>
-          <table><thead><tr><th>名称</th><th>型号</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in devices" :key="item.id"><td>{{ item.deviceName }}</td><td>{{ item.deviceModel }}</td><td>{{ item.deviceTypeLabel || codeLabel(item.deviceType) }}</td><td>{{ item.statusLabel || codeLabel(item.status) }}</td><td><button class="ghost tiny" @click="editDevice(item)">编辑</button><button class="danger tiny" @click="deleteDevice(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>名称</th><th>型号</th><th>类型</th><th>状态</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in devices" :key="item.id"><td>{{ item.deviceName }}</td><td>{{ item.deviceModel }}</td><td>{{ item.deviceTypeLabel || codeLabel(item.deviceType) }}</td><td>{{ item.statusLabel || codeLabel(item.status) }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editDevice(item)">编辑</button><button class="danger tiny" @click="deleteDevice(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
       </section>
@@ -4698,14 +4698,14 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>CAS号 <HelpMark anchor-id="hazard.cas" /><input v-model="hazardFactorForm.casNo" /></label>
           </div>
           <div class="actions"><button @click="saveHazardFactor">{{ hazardFactorForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchHazardFactors">刷新</button></div>
-          <table><thead><tr><th>因素名称</th><th>分类</th><th>CAS号</th><th>操作</th></tr></thead>
+          <table><thead><tr><th>因素名称</th><th>分类</th><th>CAS号</th><th class="table-action-header">操作</th></tr></thead>
             <tbody><tr v-for="item in hazardFactors" :key="item.id" :class="{ 'row-selected': selectedHazardFactorId === item.id }">
               <td>{{ item.factorName }}</td><td>{{ item.factorCategoryLabel || codeLabel(item.factorCategory) }}</td><td>{{ item.casNo }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button class="ghost tiny" @click="editHazardFactor(item)">编辑</button>
                 <button class="ghost tiny" @click="viewFactorLimits(item)" style="margin-left:4px">限值管理</button>
                 <button class="danger tiny" @click="deleteHazardFactor(item.id)" style="margin-left:4px">删除</button>
-              </td>
+              </div></td>
             </tr></tbody>
           </table>
 
@@ -4730,17 +4730,17 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
               <button class="ghost" @click="resetLimitForm">清空</button>
             </div>
             <table>
-              <thead><tr><th>限值类型</th><th>限值</th><th>单位</th><th>标准文号</th><th>操作</th></tr></thead>
+              <thead><tr><th>限值类型</th><th>限值</th><th>单位</th><th>标准文号</th><th class="table-action-header">操作</th></tr></thead>
               <tbody>
                 <tr v-for="lim in factorLimits" :key="lim.id">
                   <td>{{ lim.limitTypeLabel || codeLabel(lim.limitType) }}</td>
                   <td>{{ lim.limitValue }}</td>
                   <td>{{ lim.limitUnit }}</td>
                   <td>{{ lim.standardCode }}</td>
-                  <td>
+                  <td class="table-action-cell"><div class="table-action-group">
                     <button class="ghost tiny" @click="editFactorLimit(lim)">编辑</button>
                     <button class="danger tiny" @click="deleteFactorLimit(lim.id)" style="margin-left:4px">删除</button>
-                  </td>
+                  </div></td>
                 </tr>
                 <tr v-if="factorLimits.length === 0"><td colspan="5" style="text-align:center;color:#999">暂无限值，请新增</td></tr>
               </tbody>
@@ -4756,8 +4756,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label class="full">备注<input v-model="sdsForm.notes" /></label>
           </div>
           <div class="actions"><button @click="saveSds">{{ sdsForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchSdsList">刷新</button></div>
-          <table><thead><tr><th>物质名称</th><th>CAS号</th><th>版本</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in sdsList" :key="item.id"><td>{{ item.substanceName }}</td><td>{{ item.casNo }}</td><td>{{ item.version }}</td><td><button class="ghost tiny" @click="editSds(item)">编辑</button><button class="danger tiny" @click="deleteSds(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>物质名称</th><th>CAS号</th><th>版本</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in sdsList" :key="item.id"><td>{{ item.substanceName }}</td><td>{{ item.casNo }}</td><td>{{ item.version }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editSds(item)">编辑</button><button class="danger tiny" @click="deleteSds(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
       </section>
@@ -4774,8 +4774,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label class="full">检测依据（标准文号） <HelpMark anchor-id="config.standard-code" /><input v-model="detectionMethodForm.standardCode" placeholder="如 GBZ/T 300.17-2017；多个依据用分号分隔" /></label>
           </div>
           <div class="actions"><button @click="saveDetectionMethod">{{ detectionMethodForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDetectionMethods">刷新</button></div>
-          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>检测依据</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in detectionMethods" :key="item.id"><td>{{ item.methodName }}</td><td>{{ item.methodCode }}</td><td>{{ item.methodAbbr }}</td><td>{{ item.standardCode }}</td><td><button class="ghost tiny" @click="editDetectionMethod(item)">编辑</button><button class="danger tiny" @click="deleteDetectionMethod(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>检测依据</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in detectionMethods" :key="item.id"><td>{{ item.methodName }}</td><td>{{ item.methodCode }}</td><td>{{ item.methodAbbr }}</td><td>{{ item.standardCode }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editDetectionMethod(item)">编辑</button><button class="danger tiny" @click="deleteDetectionMethod(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="configChildMenu === 'detectType'">
@@ -4787,8 +4787,8 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label>排序<input v-model.number="detectTypeForm.sortNo" type="number" /></label>
           </div>
           <div class="actions"><button @click="saveDetectType">{{ detectTypeForm.id ? '更新' : '新增' }}</button><button class="ghost" @click="fetchDetectTypes">刷新</button></div>
-          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th>操作</th></tr></thead>
-            <tbody><tr v-for="item in detectTypes" :key="item.id"><td>{{ item.typeName }}</td><td>{{ item.typeCode }}</td><td>{{ item.typeAbbr }}</td><td><button class="ghost tiny" @click="editDetectType(item)">编辑</button><button class="danger tiny" @click="deleteDetectType(item.id)">删除</button></td></tr></tbody>
+          <table><thead><tr><th>名称</th><th>代码</th><th>简称</th><th class="table-action-header">操作</th></tr></thead>
+            <tbody><tr v-for="item in detectTypes" :key="item.id"><td>{{ item.typeName }}</td><td>{{ item.typeCode }}</td><td>{{ item.typeAbbr }}</td><td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="editDetectType(item)">编辑</button><button class="danger tiny" @click="deleteDetectType(item.id)">删除</button></div></td></tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="configChildMenu === 'orgConfig'">
@@ -4846,24 +4846,24 @@ onBeforeUnmount(() => window.removeEventListener('ohdp:open-context-help', handl
             <label class="full">备注<input v-model="labTaskForm.notes" /></label>
           </div>
           <div class="actions"><button @click="createLabTask">创建任务单</button><button class="ghost" @click="fetchLabTasks">刷新</button></div>
-          <table><thead><tr><th>任务单号</th><th>项目ID</th><th>状态</th><th>签发人</th><th>操作</th></tr></thead>
+          <table><thead><tr><th>任务单号</th><th>项目ID</th><th>状态</th><th>签发人</th><th class="table-action-header">操作</th></tr></thead>
             <tbody><tr v-for="item in labTasks" :key="item.id">
               <td>{{ item.taskCode }}</td><td>{{ item.projectId }}</td><td>{{ item.taskStatusLabel || codeLabel(item.taskStatus) }}</td><td>{{ item.issuerName }}</td>
-              <td>
+              <td class="table-action-cell"><div class="table-action-group">
                 <button v-if="item.taskStatus === 'PENDING'" class="ghost tiny" @click="receiveTask(item.id, '当前用户')">领取</button>
                 <button v-if="item.taskStatus === 'IN_PROGRESS'" class="ghost tiny" @click="submitTask(item.id)">提交审核</button>
-              </td>
+              </div></td>
             </tr></tbody>
           </table>
         </section>
         <section class="card" v-else-if="labChildMenu === 'result'">
           <h2>结果计算与复核 <HelpMark anchor-id="lab.result" /></h2>
           <div class="actions"><button class="ghost" @click="fetchLabResults">刷新</button></div>
-          <table><thead><tr><th>任务单ID</th><th>因素名称</th><th>检测方法</th><th>截距a</th><th>斜率b</th><th>相关系数R</th><th>结果值</th><th>操作</th></tr></thead>
+          <table><thead><tr><th>任务单ID</th><th>因素名称</th><th>检测方法</th><th>截距a</th><th>斜率b</th><th>相关系数R</th><th>结果值</th><th class="table-action-header">操作</th></tr></thead>
             <tbody><tr v-for="item in labResults" :key="item.id">
               <td>{{ item.taskId }}</td><td>{{ item.factorName }}</td><td>{{ item.methodName }}</td>
               <td>{{ item.interceptA }}</td><td>{{ item.slopeB }}</td><td>{{ item.correlationR }}</td><td>{{ item.resultValue }} {{ item.resultUnit }}</td>
-              <td><button class="ghost tiny" @click="calcLabResult(item.id)">触发计算</button></td>
+              <td class="table-action-cell"><div class="table-action-group"><button class="ghost tiny" @click="calcLabResult(item.id)">触发计算</button></div></td>
             </tr></tbody>
           </table>
         </section>

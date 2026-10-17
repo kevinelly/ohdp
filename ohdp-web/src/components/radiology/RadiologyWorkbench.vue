@@ -1552,7 +1552,7 @@ function judgementText(value?: string) {
                 <el-table-column label="大小" width="100"><template #default="scope">{{ Math.ceil(scope.row.fileSize / 1024) }} KB</template></el-table-column>
                 <el-table-column prop="sha256" label="SHA-256" min-width="220" show-overflow-tooltip />
                 <el-table-column prop="uploadedAt" label="上传时间" width="180" />
-                <el-table-column label="操作" width="150"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/attachments/${scope.row.id}/download`, scope.row.originalName)">下载</el-button><label v-if="editable" class="replace-attachment">更改<input type="file" accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx" @change="replaceAttachment(scope.row.id,$event)" /></label><el-button link type="danger" :disabled="!editable" @click="removeAttachment(scope.row)">删除</el-button></template></el-table-column>
+                <el-table-column align="center" header-align="center" class-name="table-action-cell table-action-stack" label="操作" width="150"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/attachments/${scope.row.id}/download`, scope.row.originalName)">下载</el-button><label v-if="editable" class="replace-attachment">更改<input type="file" accept="image/png,image/jpeg,image/webp,.pdf,.docx,.xlsx" @change="replaceAttachment(scope.row.id,$event)" /></label><el-button link type="danger" :disabled="!editable" @click="removeAttachment(scope.row)">删除</el-button></template></el-table-column>
               </el-table>
             </el-tab-pane>
 
@@ -1567,7 +1567,7 @@ function judgementText(value?: string) {
                 <el-table-column label="限值/文本" min-width="170"><template #default="scope">{{ruleLimitText(scope.row)}}</template></el-table-column>
                 <el-table-column prop="standardCode" label="标准" width="150" />
                 <el-table-column label="启用" width="80"><template #default="scope">{{ scope.row.enabled ? '是' : '否' }}</template></el-table-column>
-                <el-table-column label="操作" width="140"><template #default="scope"><el-button link @click="openEditRule(scope.row)">编辑</el-button><el-button link type="danger" @click="removeRule(scope.row)">删除</el-button></template></el-table-column>
+                <el-table-column align="center" header-align="center" class-name="table-action-cell" label="操作" width="140"><template #default="scope"><el-button link @click="openEditRule(scope.row)">编辑</el-button><el-button link type="danger" @click="removeRule(scope.row)">删除</el-button></template></el-table-column>
               </el-table>
             </el-tab-pane>
           </el-tabs>
@@ -1594,7 +1594,7 @@ function judgementText(value?: string) {
               <el-alert type="info" :closable="false" description="仅已批准案例可生成报告；每次生成均固化案例、测量值、点位、附件哈希和审批信息快照，历史报告不会覆盖。" />
               <el-table :data="selectedCase.workflowHistory || []" border style="margin:16px 0">
                 <el-table-column prop="at" label="时间" min-width="180" />
-                <el-table-column label="操作" width="100"><template #default="scope">{{ ({SUBMIT:'提交',REVIEW:'复核通过',APPROVE:'批准',RETURN:'退回'} as Record<string,string>)[scope.row.action] || scope.row.action }}</template></el-table-column>
+                <el-table-column align="center" header-align="center" class-name="table-action-cell" label="操作" width="100"><template #default="scope">{{ ({SUBMIT:'提交',REVIEW:'复核通过',APPROVE:'批准',RETURN:'退回'} as Record<string,string>)[scope.row.action] || scope.row.action }}</template></el-table-column>
                 <el-table-column prop="operator" label="操作人" width="120" />
                 <el-table-column prop="comment" label="意见" min-width="200" />
                 <el-table-column prop="dataVersion" label="数据版本" width="100" />
@@ -1607,7 +1607,7 @@ function judgementText(value?: string) {
                 <el-table-column prop="generatedBy" label="生成人" width="110" />
                 <el-table-column prop="generatedAt" label="生成时间" width="180" />
 
-                <el-table-column label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
+                <el-table-column align="center" header-align="center" class-name="table-action-cell table-action-stack" label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
               </el-table></section>
         </template>
       </main>

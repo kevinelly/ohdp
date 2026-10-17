@@ -156,12 +156,12 @@ async function uploadReportPhotos(event: Event) {
       <label class="confirm"><input v-model="model.materialsConfirmedNotApplicable" type="checkbox" /> 已核实并确认本项目不涉及原辅材料/产品表内容</label>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>车间/场所</th><th>物料名称</th><th>物料环节</th><th>主要成分</th><th>年用量/产量</th><th>物理状态</th><th>使用岗位</th><th></th></tr></thead>
+          <thead><tr><th>车间/场所</th><th>物料名称</th><th>物料环节</th><th>主要成分</th><th>年用量/产量</th><th>物理状态</th><th>使用岗位</th><th class="table-action-header"></th></tr></thead>
           <tbody>
             <tr v-for="(row, index) in model.materials" :key="`m-${index}`">
               <td><input v-model="row.workplace" /></td><td><input v-model="row.materialName" /></td><td><input v-model="row.processStage" /></td>
               <td><input v-model="row.mainComponents" /></td><td><input v-model="row.annualAmount" /></td><td><input v-model="row.physicalState" /></td>
-              <td><input v-model="row.positions" /></td><td><button type="button" class="remove" @click="removeRow(model.materials, index)">删除</button></td>
+              <td><input v-model="row.positions" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.materials, index)">删除</button></div></td>
             </tr>
           </tbody>
         </table>
@@ -179,12 +179,12 @@ async function uploadReportPhotos(event: Event) {
           <label>无机组分峰面积百分比<input v-model="model.vocInorganicPeakAreaPercent" /></label>
         </div>
         <table>
-          <thead><tr><th>有机化学品名称</th><th>生产厂家及批号</th><th>检出组分</th><th>CAS 号</th><th>峰面积百分比</th><th></th></tr></thead>
+          <thead><tr><th>有机化学品名称</th><th>生产厂家及批号</th><th>检出组分</th><th>CAS 号</th><th>峰面积百分比</th><th class="table-action-header"></th></tr></thead>
           <tbody>
             <tr v-for="(row, index) in model.vocAnalysisItems" :key="`voc-${index}`">
               <td><input v-model="row.chemicalName" /></td><td><input v-model="row.manufacturerBatchNo" /></td>
               <td><input v-model="row.detectedComponents" /></td><td><input v-model="row.casNo" /></td><td><input v-model="row.peakAreaPercent" /></td>
-              <td><button type="button" class="remove" @click="removeRow(model.vocAnalysisItems, index)">删除</button></td>
+              <td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.vocAnalysisItems, index)">删除</button></div></td>
             </tr>
           </tbody>
         </table>
@@ -195,12 +195,12 @@ async function uploadReportPhotos(event: Event) {
       <label class="confirm"><input v-model="model.equipmentConfirmedNotApplicable" type="checkbox" /> 已核实并确认本项目不涉及生产设备表内容</label>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>车间/场所</th><th>厂房/地点</th><th>设备名称</th><th>总数</th><th>运行数</th><th>操作岗位</th><th></th></tr></thead>
+          <thead><tr><th>车间/场所</th><th>厂房/地点</th><th>设备名称</th><th>总数</th><th>运行数</th><th>操作岗位</th><th class="table-action-header"></th></tr></thead>
           <tbody>
             <tr v-for="(row, index) in model.equipment" :key="`e-${index}`">
               <td><input v-model="row.workplace" /></td><td><input v-model="row.location" /></td><td><input v-model="row.equipmentName" /></td>
               <td><input v-model.number="row.totalCount" type="number" min="0" /></td><td><input v-model.number="row.runningCount" type="number" min="0" /></td>
-              <td><input v-model="row.operatingPositions" /></td><td><button type="button" class="remove" @click="removeRow(model.equipment, index)">删除</button></td>
+              <td><input v-model="row.operatingPositions" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.equipment, index)">删除</button></div></td>
             </tr>
           </tbody>
         </table>
@@ -211,12 +211,12 @@ async function uploadReportPhotos(event: Event) {
       <label class="confirm"><input v-model="model.protectionFacilitiesConfirmedNotApplicable" type="checkbox" /> 已核实并确认本项目不涉及职业病防护设施表内容</label>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>车间/场所</th><th>设置地点/岗位</th><th>设施名称</th><th>设施类型</th><th>总数</th><th>运行数</th><th></th></tr></thead>
+          <thead><tr><th>车间/场所</th><th>设置地点/岗位</th><th>设施名称</th><th>设施类型</th><th>总数</th><th>运行数</th><th class="table-action-header"></th></tr></thead>
           <tbody>
             <tr v-for="(row, index) in model.protectionFacilities" :key="`f-${index}`">
               <td><input v-model="row.workplace" /></td><td><input v-model="row.locationOrPosition" /></td><td><input v-model="row.facilityName" /></td>
               <td><input v-model="row.facilityType" /></td><td><input v-model.number="row.totalCount" type="number" min="0" /></td>
-              <td><input v-model.number="row.runningCount" type="number" min="0" /></td><td><button type="button" class="remove" @click="removeRow(model.protectionFacilities, index)">删除</button></td>
+              <td><input v-model.number="row.runningCount" type="number" min="0" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.protectionFacilities, index)">删除</button></div></td>
             </tr>
           </tbody>
         </table>
@@ -227,12 +227,12 @@ async function uploadReportPhotos(event: Event) {
       <label class="confirm"><input v-model="model.ppeConfirmedNotApplicable" type="checkbox" /> 已核实并确认本项目不涉及个人防护用品表内容</label>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>用品名称</th><th>生产厂家</th><th>规格型号</th><th>防护参数</th><th>配备岗位</th><th>使用情况</th><th>分类</th><th></th></tr></thead>
+          <thead><tr><th>用品名称</th><th>生产厂家</th><th>规格型号</th><th>防护参数</th><th>配备岗位</th><th>使用情况</th><th>分类</th><th class="table-action-header"></th></tr></thead>
           <tbody>
             <tr v-for="(row, index) in model.personalProtectiveEquipment" :key="`p-${index}`">
               <td><input v-model="row.ppeName" /></td><td><input v-model="row.manufacturer" /></td><td><input v-model="row.model" /></td>
               <td><input v-model="row.protectionParameters" /></td><td><input v-model="row.positions" /></td><td><input v-model="row.usageStatus" /></td>
-              <td><input v-model="row.category" /></td><td><button type="button" class="remove" @click="removeRow(model.personalProtectiveEquipment, index)">删除</button></td>
+              <td><input v-model="row.category" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.personalProtectiveEquipment, index)">删除</button></div></td>
             </tr>
           </tbody>
         </table>
@@ -266,28 +266,28 @@ async function uploadReportPhotos(event: Event) {
 
       <template v-if="model.radiationSourceMode === 'INCLUDED_REPORT'">
         <h4>③ 纳入本报告的辐射源项</h4>
-        <div class="table-scroll"><table><thead><tr><th>序号</th><th>场所</th><th>射线装置</th><th>类别</th><th>型号</th><th>厂家</th><th>主要参数</th><th>射线种类</th><th></th></tr></thead><tbody>
-          <tr v-for="(row,index) in model.xrayDevices" :key="`xr-${index}`"><td><input v-model="row.serialNo" /></td><td><input v-model="row.workplace" /></td><td><input v-model="row.deviceName" /></td><td><input v-model="row.category" /></td><td><input v-model="row.model" /></td><td><input v-model="row.manufacturer" /></td><td><input v-model="row.mainParameters" /></td><td><input v-model="row.radiationType" /></td><td><button type="button" class="remove" @click="removeRow(model.xrayDevices,index)">删除</button></td></tr>
+        <div class="table-scroll"><table><thead><tr><th>序号</th><th>场所</th><th>射线装置</th><th>类别</th><th>型号</th><th>厂家</th><th>主要参数</th><th>射线种类</th><th class="table-action-header"></th></tr></thead><tbody>
+          <tr v-for="(row,index) in model.xrayDevices" :key="`xr-${index}`"><td><input v-model="row.serialNo" /></td><td><input v-model="row.workplace" /></td><td><input v-model="row.deviceName" /></td><td><input v-model="row.category" /></td><td><input v-model="row.model" /></td><td><input v-model="row.manufacturer" /></td><td><input v-model="row.mainParameters" /></td><td><input v-model="row.radiationType" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.xrayDevices,index)">删除</button></div></td></tr>
         </tbody></table></div><button type="button" class="add" @click="addXrayDevice">添加射线装置</button>
-        <div class="table-scroll"><table><thead><tr><th>序号</th><th>场所</th><th>核素</th><th>编码</th><th>出厂活度</th><th>类别</th><th>安装位置</th><th>用途</th><th></th></tr></thead><tbody>
-          <tr v-for="(row,index) in model.sealedSources" :key="`ss-${index}`"><td><input v-model="row.serialNo" /></td><td><input v-model="row.workplace" /></td><td><input v-model="row.nuclideName" /></td><td><input v-model="row.code" /></td><td><input v-model="row.factoryActivity" /></td><td><input v-model="row.category" /></td><td><input v-model="row.installationLocation" /></td><td><input v-model="row.purpose" /></td><td><button type="button" class="remove" @click="removeRow(model.sealedSources,index)">删除</button></td></tr>
+        <div class="table-scroll"><table><thead><tr><th>序号</th><th>场所</th><th>核素</th><th>编码</th><th>出厂活度</th><th>类别</th><th>安装位置</th><th>用途</th><th class="table-action-header"></th></tr></thead><tbody>
+          <tr v-for="(row,index) in model.sealedSources" :key="`ss-${index}`"><td><input v-model="row.serialNo" /></td><td><input v-model="row.workplace" /></td><td><input v-model="row.nuclideName" /></td><td><input v-model="row.code" /></td><td><input v-model="row.factoryActivity" /></td><td><input v-model="row.category" /></td><td><input v-model="row.installationLocation" /></td><td><input v-model="row.purpose" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.sealedSources,index)">删除</button></div></td></tr>
         </tbody></table></div><button type="button" class="add" @click="addSealedSource">添加密封源</button>
-        <div class="table-scroll"><table><thead><tr><th>场所</th><th>核素</th><th>日最大操作量</th><th>日等效最大操作量</th><th>年最大操作量</th><th>理化性质</th><th>操作方式</th><th>贮存方式/地点</th><th></th></tr></thead><tbody>
-          <tr v-for="(row,index) in model.unsealedSources" :key="`us-${index}`"><td><input v-model="row.workplace" /></td><td><input v-model="row.nuclideName" /></td><td><input v-model="row.dailyMaxActivity" /></td><td><input v-model="row.dailyEquivalentMaxActivity" /></td><td><input v-model="row.annualMaxActivity" /></td><td><input v-model="row.physicochemicalProperty" /></td><td><input v-model="row.operationMode" /></td><td><input v-model="row.storageMethodLocation" /></td><td><button type="button" class="remove" @click="removeRow(model.unsealedSources,index)">删除</button></td></tr>
+        <div class="table-scroll"><table><thead><tr><th>场所</th><th>核素</th><th>日最大操作量</th><th>日等效最大操作量</th><th>年最大操作量</th><th>理化性质</th><th>操作方式</th><th>贮存方式/地点</th><th class="table-action-header"></th></tr></thead><tbody>
+          <tr v-for="(row,index) in model.unsealedSources" :key="`us-${index}`"><td><input v-model="row.workplace" /></td><td><input v-model="row.nuclideName" /></td><td><input v-model="row.dailyMaxActivity" /></td><td><input v-model="row.dailyEquivalentMaxActivity" /></td><td><input v-model="row.annualMaxActivity" /></td><td><input v-model="row.physicochemicalProperty" /></td><td><input v-model="row.operationMode" /></td><td><input v-model="row.storageMethodLocation" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.unsealedSources,index)">删除</button></div></td></tr>
         </tbody></table></div><button type="button" class="add" @click="addUnsealedSource">添加非密封源</button>
       </template>
 
       <h4>排除性检测</h4>
       <label class="confirm"><input v-model="model.exclusionScreeningPerformed" type="checkbox" /> 已实际开展排除性检测</label>
       <p class="section-guidance">未勾选时，正式报告删除第 4.2 节及表 4.2-1。</p>
-      <div v-if="model.exclusionScreeningPerformed" class="table-scroll"><table><thead><tr><th>场所</th><th>岗位</th><th>危害因素</th><th>CTWA</th><th>PC-TWA</th><th>接触判定</th><th></th></tr></thead><tbody>
-        <tr v-for="(row,index) in model.exclusionScreeningItems" :key="`ex-${index}`"><td><input v-model="row.workplace" /></td><td><input v-model="row.jobName" /></td><td><input v-model="row.factorName" /></td><td><input v-model="row.ctwa" /></td><td><input v-model="row.pcTwa" /></td><td><input v-model="row.contactJudgement" /></td><td><button type="button" class="remove" @click="removeRow(model.exclusionScreeningItems,index)">删除</button></td></tr>
+      <div v-if="model.exclusionScreeningPerformed" class="table-scroll"><table><thead><tr><th>场所</th><th>岗位</th><th>危害因素</th><th>CTWA</th><th>PC-TWA</th><th>接触判定</th><th class="table-action-header"></th></tr></thead><tbody>
+        <tr v-for="(row,index) in model.exclusionScreeningItems" :key="`ex-${index}`"><td><input v-model="row.workplace" /></td><td><input v-model="row.jobName" /></td><td><input v-model="row.factorName" /></td><td><input v-model="row.ctwa" /></td><td><input v-model="row.pcTwa" /></td><td><input v-model="row.contactJudgement" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.exclusionScreeningItems,index)">删除</button></div></td></tr>
       </tbody></table></div><button v-if="model.exclusionScreeningPerformed" type="button" class="add" @click="addExclusionItem">添加排除性检测结果</button>
 
       <h4>现场采样与测量计划（至少 1 条）</h4>
       <div class="table-scroll">
         <table class="sampling-table">
-          <thead><tr><th>车间/场所</th><th>岗位</th><th>作业类型</th><th>每班人数</th><th>对象/地点及时机</th><th>检测项目</th><th>限值类型</th><th>接触类型</th><th>方式</th><th>时间类型</th><th>点/对象数</th><th>次数/天</th><th>天数</th><th></th></tr></thead>
+          <thead><tr><th>车间/场所</th><th>岗位</th><th>作业类型</th><th>每班人数</th><th>对象/地点及时机</th><th>检测项目</th><th>限值类型</th><th>接触类型</th><th>方式</th><th>时间类型</th><th>点/对象数</th><th>次数/天</th><th>天数</th><th class="table-action-header"></th></tr></thead>
           <tbody>
             <tr v-for="(row, index) in model.samplingPlans" :key="`s-${index}`">
               <td><input v-model="row.workplace" /></td><td><input v-model="row.jobName" /></td><td><input v-model="row.operationType" /></td>
@@ -295,7 +295,7 @@ async function uploadReportPhotos(event: Event) {
               <td><input v-model="row.factorName" /></td><td><input v-model="row.limitType" /></td><td><input v-model="row.contactType" /></td>
               <td><input v-model="row.detectionMode" /></td><td><input v-model="row.detectionTimeType" /></td>
               <td><input v-model.number="row.pointsPerDay" type="number" min="0" /></td><td><input v-model.number="row.timesPerDay" type="number" min="0" /></td>
-              <td><input v-model.number="row.days" type="number" min="0" /></td><td><button type="button" class="remove" @click="removeRow(model.samplingPlans, index)">删除</button></td>
+              <td><input v-model.number="row.days" type="number" min="0" /></td><td class="table-action-cell"><div class="table-action-group"><button type="button" class="remove" @click="removeRow(model.samplingPlans, index)">删除</button></div></td>
             </tr>
           </tbody>
         </table>
