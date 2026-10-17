@@ -12,7 +12,7 @@ import RadiologyCaseSummary from './RadiologyCaseSummary.vue'
 import RadiologyScopeEditor from './RadiologyScopeEditor.vue'
 import { scopeSelection, pptOrderedScopes, applicableQuality, adjacentQuality, qualityStatus, type ItemScope, type ScopeProfile } from './radiologyScopeSupport'
 import EquipmentParameters from './EquipmentParameters.vue'
-import { sameDraft, pptItemName, pptFieldName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
+import { sameDraft, pptItemName, pptFieldName, pptResultName, attachmentCategoryName, ruleLimitText } from './radiologyDraftSupport'
 import HelpMark from '../help/HelpMark.vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import RadiologyMeasurementRows from './RadiologyMeasurementRows.vue'
@@ -1451,7 +1451,7 @@ function showMeasurementHelp(field: FieldDefinition) {
                   <RadiologyMeasurementRows v-if="item.code!=='TVD' && repeatableItems.includes(item.code)" :code="item.code" :fields="visibleFields(item).map(f=>({...f,unit:rawFieldUnit(item.code,f)}))" :values="measurementValues" :conditions="conditionValues" :results="computedFields(item.code).map(v=>({fieldCode:v.fieldCode,fieldLabel:v.fieldLabel,output:displayCalculated(v)}))" :disabled="!editable" />
                   <details v-if="item.code!=='TVD' && computedFields(item.code).length" class="ppt-help"><summary>完整计算结果</summary><div class="computed-panel">
                     <div v-for="value in computedFields(item.code)" :key="value.id" :class="['computed-value', value.fieldRole.toLowerCase()]">
-                      <span>{{ value.fieldLabel }}</span>
+                      <span>{{ pptResultName(item.code,value.fieldCode,value.fieldLabel) }}</span>
                       <strong>{{ resultDisplay(value) }}</strong>
                     </div>
                   </div></details>
@@ -1478,7 +1478,7 @@ function showMeasurementHelp(field: FieldDefinition) {
               </div>
               <details class="protection-extra-toggle"><summary>补充及历史检测条件</summary><div class="protection-context"><label>防护检测条件<el-input v-model="profileDraft.protectionConditions" :disabled="!editable" /></label><label>单位换算常数a<el-input v-model="measurementValues[key('RPD','a')]" disabled /></label><label v-if="modality==='DR'">防护检测管电流（mA）<el-input v-model="measurementValues[key('RPD','RPD-mA')]" :disabled="!editable" /></label></div></details>
               <el-button :disabled="!editable" @click="saveReportProfile">保存条件</el-button>
-              <h4>本底检测</h4><template v-for="item in catalog.filter(i=>i.code==='RPD')" :key="item.code"><MeasurementTable code="RPD" :fields="visibleFields(item)" hide-references><template #default="{field}"><el-input v-model="measurementValues[key('RPD',field.code)]" type="number" :disabled="!editable||field.code==='a'" :aria-label="field.label"><template v-if="rawFieldUnit('RPD',field)" #append>{{rawFieldUnit('RPD',field)}}</template></el-input></template></MeasurementTable></template><el-button :disabled="!editable" @click="saveMeasurements">保存本底与校准</el-button><div class="computed-panel ppt-background-results"><div v-for="v in computedFields('RPD')" :key="v.id" class="computed-value"><span>{{v.fieldLabel}}</span><strong>{{displayCalculated(v)}}</strong></div></div>
+              <h4>本底检测</h4><template v-for="item in catalog.filter(i=>i.code==='RPD')" :key="item.code"><MeasurementTable code="RPD" :fields="visibleFields(item)" hide-references><template #default="{field}"><el-input v-model="measurementValues[key('RPD',field.code)]" type="number" :disabled="!editable||field.code==='a'" :aria-label="field.label"><template v-if="rawFieldUnit('RPD',field)" #append>{{rawFieldUnit('RPD',field)}}</template></el-input></template></MeasurementTable></template><el-button :disabled="!editable" @click="saveMeasurements">保存本底与校准</el-button><div class="computed-panel ppt-background-results"><div v-for="v in computedFields('RPD')" :key="v.id" class="computed-value"><span>{{pptResultName('RPD',v.fieldCode,v.fieldLabel)}}</span><strong>{{displayCalculated(v)}}</strong></div></div>
               <el-button class="protection-extra-toggle" :aria-expanded="protectionExtrasOpen" @click="protectionExtrasOpen=!protectionExtrasOpen">{{protectionExtrasOpen?'收起补充点位参数':'补充点位参数'}}</el-button>
               <el-table class="ppt-protection-readings" :data="pointDrafts" border @selection-change="(v:ProtectionPoint[])=>selectedPointRows=v"><el-table-column type="selection" width="38"/>
                 <el-table-column v-if="protectionExtrasOpen" label="点位代码" width="120"><template #default="scope"><el-input v-model="scope.row.pointCode" :disabled="!editable" /></template></el-table-column>
@@ -1582,7 +1582,7 @@ function showMeasurementHelp(field: FieldDefinition) {
         <RadiologyConditionEditor v-if="item.code!=='CTDI'" v-model="conditionValues[item.code]" v-model:parameters="conditionValues['__params.'+item.code]" :item-code="item.code" :disabled="!editable"/>
         <div class="condition-subrows"><template v-if="rowIds(item.code).length"><label v-for="(id,index) in rowIds(item.code)" :key="id">第{{index+1}}行检测条件<el-input v-model="conditionValues[item.code+'.R'+id]" :disabled="!editable"/></label></template><template v-else><label v-for="(name,index) in conditionRows(item.code)" :key="name">{{name}}检测条件<el-input v-model="conditionValues[item.code+'.'+(index+1)]" :disabled="!editable"/></label></template></div>
         <p v-if="item.code==='CTDI'">头部和体部检测条件分别在对应模体区域编辑；各自的补充条件独立保留。</p>
-        <h4>完整计算结果</h4><div class="computed-panel"><div v-for="value in computedFields(item.code)" :key="value.id" class="computed-value"><span>{{value.fieldLabel}}</span><strong>{{resultDisplay(value)}}</strong></div></div>
+        <h4>完整计算结果</h4><div class="computed-panel"><div v-for="value in computedFields(item.code)" :key="value.id" class="computed-value"><span>{{pptResultName(item.code,value.fieldCode,value.fieldLabel)}}</span><strong>{{resultDisplay(value)}}</strong></div></div>
       </template><template #footer><el-button @click="entrySupplementOpen=false">关闭</el-button></template>
     </el-dialog>
     <el-dialog

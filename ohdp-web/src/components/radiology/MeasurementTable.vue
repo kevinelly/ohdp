@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import RadiologyConditionEditor from './RadiologyConditionEditor.vue'
 import HelpMark from '../help/HelpMark.vue'
-import { pptFieldName } from './radiologyDraftSupport'
+import { pptFieldName, pptResultName } from './radiologyDraftSupport'
 type Field={code:string;label:string;unit:string;required:boolean;role:'RAW'|'INTERMEDIATE'|'FINAL';sortNo:number}
 const props=defineProps<{code:string;fields:Field[];conditions?:Record<string,string>;disabled?:boolean;hideReferences?:boolean;results?:{fieldCode:string;output:string}[]}>()
 const referenceCodes:Record<string,string[]>={DDI:['DDI-CALCULATED','DDI-BASELINE'],STP:['STP-MODEL'],HCR:['HCR-MANUFACTURER','HCR-NYQUIST','HCR-BASELINE','厂家规定值/基线值'],RST:['RST-FACTOR'],LCR:['厂家规定值/基线值','LCR-BASELINE-UNIT'],RPD:['k','a','RPD-k2','RPD-mA'],NPS:['NPS-n','NPS-BASELINE'],MTF:['MTF-FACTOR'],ROA:['ROA-K'],ROQ:['ROQ-K']}
@@ -69,7 +69,7 @@ function setCondition(field:string,index:number,value:string){if(props.condition
 function output(key:string){return props.results?.find(r=>r.fieldCode===key)?.output||'—'}
 const showRowHeading=computed(()=>['STP','HUL','HUA','HUU','TPA','REA','CTDI'].includes(props.code))
 const showMean=computed(()=>['TVD','ETD','ROA','ROQ','ARP','HVL','HUL','HUA','HUU','NPS','DDI'].includes(props.code))
-const meanHeading=computed(()=>['ROA','ETD','ROQ'].includes(props.code)?'平均值':props.code==='DDI'?'平均值（DDI测量值）':props.code==='TVD'?'校正平均值':props.code==='HUA'?'平均值CTC':'平均值')
+const meanHeading=computed(()=>pptResultName(props.code,'MEAN',props.code==='DDI'?'平均值（DDI测量值）':props.code==='TVD'?'校正平均值':props.code==='HUA'?'平均值CTC':'平均值'))
 const resultHeading=computed(()=>({LRD:'偏离值',REA:'误差',ROA:'重复性CV',ARP:'重复性CV',HUL:'平均值−标称值',HUA:'水的CT值',HUU:'CTC−CTP',NPS:'噪声值',UBD:'偏离度',TPA:'定位/归位误差'} as Record<string,string>)[props.code]||'检测结果')
 const showResult=computed(()=>!['STP','ROQ'].includes(props.code))
 const ctdiParts=computed(()=>[['HEAD','头部模体','H','1'],['BODY','体部模体','S','2']].filter(part=>props.fields.some(f=>f.code===part[2]+'CD1')))

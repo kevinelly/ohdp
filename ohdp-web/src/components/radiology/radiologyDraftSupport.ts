@@ -15,6 +15,14 @@ export function updateEquipmentParameter(text:string,unit:'kV'|'mA',value:string
 
 export function pptItemName(code:string,name:string){return ({AIC:'AEC电离室之间一致性',DDI:'探测器剂量指示（DDI）',STP:'信号传递特性（STP）',CTDI:'CT剂量指数（CTDIW）',LCD:'低对比分辨力',HUA:'水的CT值',HUU:'水的均匀性',RPD:'场所防护本底与校准'} as Record<string,string>)[code] || name}
 
+// PPT pages 11, 12, 16, 30 and 71 name these means K-bar. Keep other
+// quantities and persisted result identifiers unchanged, including repeated rows.
+export function pptResultName(item:string,code:string,label:string):string {
+ const resultCode=code.replace(/^R\d+__/, '')
+ if(['ROA','ROQ','ARP','RPD'].includes(item) && /^MEAN(?:_[12])?$/.test(resultCode) && !label.includes('K̄'))return label+' K̄'
+ return label
+}
+
 // Display labels only: persisted field codes remain compatible with existing records.
 export function pptFieldName(item:string,code:string,fallback:string):string {
  const names:Record<string,string>={UBD:'读数','UBD-QUALIFIER':'读数限定符','ART-SOURCE':'伪影来源','填“是”或“否”':'是否存在伪影',

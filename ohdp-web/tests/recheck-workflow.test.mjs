@@ -342,6 +342,23 @@ test('simple-average projects show the computed average instead of an empty MEAN
 test('ROA repeat rows retain mean and CV columns before recalculation',()=>{
  const c=component('RadiologyMeasurementRows.vue','columns',{props:{code:'ROA',fields:[{code:'ROA1',label:'读数K1'}],conditions:{},values:{},results:[]}})
  assert.deepEqual(c.columns.value.filter(column=>!column.field).map(column=>column.code),['MEAN','RESULT'])
+ assert.equal(c.columns.value.find(column=>column.code==='MEAN').label,'平均值 K̄')
+})
+
+test('PPT K-bar labels cover fixed and repeated results without changing other quantities',()=>{
+ for(const code of ['ROA','ROQ','ARP']){
+  const c=component('MeasurementTable.vue','meanHeading',{props:{code,fields:[]}})
+  assert.equal(c.meanHeading.value,'平均值 K̄')
+ }
+ assert.equal(support.pptResultName('RPD','MEAN','本底读数平均值'),'本底读数平均值 K̄')
+ assert.equal(support.pptResultName('ROA','R7__MEAN','第7行 校正平均值'),'第7行 校正平均值 K̄')
+ assert.equal(support.pptResultName('ROQ','MEAN_2','第二组校正平均值'),'第二组校正平均值 K̄')
+ for(const code of ['TVD','ETD','HVL','ARS','AIC','RUE','CTDI','RST','LCD','HUL','HUA','HUU','NPS','DDI'])assert.equal(support.pptResultName(code,'MEAN','原有平均值'),'原有平均值')
+ assert.equal(support.pptResultName('RPD','SD','标准差'),'标准差')
+ assert.equal(support.pptResultName('ROA','MEAN','平均值 K̄'),'平均值 K̄')
+ const c=component('RadiologyMeasurementRows.vue','columns,rowResult',{props:{code:'ROA',fields:[],conditions:{'__rows.ROA':'[7]'},values:{},results:[{fieldCode:'R7__MEAN',fieldLabel:'第7行 校正平均值',output:'1.2345 μGy'}]}})
+ assert.equal(c.columns.value.find(column=>column.code==='MEAN').label,'平均值 K̄')
+ assert.equal(c.rowResult(7,'MEAN'),'1.2345 μGy')
 })
 
 

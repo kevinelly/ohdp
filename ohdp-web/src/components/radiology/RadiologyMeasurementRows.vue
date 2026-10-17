@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import HelpMark from '../help/HelpMark.vue'
-import { pptFieldName } from './radiologyDraftSupport'
+import { pptFieldName, pptResultName } from './radiologyDraftSupport'
 interface Field { code: string; label: string; unit: string; required: boolean }
 const props=defineProps<{code:string;fields:Field[];values:Record<string,string|number>;conditions:Record<string,string>;disabled:boolean;results?:{fieldCode:string;fieldLabel:string;output:string}[]}>()
 const rows=computed<number[]>(()=>JSON.parse(props.conditions['__rows.'+props.code] || '[]'))
@@ -41,7 +41,7 @@ const columns=computed(()=>{
   HCR:[{code:'RESULT',label:'检测结果'}],LCR:[{code:'RESULT',label:'检测结果'}],
   RST:[{code:'WWMIN',label:'最小窗宽WWmin'},{code:'CTHM',label:'半高CT值CThm'},{code:'MEAN',label:'平均值'},{code:'DEVIATION',label:'偏差'}]
  }
- const outputs=(planned[props.code] || resultColumns.value).map(column=>({...column,field:undefined as Field|undefined}))
+ const outputs=(planned[props.code] || resultColumns.value).map(column=>({...column,label:pptResultName(props.code,column.code,column.label),field:undefined as Field|undefined}))
  if(['HCR','RST'].includes(props.code)){
   const order=props.code==='HCR'?['HCR-MANUFACTURER','HCR-NYQUIST','HCR-BASELINE','HCR1']:['RST-FACTOR','CTbackground','CTmax','WWMIN','CTHM','R1','R2','R3','R4','MEAN','R0','DEVIATION']
   const rank=(code:string)=>order.includes(code)?order.indexOf(code):order.length
