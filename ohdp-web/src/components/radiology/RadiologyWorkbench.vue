@@ -733,7 +733,7 @@ function openCreateCase() {
   Object.assign(caseForm, blankCaseForm(props.modality))
   const time = new Date()
   const stamp = `${time.getFullYear()}${String(time.getMonth() + 1).padStart(2, '0')}${String(time.getDate()).padStart(2, '0')}`
-  caseForm.caseCode = `${props.modality}-${stamp}-`
+  caseForm.caseCode = `${props.modality}-${stamp}-${time.getTime().toString(36).toUpperCase()}`
   const restored = loadCaseDraft()
   caseDialogVisible.value = true
   queueMicrotask(() => { caseFormHydrating.value = false })
@@ -822,6 +822,9 @@ function requestCloseCaseDialog() {
 }
 
 async function saveCase() {
+  // Migrate an untouched date-only identifier restored from an older draft.
+  if (!editingCaseId.value && /^(?:DR|CT)-\d{8}-$/.test(caseForm.caseCode)) caseForm.caseCode = caseForm.sampleAcceptanceNo.trim()
+
   if (!validateCaseStep(0)) {
     caseDialogStep.value = 0
     return
@@ -850,7 +853,7 @@ async function saveCase() {
 }
 
 async function removeCase(item: CaseSummary) {
-  await ElMessageBox.confirm(`确认删除案例 ${item.caseCode}？`, '删除确认', { type: 'warning' })
+  await ElMessageBox.confirm(`确认删除案例 ${item.sampleAcceptanceNo || item.caseCode}？`, '删除确认', { type: 'warning' })
   await run(async () => {
     await api.delete(`/api/radiology/cases/${item.id}`)
     if (selectedCase.value?.id === item.id) selectedCase.value = null
@@ -1149,7 +1152,7 @@ async function workflow(action: 'submit' | 'review' | 'approve' | 'return',provi
   if (!selectedCase.value) return
   if(action==='submit'&&(measurementsPending.value||!sameDraft(profileDraft,normalizedProfile(selectedCase.value))||noteDraft.value!==(selectedCase.value.notes||'')||!sameDraft(featureDraft,{hasAec:selectedCase.value.hasAec!==false,hasRawImages:selectedCase.value.hasRawImages!==false,featureReason:selectedCase.value.featureReason||''})||!sameDraft(pointDrafts.value,selectedCase.value.protectionPoints.map(p=>({...p,readingsText:p.readings.join(', ')}))))){ElMessage.warning('请先保存修改并重新计算，再发送审核');return}
   const names = { submit: '提交审核', review: '审核通过', approve: '批准', return: '退回修改' }
-  const input = providedComment===undefined?await ElMessageBox.prompt(`请输入${names[action]}意见（可留空）`, names[action], { inputType: 'textarea' }).catch(() => null):{value:providedComment}
+  const input = providedComment===undefined?await ElMessageBox.prompt(action==='return'?'请输入退回修改原因（必填）':`请输入${names[action]}意见（可留空）`, names[action], { inputType: 'textarea', ...(action==='return'?{inputValidator:(value:string)=>!!value.trim()||'退回原因不能为空'}:{}) }).catch(() => null):{value:providedComment}
   if (!input) return
   await run(async () => {
     const response = await api.post<InspectionCase>(`/api/radiology/cases/${selectedCase.value?.id}/workflow/${action}`, { comment: input.value, expectedDataVersion: selectedCase.value?.dataVersion })
@@ -1293,14 +1296,14 @@ function judgementText(value?: string) {
           :class="{ active: selectedCase?.id === item.id }"
           role="button"
           tabindex="0"
-          :aria-label="`打开案例 ${item.caseCode}，状态 ${statusText(item.status)}`"
+          :aria-label="`打开案例 ${item.sampleAcceptanceNo || item.caseCode}，状态 ${statusText(item.status)}`"
           :aria-pressed="selectedCase?.id === item.id"
           @click="selectQueryCase(item)"
           @keydown.enter.prevent="selectQueryCase(item)"
           @keydown.space.prevent="selectQueryCase(item)"
         >
           <div class="case-line">
-            <strong>{{ item.caseCode }}</strong>
+            <strong>{{ item.sampleAcceptanceNo || item.caseCode }}</strong>
             <el-tag size="small" :type="statusType(item.status)">{{ statusText(item.status) }}</el-tag>
           </div>
           <p>{{ item.inspectedUnitName }}</p>
@@ -1323,7 +1326,7 @@ function judgementText(value?: string) {
           <section class="case-heading" v-if="viewStage>=4">
             <div>
               <div class="heading-line">
-                <h3>{{ selectedCase.caseCode }}</h3>
+                <h3>{{ selectedCase.sampleAcceptanceNo || selectedCase.caseCode }}</h3>
                 <el-tag :type="statusType(selectedCase.status)">{{ statusText(selectedCase.status) }}</el-tag>
                 <span class="version-pill">R{{ selectedCase.revisionNo }}</span>
               </div>
