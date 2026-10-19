@@ -119,9 +119,15 @@ onBeforeUnmount(() => { renderSequence++; resizeObserver?.disconnect() })
   <div class="report-pager" tabindex="0" aria-label="逐页报告预览"
     @keydown.left.prevent="changePage(-1)" @keydown.right.prevent="changePage(1)">
     <div class="report-zoom-controls" role="group" aria-label="报告缩放">
-      <button type="button" aria-label="放大" :disabled="!pageCount || zoomPercent >= MAX_REPORT_ZOOM" @click="changeZoom(REPORT_ZOOM_STEP)">放大</button>
-      <button type="button" aria-label="缩小" :disabled="!pageCount || zoomPercent <= MIN_REPORT_ZOOM" @click="changeZoom(-REPORT_ZOOM_STEP)">缩小</button>
-      <button type="button" aria-label="还原" :disabled="!pageCount" @click="restoreZoom" title="还原为适合窗口的100%比例">还原</button>
+      <button type="button" aria-label="放大" title="放大" :disabled="!pageCount || zoomPercent >= MAX_REPORT_ZOOM" @click="changeZoom(REPORT_ZOOM_STEP)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5M7.5 10.5h6M10.5 7.5v6"/></svg>
+      </button>
+      <button type="button" aria-label="缩小" title="缩小" :disabled="!pageCount || zoomPercent <= MIN_REPORT_ZOOM" @click="changeZoom(-REPORT_ZOOM_STEP)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5M7.5 10.5h6"/></svg>
+      </button>
+      <button type="button" aria-label="还原" :disabled="!pageCount" @click="restoreZoom" title="还原为适合窗口的100%比例">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1.5 7M4 4v6h6"/></svg>
+      </button>
       <output aria-live="polite">{{ zoomPercent }}%</output>
     </div>
     <div class="report-pager-frame">
@@ -152,7 +158,10 @@ onBeforeUnmount(() => { renderSequence++; resizeObserver?.disconnect() })
 <style scoped>
 .report-pager{outline-offset:3px}
 .report-zoom-controls{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
-.report-zoom-controls button{min-height:36px;min-width:70px;border:1px solid #16485b;border-radius:6px;background:white;color:#16485b;font:inherit;cursor:pointer}
+.report-zoom-controls button{display:inline-flex;align-items:center;justify-content:center;width:38px;min-width:38px;height:38px;padding:7px;border:1px solid #16485b;border-radius:6px;background:white;color:#16485b;cursor:pointer}
+.report-zoom-controls button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.report-zoom-controls button:not(:disabled):hover{background:#e9f5f2}
+.report-zoom-controls button:focus-visible{outline:2px solid #00857a;outline-offset:2px}
 .report-zoom-controls button:disabled{opacity:.45;cursor:default}
 .report-zoom-controls output{min-width:58px;text-align:center;font-variant-numeric:tabular-nums}
 .report-pager-frame{display:grid;grid-template-columns:64px minmax(0,1fr) 64px;align-items:center;gap:12px;padding:12px 0;background:#10485c}
