@@ -12,11 +12,11 @@ const source=fs.readFileSync(new URL('ReportPreviewPager.vue',dir),'utf8')
 const settle=async()=>{await new Promise(setImmediate);await nextTick()}
 function pager({pages=[],docx,render=async()=>{}}={}){
  const props=reactive({pages,docx,loading:false}),events=[],unmount=[]
- const bindings={ref,shallowRef,computed,watch,nextTick,onBeforeUnmount:fn=>unmount.push(fn),defineProps:()=>props,withDefaults:x=>x,defineEmits:()=>((...x)=>events.push(x)),renderAsync:render,...support}
+ const bindings={ref,shallowRef,computed,watch,nextTick,onMounted(){},onBeforeUnmount:fn=>unmount.push(fn),defineProps:()=>props,withDefaults:x=>x,defineEmits:()=>((...x)=>events.push(x)),renderAsync:render,...support}
  let setup=parse(source).descriptor.scriptSetup.content
  const ast=ts.createSourceFile('preview.ts',setup,ts.ScriptTarget.Latest,true)
  for(const node of [...ast.statements].reverse())if(ts.isImportDeclaration(node))setup=setup.slice(0,node.pos)+setup.slice(node.end)
- const scope=effectScope();const c=scope.run(()=>new Function(...Object.keys(bindings),transpile(setup)+'\nreturn {currentPage,pageCount,pageLabel,changePage,docxHost,viewport,docxPages,rendering,renderError,renderDocument} ')(...Object.values(bindings)))
+ const scope=effectScope();const c=scope.run(()=>new Function(...Object.keys(bindings),transpile(setup)+'\nreturn {currentPage,pageCount,pageLabel,changePage,docxHost,viewport,docxPages,rendering,renderError,renderDocument,zoomPercent,changeZoom,restoreZoom,canvasStyle,contentStyle,naturalSize,imageLoaded,measureViewport} ')(...Object.values(bindings)))
  const viewport={scrollTop:350,scrollLeft:100};c.viewport.value=viewport
  return {...c,props,events,scope,unmount,dispose(){unmount.forEach(f=>f());scope.stop()}}
 }
@@ -88,12 +88,47 @@ test('mounted compiled pager buttons change the displayed image, alt text and ti
  function find(type){const found=[];function walk(n){if(n.type===type)found.push(n);n.children.forEach(walk)}walk(root);return found}
  await settle()
  for(let i=0;i<6;i++){
-  const [previous,next]=find('button');assert.equal(find('img').length,1);assert.equal(find('img')[0].props.src,'p'+i);assert.match(find('img')[0].props.alt,new RegExp('第'+(i+1)+'页'))
+  const previous=find('button').find(b=>b.props['aria-label']==='上一页'),next=find('button').find(b=>b.props['aria-label']==='下一页');assert.equal(find('img').length,1);assert.equal(find('img')[0].props.src,'p'+i);assert.match(find('img')[0].props.alt,new RegExp('第'+(i+1)+'页'))
   assert.equal(Boolean(previous.props.disabled),i===0);assert.equal(Boolean(next.props.disabled),i===5);assert.equal(events.at(-1).index,i)
   if(i<5){next.props.onClick();await settle()}
  }
- for(let i=4;i>=0;i--){find('button')[0].props.onClick();await settle();assert.equal(find('img')[0].props.src,'p'+i)}
- assert.equal(events.at(-1).label,'封面');app.unmount()
+ for(let i=4;i>=0;i--){find('button').find(b=>b.props['aria-label']==='上一页').props.onClick();await settle();assert.equal(find('img')[0].props.src,'p'+i)}
+ assert.equal(events.at(-1).label,'封面')
+ const view=find('div').find(n=>n.props.class==='report-page-viewport');view.clientWidth=800;view.clientHeight=600
+ find('img')[0].props.onLoad({target:{naturalWidth:1000,naturalHeight:1400}});await settle()
+ const canvas=()=>find('div').find(n=>n.props.class==='report-zoom-canvas')
+ const initialWidth=parseFloat(canvas().props.style.width),initialHeight=parseFloat(canvas().props.style.height)
+ find('button').find(b=>b.props['aria-label']==='放大').props.onClick();await settle()
+ assert.equal(find('output')[0].text,'125%');assert.ok(parseFloat(canvas().props.style.width)>initialWidth);assert.ok(parseFloat(canvas().props.style.height)>initialHeight)
+ find('button').find(b=>b.props['aria-label']==='缩小').props.onClick();await settle();assert.equal(find('output')[0].text,'100%')
+ find('button').find(b=>b.props['aria-label']==='放大').props.onClick();await settle();view.scrollTop=300;view.scrollLeft=100
+ find('button').find(b=>b.props['aria-label']==='还原').props.onClick();await settle();assert.equal(find('output')[0].text,'100%');assert.equal(view.scrollTop,0);assert.equal(view.scrollLeft,0);assert.equal(parseFloat(canvas().props.style.width),initialWidth)
+ for(let i=0;i<8;i++){find('button').find(b=>b.props['aria-label']==='放大').props.onClick();await settle()}
+ assert.equal(find('output')[0].text,'300%');assert.equal(find('button').find(b=>b.props['aria-label']==='放大').props.disabled,true)
+ for(let i=0;i<10;i++){find('button').find(b=>b.props['aria-label']==='缩小').props.onClick();await settle()}
+ assert.equal(find('output')[0].text,'50%');assert.equal(find('button').find(b=>b.props['aria-label']==='缩小').props.disabled,true)
+ find('button').find(b=>b.props['aria-label']==='还原').props.onClick();await settle();assert.equal(find('output')[0].text,'100%')
+ app.unmount()
+})
+
+test('zoom preserves the selected page and input data, persists across pages, clamps at both limits and resets for a new report',async()=>{
+ const pages=['cover','notice','body'];const c=pager({pages});await settle();c.changePage(1);await settle()
+ for(let i=0;i<20;i++)c.changeZoom(25)
+ assert.equal(c.zoomPercent.value,300);assert.equal(c.currentPage.value,1);assert.deepEqual([...c.props.pages],pages)
+ c.changePage(1);await settle();assert.equal(c.zoomPercent.value,300)
+ for(let i=0;i<20;i++)c.changeZoom(-25)
+ assert.equal(c.zoomPercent.value,50);assert.equal(c.currentPage.value,2)
+ c.viewport.value.scrollTop=250;c.viewport.value.scrollLeft=120;c.restoreZoom();assert.equal(c.zoomPercent.value,100);assert.equal(c.viewport.value.scrollTop,0);assert.equal(c.viewport.value.scrollLeft,0)
+ c.changeZoom(25);c.props.pages=['new cover','new notice'];await settle();assert.equal(c.zoomPercent.value,100);assert.equal(c.currentPage.value,0);c.dispose()
+})
+
+test('image and Word zoom use scrollable scaled canvas sizes without changing page content',async()=>{
+ const c=pager({pages:['image']});c.viewport.value={clientWidth:800,clientHeight:600,offsetWidth:817,offsetHeight:617,scrollTop:0,scrollLeft:0}
+ c.imageLoaded({target:{naturalWidth:1000,naturalHeight:1400}});await settle();assert.equal(c.canvasStyle.value.height,'600px')
+ const base=+c.contentStyle.value.transform.match(/scale\((.+)\)/)[1];c.changeZoom(200);await settle();assert.equal(c.canvasStyle.value.height,'1800px');assert.equal(+c.contentStyle.value.transform.match(/scale\((.+)\)/)[1],base*3)
+ c.viewport.value.clientHeight=583;c.measureViewport();await settle();assert.equal(c.canvasStyle.value.height,'1800px','scrollbar visibility must not change the fit baseline');c.dispose()
+ const section={hidden:false,offsetWidth:800,offsetHeight:1100};const word=pager({docx:new Blob(['word'])});word.docxHost.value={innerHTML:'',querySelectorAll:()=>[section]};word.viewport.value={clientWidth:800,clientHeight:600,scrollTop:0,scrollLeft:0};await settle()
+ const normal=parseFloat(word.canvasStyle.value.height);word.changeZoom(25);await settle();assert.ok(parseFloat(word.canvasStyle.value.height)>normal);assert.equal(word.docxPages.value[0],section);word.dispose()
 })
 test('both workbenches share the pager, dynamic title and top exit; archive alone uses nowrap row actions',()=>{
  const radiology=fs.readFileSync(new URL('RadiologyWorkbench.vue',dir),'utf8'),dose=fs.readFileSync(new URL('PersonalDoseWorkbench.vue',dir),'utf8')

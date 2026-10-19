@@ -8,3 +8,12 @@ export function reportPageLabel(index: number): string {
   if (index === 1) return '封二'
   return `正文第${index - 1}页`
 }
+
+export const MIN_REPORT_ZOOM = 50
+export const MAX_REPORT_ZOOM = 300
+export const REPORT_ZOOM_STEP = 25
+
+export function clampReportZoom(percent: number): number {
+  if (!Number.isFinite(percent)) return 100
+  return Math.min(MAX_REPORT_ZOOM, Math.max(MIN_REPORT_ZOOM, percent))
+}
