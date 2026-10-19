@@ -174,6 +174,10 @@
 /* Keep report review actions and comments visible while the report scrolls. */
 .ppt-report-preview.el-dialog{display:flex;flex-direction:column;max-height:94vh;overflow:hidden}
 .ppt-report-preview .el-dialog__body{flex:1;min-height:0;overflow:auto}
+.ppt-report-preview .el-dialog__header{background:#10485c;padding:14px 20px}
+.ppt-preview-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.ppt-preview-heading h3{margin:0;color:white;font-size:21px}
+.ppt-preview-heading .el-button{background:#00857a;border-color:#00857a;color:white;min-width:80px}
 .ppt-report-preview .el-dialog__footer{flex:none;max-height:45vh;overflow:auto;border-top:1px solid #d8dfe1;padding-top:14px}
 .ppt-report-preview .el-dialog__footer .el-form{margin-top:14px}
 .ppt-report-preview .el-dialog__footer .el-form-item__label{font:20px/1.5 SimSun,serif;color:#111}

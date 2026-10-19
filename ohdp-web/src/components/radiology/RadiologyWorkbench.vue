@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import axios from 'axios'
-import { renderAsync } from 'docx-preview'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import InspectionQuery from './InspectionQuery.vue'
@@ -9,6 +8,7 @@ import MeasurementTable from './MeasurementTable.vue'
 import TvdPptEntry from './TvdPptEntry.vue'
 import '../../styles/radiology-ppt-entry.css'
 import RadiologyCaseSummary from './RadiologyCaseSummary.vue'
+import ReportPreviewPager from './ReportPreviewPager.vue'
 import RadiologyScopeEditor from './RadiologyScopeEditor.vue'
 import { scopeSelection, pptOrderedScopes, applicableQuality, adjacentQuality, qualityStatus, type ItemScope, type ScopeProfile } from './radiologyScopeSupport'
 import EquipmentParameters from './EquipmentParameters.vue'
@@ -327,16 +327,10 @@ async function importBatch(dryRun:boolean) {
   await run(async()=>{const form=new FormData();form.append('file',batchFile.value!);batchResult.value=(await api.post('/api/radiology/batch-import',form,{params:{dryRun}})).data;if(!dryRun)await loadCases()})
 }
 const queryVisible = ref(false)
-const previewVisible = ref(false), previewSection=ref('cover'), previewComplete=ref(false), previewComment=ref('')
+const previewVisible = ref(false), previewPageTitle=ref('封面'), previewComplete=ref(false), previewComment=ref('')
 const previewPages=ref<string[]>([])
 const previewDocx=ref<Blob>()
-const previewContainer = ref<HTMLElement>()
-async function renderPreviewDocx() {
-  if(previewDocx.value && previewContainer.value) {
-    previewContainer.value.innerHTML=''
-    await renderAsync(previewDocx.value,previewContainer.value,undefined,{breakPages:true,renderHeaders:true,renderFooters:true,inWrapper:true,ignoreLastRenderedPageBreak:false})
-  }
-}
+const previewWarning=ref('')
 const profileDraft = reactive<ReportProfile>(blankProfile(props.modality))
 const regionsLibrary=ref<Array<{id:number;parentId?:number;regionName:string;level:number}>>([])
 const cityOptions=computed(()=>regionsLibrary.value.filter(r=>r.level===2))
@@ -362,10 +356,16 @@ function addInstrument() {
 async function previewReport() {
   if(!selectedCase.value)return
   await run(async()=>{
-    previewPages.value=[];previewDocx.value=undefined;previewSection.value='cover';previewComplete.value=false;previewComment.value=''
-    const caps=await api.get('/api/radiology/preview-capabilities')
-    if(caps.data.pdf) previewPages.value=(await api.get<string[]>(`/api/radiology/cases/${selectedCase.value!.id}/report-preview-pages`)).data
-    else previewDocx.value=(await api.get(`/api/radiology/cases/${selectedCase.value!.id}/report-preview`,{responseType:'blob'})).data
+    previewPages.value=[];previewDocx.value=undefined;previewPageTitle.value='封面';previewWarning.value='';previewComplete.value=false;previewComment.value=''
+    try {
+      const caps=await api.get('/api/radiology/preview-capabilities')
+      if(!caps.data.pdf) throw new Error('server pagination unavailable')
+      previewPages.value=(await api.get<string[]>(`/api/radiology/cases/${selectedCase.value!.id}/report-preview-pages`)).data
+      if(!previewPages.value.length) throw new Error('empty preview')
+    } catch {
+      previewDocx.value=(await api.get(`/api/radiology/cases/${selectedCase.value!.id}/report-preview`,{responseType:'blob'})).data
+      previewWarning.value='当前使用Word内容分页预览；正式分页以下载报告为准。'
+    }
     previewVisible.value=true
   })
 }
@@ -1602,12 +1602,12 @@ function judgementText(value?: string) {
 
             </section>
 <section v-if="viewStage===5"><h3>报告归档</h3>              <el-table :data="selectedCase.reports" border class="report-table">
-                <el-table-column prop="reportNo" label="报告编号" min-width="180" />
+                <el-table-column prop="reportNo" label="报告编号" width="200" />
                 <el-table-column prop="fileName" label="文件名" min-width="260" />
                 <el-table-column prop="generatedBy" label="生成人" width="110" />
                 <el-table-column prop="generatedAt" label="生成时间" width="180" />
 
-                <el-table-column align="center" header-align="center" class-name="table-action-cell table-action-stack" label="操作" width="100"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
+                <el-table-column fixed="right" align="center" header-align="center" class-name="table-action-cell report-archive-actions" label="操作" width="160"><template #default="scope"><el-button link @click="downloadBlob(`/api/radiology/reports/${scope.row.id}/download`, scope.row.fileName)">下载</el-button><el-button v-if="canGenerateReport" link type="danger" @click="deleteReport(scope.row.id)">删除</el-button></template></el-table-column>
               </el-table></section>
         </template>
       </main>
@@ -1736,10 +1736,12 @@ function judgementText(value?: string) {
       <el-alert v-if="batchResult" :closable="false" :type="batchResult.rows.some(r=>r.status==='ERROR')?'error':'success'" :title="`识别${batchResult.cases}个案例，${batchResult.dryRun?'预检未写入':`已导入${batchResult.appliedCases}个案例`}`" />
       <el-table v-if="batchResult" :data="batchResult.rows" border max-height="500"><el-table-column prop="row" label="Excel行号" width="110"/><el-table-column prop="caseCode" label="案例编号" min-width="200"/><el-table-column label="结果" width="110"><template #default="scope">{{scope.row.status==='ERROR'?'错误':scope.row.status==='IMPORTED'?'已导入':'预检通过'}}</template></el-table-column><el-table-column prop="message" label="说明" min-width="300"/></el-table>
     </el-dialog>
-    <el-dialog v-model="previewVisible" class="ppt-report-preview" :title="`报告预览-${previewSection==='cover'?'封面':previewSection==='notice'?'封二':'正文'}`" width="94%" top="3vh" destroy-on-close @opened="renderPreviewDocx">
-      <el-radio-group v-if="previewPages.length" v-model="previewSection"><el-radio-button value="cover">封面</el-radio-button><el-radio-button value="notice">封二</el-radio-button><el-radio-button value="body">正文</el-radio-button></el-radio-group><div class="section-toolbar"><span v-if="previewPages.length">共{{previewPages.length}}页</span><el-button v-if="previewPages.length && selectedCase" @click="downloadBlob(`/api/radiology/cases/${selectedCase.id}/report-preview?format=pdf`,'检测报告预览.pdf')">下载PDF</el-button></div>
-      <div v-if="previewPages.length" class="report-preview-pages"><figure v-for="(page,index) in previewPages" :key="index" v-show="previewSection==='cover'?index===0:previewSection==='notice'?index===1:index>=2"><figcaption>第{{index+1}}页 / 共{{previewPages.length}}页</figcaption><img :src="page" :alt="`检测报告第${index+1}页`" /></figure></div>
-      <div v-else ref="previewContainer" class="report-preview-pages"></div><template #footer><el-button @click="previewVisible=false">退出</el-button><el-button @click="previewComplete=true">{{ selectedCase?.status==='PENDING_REVIEW'||selectedCase?.status==='REVIEWED'?'审核':'完成' }}</el-button><template v-if="previewComplete && selectedCase"><el-button v-if="editable" @click="previewVisible=false;goStage(2)">返回修改</el-button><el-button v-if="(selectedCase.status==='PENDING_REVIEW'&&canReview)||(selectedCase.status==='REVIEWED'&&canApprove)" @click="workflow('return')">退回修改</el-button><el-form label-position="top" style="text-align:left"><el-form-item :label="selectedCase.status==='PENDING_REVIEW'?'复核意见':selectedCase.status==='REVIEWED'?'签发意见':'编写记录'"><el-input v-model="previewComment" type="textarea" placeholder="可留空"/></el-form-item></el-form><p>编写人：{{selectedCase.writerName || '—'}}　复核人：{{selectedCase.reviewerName || '—'}}　授权签字人：{{selectedCase.approverName || '—'}}（签名按客户答复线下完成）</p><el-button v-if="selectedCase.status==='CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="primary" @click="workflow('submit',previewComment)">发送</el-button><el-button v-if="selectedCase.status==='PENDING_REVIEW'&&canReview" type="primary" @click="workflow('review',previewComment)">发送</el-button><el-button v-if="selectedCase.status==='REVIEWED'&&canApprove" type="primary" @click="workflow('approve',previewComment)">发送</el-button></template></template>
+    <el-dialog v-model="previewVisible" class="ppt-report-preview" :title="`报告预览-${previewPageTitle}`" width="min(1100px, 94vw)" top="3vh" :show-close="false" destroy-on-close>
+      <template #header="{ titleId }"><div class="ppt-preview-heading"><h3 :id="titleId">报告预览-{{ previewPageTitle }}</h3><el-button type="primary" @click="previewVisible=false">退出</el-button></div></template>
+      <el-alert v-if="previewWarning" :title="previewWarning" type="info" :closable="false" />
+      <ReportPreviewPager :pages="previewPages" :docx="previewDocx" @page-change="previewPageTitle=$event.label" />
+      <div v-if="previewPages.length && selectedCase" class="section-toolbar"><el-button @click="downloadBlob(`/api/radiology/cases/${selectedCase.id}/report-preview?format=pdf`,'检测报告预览.pdf')">下载PDF</el-button></div>
+      <template #footer><el-button @click="previewComplete=true">{{ selectedCase?.status==='PENDING_REVIEW'||selectedCase?.status==='REVIEWED'?'审核':'完成' }}</el-button><template v-if="previewComplete && selectedCase"><el-button v-if="editable" @click="previewVisible=false;goStage(2)">返回修改</el-button><el-button v-if="(selectedCase.status==='PENDING_REVIEW'&&canReview)||(selectedCase.status==='REVIEWED'&&canApprove)" @click="workflow('return')">退回修改</el-button><el-form label-position="top" style="text-align:left"><el-form-item :label="selectedCase.status==='PENDING_REVIEW'?'复核意见':selectedCase.status==='REVIEWED'?'签发意见':'编写记录'"><el-input v-model="previewComment" type="textarea" placeholder="可留空"/></el-form-item></el-form><p>编写人：{{selectedCase.writerName || '—'}}　复核人：{{selectedCase.reviewerName || '—'}}　授权签字人：{{selectedCase.approverName || '—'}}（签名按客户答复线下完成）</p><el-button v-if="selectedCase.status==='CALCULATED'" :disabled="!!selectedCase.submissionIssues?.length" type="primary" @click="workflow('submit',previewComment)">发送</el-button><el-button v-if="selectedCase.status==='PENDING_REVIEW'&&canReview" type="primary" @click="workflow('review',previewComment)">发送</el-button><el-button v-if="selectedCase.status==='REVIEWED'&&canApprove" type="primary" @click="workflow('approve',previewComment)">发送</el-button></template></template>
     </el-dialog>
     <el-dialog v-model="queryVisible" title="综合查询（CT / DR / 个人剂量）" width="94%" destroy-on-close><InspectionQuery :token="token" @open="openQueryResult"/></el-dialog>
     <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑判定规则' : '新增判定规则'" width="680px">
@@ -1765,9 +1767,7 @@ function judgementText(value?: string) {
 </template>
 
 <style scoped>
-.report-preview-pages figure{margin:20px auto;text-align:center}.report-preview-pages img{width:100%;max-width:1000px;height:auto;display:block;margin:auto}.evaluation-note{display:block;color:#667}.evaluation-failure{font-weight:800;color:#a72c21}.ctdi-parts{padding:14px;border:1px solid #cddadf;margin:12px 0}
-.report-preview-pages { max-height:80vh;overflow:auto;background:#eceff3; }
-.report-preview-pages :deep(.docx-wrapper) { padding:20px; }
+.evaluation-note{display:block;color:#667}.evaluation-failure{font-weight:800;color:#a72c21}.ctdi-parts{padding:14px;border:1px solid #cddadf;margin:12px 0}
 .condition-subrows {display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0;}
 .protection-context {display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin:12px 0;}
 .replace-attachment {position:relative;color:#409eff;cursor:pointer;margin:0 8px;}

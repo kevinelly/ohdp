@@ -17,6 +17,7 @@
   display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px;
 }
 .ppt-workspace .table-action-stack>.cell{ flex-direction:column; }
+.ppt-workspace .report-archive-actions>.cell{ flex-direction:row; flex-wrap:nowrap; white-space:nowrap; }
 .ppt-workspace .table-action-cell button,
 .ppt-workspace .table-action-cell .replace-attachment{
   display:inline-flex; align-items:center; justify-content:center;
